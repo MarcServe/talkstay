@@ -196,6 +196,20 @@ Keep replies to 1–3 short sentences.`;
     ];
 
     const createdRequests: any[] = [];
+    let guestIntent = "other"; // question | request | complaint | other
+
+    // Log the interaction (both guest turn + assistant reply) for engagement analytics.
+    const logAndReturn = async (reply: string) => {
+      try {
+        await admin.from("ts_interactions").insert([
+          { hotel_id: ctx.hotelId, room_id: ctx.roomId, session_id: sessionId || null,
+            role: "guest", content: String(message).slice(0, 1000), intent: guestIntent, language: ctx.language },
+          { hotel_id: ctx.hotelId, room_id: ctx.roomId, session_id: sessionId || null,
+            role: "assistant", content: String(reply).slice(0, 1000), intent: "reply", language: ctx.language },
+        ]);
+      } catch { /* analytics must never block the guest */ }
+      return json({ reply, requests: createdRequests, language: ctx.language });
+    };
 
     // Up to 2 tool rounds.
     for (let round = 0; round < 3; round++) {
@@ -211,7 +225,7 @@ Keep replies to 1–3 short sentences.`;
 
       const toolCalls = msg.tool_calls ?? [];
       if (toolCalls.length === 0) {
-        return json({ reply: msg.content ?? "", requests: createdRequests, language: ctx.language });
+        return await logAndReturn(msg.content ?? "");
       }
 
       messages.push(msg);
@@ -220,11 +234,13 @@ Keep replies to 1–3 short sentences.`;
         try { args = JSON.parse(tc.function.arguments || "{}"); } catch { /* ignore */ }
 
         if (tc.function.name === "answer_from_knowledge") {
+          if (guestIntent === "other") guestIntent = "question";
           const kb = await searchKnowledge(admin, ctx.assistantId, String(args.query || message));
           messages.push({ role: "tool", tool_call_id: tc.id, content: kb || "No knowledge-base entries matched. Do not invent an answer." });
         } else if (tc.function.name === "create_service_request") {
           const dept = DEPARTMENTS.includes(args.department) ? args.department : "front_desk";
           const isComplaint = !!args.is_complaint || dept === "duty_manager";
+          guestIntent = isComplaint ? "complaint" : "request";
           const { data: reqRow, error } = await admin
             .from("ts_service_requests")
             .insert({
@@ -256,12 +272,11 @@ Keep replies to 1–3 short sentences.`;
     }
 
     // Fell through the tool loop — return a safe closing reply.
-    return json({
-      reply: createdRequests.length
+    return await logAndReturn(
+      createdRequests.length
         ? "Done — I've passed that to the team. They'll be with you shortly."
-        : "I've noted that. Is there anything else I can help with?",
-      requests: createdRequests, language: ctx.language,
-    });
+        : "I've noted that. Is there anything else I can help with?"
+    );
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : String(e) }, 500);
   }

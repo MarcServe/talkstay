@@ -51,8 +51,12 @@ const timeAgo = (iso: string) => {
 
 type Filter = "active" | "new" | "done" | "all";
 
+const OVERDUE_MIN = 5; // a 'new' request older than this is flagged overdue
+const minsSince = (iso: string) => (Date.now() - new Date(iso).getTime()) / 60000;
+
 export default function OperationsPanel({ hotel }: { hotel: Hotel }) {
   const [reqs, setReqs] = useState<Req[]>([]);
+  const [ack, setAck] = useState<Record<string, { by: string; at: string }>>({});
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<Filter>("active");
   const [dept, setDept] = useState<string>("all");
@@ -65,8 +69,24 @@ export default function OperationsPanel({ hotel }: { hotel: Hotel }) {
       .order("created_at", { ascending: false })
       .limit(200);
     if (error) toast.error(error.message);
-    setReqs((data as any as Req[]) ?? []);
+    const list = (data as any as Req[]) ?? [];
+    setReqs(list);
     setLoading(false);
+
+    // Acknowledgement: who accepted each request, and when (latest 'accepted' event).
+    const ids = list.map((r) => r.id);
+    if (ids.length) {
+      const { data: ev } = await supabase
+        .from("ts_request_events")
+        .select("request_id, note, created_at")
+        .in("request_id", ids).eq("status", "accepted")
+        .order("created_at", { ascending: false });
+      const map: Record<string, { by: string; at: string }> = {};
+      (ev ?? []).forEach((e: any) => {
+        if (!map[e.request_id]) map[e.request_id] = { by: e.note || "staff", at: e.created_at };
+      });
+      setAck(map);
+    }
   };
 
   useEffect(() => {
@@ -91,9 +111,23 @@ export default function OperationsPanel({ hotel }: { hotel: Hotel }) {
       .update({ status: to, assigned_staff_id: user?.id ?? null })
       .eq("id", r.id);
     if (error) { toast.error(error.message); return; }
+    // note = acting staff's email → powers the "Accepted by … at …" acknowledgement.
     await supabase.from("ts_request_events").insert({
       request_id: r.id, status: to, actor_type: "staff", actor_id: user?.id ?? null,
+      note: user?.email ?? null,
     });
+    refresh();
+  };
+
+  const escalate = async (r: Req) => {
+    const { data: { user } } = await supabase.auth.getUser();
+    const { error } = await supabase
+      .from("ts_service_requests").update({ priority: "urgent" }).eq("id", r.id);
+    if (error) { toast.error(error.message); return; }
+    await supabase.from("ts_request_events").insert({
+      request_id: r.id, status: "escalated", actor_type: "staff", actor_id: user?.id ?? null, note: user?.email ?? null,
+    });
+    toast.message("Escalated — marked urgent for supervisors.");
     refresh();
   };
 
@@ -138,8 +172,11 @@ export default function OperationsPanel({ hotel }: { hotel: Hotel }) {
         <div className="grid gap-3">
           {filtered.map((r) => {
             const next = NEXT[r.status];
+            const overdue = r.status === "new" && minsSince(r.created_at) > OVERDUE_MIN;
+            const acked = ack[r.id];
             return (
-              <div key={r.id} className={`rounded-xl border p-4 ${r.is_complaint ? "border-red-400/50 bg-red-500/5" : ""}`}>
+              <div key={r.id} className={`rounded-xl border p-4 ${
+                r.is_complaint || overdue ? "border-red-400/50 bg-red-500/5" : ""}`}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
@@ -149,24 +186,29 @@ export default function OperationsPanel({ hotel }: { hotel: Hotel }) {
                         <Badge className="bg-red-500/15 text-red-600"><AlertTriangle className="mr-1 h-3 w-3" />Complaint</Badge>
                       )}
                       {r.priority === "urgent" && <Badge className="bg-red-500/15 text-red-600">Urgent</Badge>}
+                      {overdue && <Badge className="bg-red-500/15 text-red-600">Overdue</Badge>}
                     </div>
                     <p className="mt-1 text-sm">{r.summary}</p>
                     <p className="mt-1 text-xs text-muted-foreground">
                       {timeAgo(r.created_at)}{r.guest_language ? ` · ${r.guest_language}` : ""}
                     </p>
+                    {acked && (
+                      <p className="mt-1 text-xs text-green-600">✓ Accepted by {acked.by} · {timeAgo(acked.at)}</p>
+                    )}
                   </div>
                   <span className={`whitespace-nowrap rounded-full px-2 py-1 text-xs ${STATUS_STYLE[r.status] ?? "bg-muted"}`}>
                     {r.status.replace(/_/g, " ")}
                   </span>
                 </div>
-                {next && (
-                  <div className="mt-3 flex justify-end gap-2">
-                    {r.status !== "new" && (
-                      <Button size="sm" variant="ghost" onClick={() => advance(r, "cancelled")}>Cancel</Button>
-                    )}
-                    <Button size="sm" onClick={() => advance(r, next.to)}>{next.label}</Button>
-                  </div>
-                )}
+                <div className="mt-3 flex justify-end gap-2">
+                  {overdue && r.priority !== "urgent" && (
+                    <Button size="sm" variant="outline" className="text-red-600" onClick={() => escalate(r)}>Escalate</Button>
+                  )}
+                  {next && r.status !== "new" && (
+                    <Button size="sm" variant="ghost" onClick={() => advance(r, "cancelled")}>Cancel</Button>
+                  )}
+                  {next && <Button size="sm" onClick={() => advance(r, next.to)}>{next.label}</Button>}
+                </div>
               </div>
             );
           })}
