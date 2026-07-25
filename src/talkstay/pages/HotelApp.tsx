@@ -10,6 +10,8 @@ import { Loader2, LogOut } from "lucide-react";
 import AuthPage from "@/talkstay/pages/AuthPage";
 import RoomsPanel from "@/talkstay/components/RoomsPanel";
 import DepartmentsPanel from "@/talkstay/components/DepartmentsPanel";
+import KnowledgePanel from "@/talkstay/components/KnowledgePanel";
+import StaffPanel from "@/talkstay/components/StaffPanel";
 import { createHotel, getMyHotel, type Hotel } from "@/talkstay/lib/hotels";
 
 function CreateHotel({ onCreated }: { onCreated: (h: Hotel) => void }) {
@@ -106,12 +108,8 @@ export default function HotelApp() {
             </TabsList>
             <TabsContent value="rooms" className="mt-6"><RoomsPanel hotel={hotel} /></TabsContent>
             <TabsContent value="departments" className="mt-6"><DepartmentsPanel hotel={hotel} /></TabsContent>
-            <TabsContent value="knowledge" className="mt-6">
-              <p className="text-sm text-muted-foreground">Knowledge base editor arrives next in Phase 2.</p>
-            </TabsContent>
-            <TabsContent value="staff" className="mt-6">
-              <p className="text-sm text-muted-foreground">Staff invites arrive next in Phase 2.</p>
-            </TabsContent>
+            <TabsContent value="knowledge" className="mt-6"><KnowledgePanel hotel={hotel} /></TabsContent>
+            <TabsContent value="staff" className="mt-6"><StaffPanel hotel={hotel} /></TabsContent>
           </Tabs>
         )}
       </main>
