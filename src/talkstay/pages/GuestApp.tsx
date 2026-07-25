@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Loader2, Send, ClipboardList, Star, X } from "lucide-react";
+import { Loader2, Send, ClipboardList, Star, X, Mic, MicOff } from "lucide-react";
 import {
   fetchContext, sendMessage, fetchMyRequests, submitReview,
   getSessionId, loadHistory, saveHistory, getNotifyChoice, setNotifyChoice,
@@ -23,8 +23,48 @@ export default function GuestApp() {
   const [busy, setBusy] = useState(false);
   const [notifyOpen, setNotifyOpen] = useState(false);
   const [requestsOpen, setRequestsOpen] = useState(false);
+  const [listening, setListening] = useState(false);
   const sid = hotelSlug && roomId ? getSessionId(hotelSlug, roomId) : "";
   const scroller = useRef<HTMLDivElement>(null);
+  const recognitionRef = useRef<any>(null);
+
+  const SpeechRecognition =
+    typeof window !== "undefined" ? (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition : null;
+  const voiceSupported = !!SpeechRecognition;
+
+  const speak = (text: string) => {
+    try {
+      if (typeof window === "undefined" || !window.speechSynthesis) return;
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      u.rate = 1; u.pitch = 1;
+      window.speechSynthesis.speak(u);
+    } catch { /* ignore */ }
+  };
+
+  const startListening = () => {
+    if (!voiceSupported || busy) return;
+    try {
+      const rec = new SpeechRecognition();
+      rec.lang = navigator.language || "en-GB";
+      rec.interimResults = false;
+      rec.maxAlternatives = 1;
+      rec.onresult = (e: any) => {
+        const transcript = e.results?.[0]?.[0]?.transcript?.trim();
+        if (transcript) send(transcript, true);
+      };
+      rec.onend = () => setListening(false);
+      rec.onerror = () => setListening(false);
+      recognitionRef.current = rec;
+      setListening(true);
+      rec.start();
+    } catch { setListening(false); }
+  };
+
+  const stopListening = () => {
+    try { recognitionRef.current?.stop(); } catch { /* ignore */ }
+    setListening(false);
+  };
 
   useEffect(() => {
     if (!hotelSlug || !roomId || !token) { setInvalid(true); return; }
@@ -43,9 +83,8 @@ export default function GuestApp() {
     scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: "smooth" });
   }, [msgs, sid]);
 
-  const send = async (e?: React.FormEvent) => {
-    e?.preventDefault();
-    const text = input.trim();
+  const send = async (raw: string, viaVoice = false) => {
+    const text = raw.trim();
     if (!text || busy) return;
     setInput("");
     const next = [...msgs, { role: "user" as const, content: text }];
@@ -54,6 +93,7 @@ export default function GuestApp() {
     try {
       const res = await sendMessage({ hotelSlug, roomId, token, sessionId: sid, message: text, history: msgs });
       setMsgs((m) => [...m, { role: "assistant", content: res.reply }]);
+      if (viaVoice) speak(res.reply);
       if (res.requests?.length && !getNotifyChoice(sid)) setNotifyOpen(true);
     } catch {
       setMsgs((m) => [...m, { role: "assistant", content: "Sorry — something went wrong. Please try again." }]);
@@ -102,8 +142,27 @@ export default function GuestApp() {
         )}
       </div>
 
-      <form onSubmit={send} className="flex items-center gap-2 border-t px-3 py-3">
-        <Input value={input} onChange={(e) => setInput(e.target.value)} placeholder="How can we help?" disabled={busy} />
+      <form
+        onSubmit={(e) => { e.preventDefault(); send(input, false); }}
+        className="flex items-center gap-2 border-t px-3 py-3"
+      >
+        {voiceSupported && (
+          <Button
+            type="button" size="icon"
+            variant={listening ? "default" : "outline"}
+            onClick={() => (listening ? stopListening() : startListening())}
+            disabled={busy}
+            aria-label={listening ? "Stop listening" : "Speak"}
+          >
+            {listening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+          </Button>
+        )}
+        <Input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder={listening ? "Listening…" : "Speak or type…"}
+          disabled={busy}
+        />
         <Button type="submit" size="icon" disabled={busy || !input.trim()}>
           <Send className="h-4 w-4" />
         </Button>

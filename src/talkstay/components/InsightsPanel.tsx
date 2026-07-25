@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Loader2, MessageSquare, Users, HelpCircle, ClipboardList, CheckCircle2, Star } from "lucide-react";
+import { Loader2, MessageSquare, Users, HelpCircle, ClipboardList, CheckCircle2, Star, Timer } from "lucide-react";
 import { DEPARTMENTS, type Hotel } from "@/talkstay/lib/hotels";
 
 interface Interaction { session_id: string | null; role: string; content: string | null; intent: string | null; language: string | null; created_at: string; room_id: string | null; }
-interface Req { status: string; department_key: string; }
+interface Req { status: string; department_key: string; created_at: string; updated_at: string; }
 
 const timeAgo = (iso: string) => {
   const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
@@ -44,7 +44,7 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
       const [{ data: ix }, { data: rq }, { data: rv }] = await Promise.all([
         supabase.from("ts_interactions").select("session_id, role, content, intent, language, created_at, room_id")
           .eq("hotel_id", hotel.id).order("created_at", { ascending: false }).limit(1000),
-        supabase.from("ts_service_requests").select("status, department_key").eq("hotel_id", hotel.id).limit(1000),
+        supabase.from("ts_service_requests").select("status, department_key, created_at, updated_at").eq("hotel_id", hotel.id).limit(1000),
         supabase.from("ts_request_reviews").select("rating").eq("hotel_id", hotel.id).limit(1000),
       ]);
       setRows((ix as Interaction[]) ?? []);
@@ -59,9 +59,15 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
     const sessions = new Set(guestTurns.map((r) => r.session_id).filter(Boolean));
     const questions = guestTurns.filter((r) => r.intent === "question").length;
     const requestsTotal = reqs.length;
-    const done = reqs.filter((r) => ["completed", "guest_confirmed"].includes(r.status)).length;
+    const doneReqs = reqs.filter((r) => ["completed", "guest_confirmed"].includes(r.status));
+    const done = doneReqs.length;
     const completion = requestsTotal ? Math.round((done / requestsTotal) * 100) : 0;
     const avg = ratings.length ? (ratings.reduce((a, b) => a + b, 0) / ratings.length) : 0;
+    // Avg resolution time (created → completed) in minutes.
+    const resMins = doneReqs
+      .map((r) => (new Date(r.updated_at).getTime() - new Date(r.created_at).getTime()) / 60000)
+      .filter((n) => n >= 0);
+    const avgRes = resMins.length ? Math.round(resMins.reduce((a, b) => a + b, 0) / resMins.length) : null;
     // language + department breakdowns
     const langs: Record<string, number> = {};
     guestTurns.forEach((r) => { if (r.language) langs[r.language] = (langs[r.language] || 0) + 1; });
@@ -69,7 +75,7 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
     reqs.forEach((r) => { deptCounts[r.department_key] = (deptCounts[r.department_key] || 0) + 1; });
     return {
       guests: sessions.size, conversations: guestTurns.length, questions,
-      requestsTotal, completion, avg,
+      requestsTotal, completion, avg, avgRes,
       langs: Object.entries(langs).sort((a, b) => b[1] - a[1]),
       depts: Object.entries(deptCounts).sort((a, b) => b[1] - a[1]),
       feed: guestTurns.slice(0, 25),
@@ -92,6 +98,7 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
         <Stat icon={HelpCircle} label="Questions answered" value={m.questions} />
         <Stat icon={ClipboardList} label="Requests created" value={m.requestsTotal} />
         <Stat icon={CheckCircle2} label="Completion rate" value={`${m.completion}%`} />
+        <Stat icon={Timer} label="Avg resolution" value={m.avgRes != null ? `${m.avgRes}m` : "—"} sub="request → completed" />
         <Stat icon={Star} label="Avg rating" value={m.avg ? m.avg.toFixed(1) : "—"} sub={m.avg ? `${ratings.length} reviews` : "no reviews yet"} />
       </div>
 
