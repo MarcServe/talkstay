@@ -1,0 +1,473 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,300..700;1,14..32,300..700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Talkweb Design System - Modern SaaS with voice AI theme */
+
+@keyframes fadeInFloat {
+  0% {
+    opacity: 0;
+    transform: translateY(10px) scale(0.95);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@layer base {
+  /* Light Theme — Clean SaaS (Stripe / Notion style) */
+  :root {
+    --background: 220 33% 97%;
+    --foreground: 222 47% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+
+    --primary: 258 90% 58%;
+    --primary-foreground: 0 0% 100%;
+    --primary-glow: 258 90% 70%;
+
+    --secondary: 220 14% 96%;
+    --secondary-foreground: 222 47% 11%;
+
+    --muted: 220 14% 96%;
+    --muted-foreground: 215 16% 47%;
+
+    --accent: 220 14% 94%;
+    --accent-foreground: 222 47% 11%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 258 90% 58%;
+
+    --gradient-primary: linear-gradient(135deg, hsl(258 90% 58%), hsl(230 80% 58%));
+    --gradient-secondary: linear-gradient(135deg, hsl(258 90% 58% / 0.08), hsl(230 80% 58% / 0.08));
+    --glass-bg: hsl(0 0% 100% / 0.9);
+    --glass-border: hsl(220 13% 91%);
+    --voice-pulse: 0 0 20px hsl(258 90% 58% / 0.35);
+    --shadow-glow: 0 8px 30px hsl(258 90% 58% / 0.12);
+    --transition-smooth: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+
+    --ai-accent-cyan: 194 85% 42%;
+    --ai-accent-green: 160 64% 39%;
+    --ai-accent-pink: 328 73% 53%;
+    --ai-accent-blue: 221 83% 53%;
+
+    --ai-gradient-primary: linear-gradient(135deg, hsl(258 90% 58%), hsl(194 85% 42%));
+    --ai-gradient-glow: radial-gradient(circle at 50% 0%, hsl(194 85% 42% / 0.06), transparent);
+    --ai-gradient-border: linear-gradient(135deg, hsl(258 90% 58% / 0.2), hsl(194 85% 42% / 0.12), transparent);
+
+    --card-glow: 0 1px 2px hsl(222 47% 11% / 0.04), 0 4px 12px hsl(222 47% 11% / 0.06);
+    --card-glow-hover: 0 4px 12px hsl(222 47% 11% / 0.08), 0 8px 24px hsl(222 47% 11% / 0.06);
+    --card-border-glow: 0 0 0 1px hsl(194 85% 42% / 0.12);
+
+    --glass-card-bg: hsl(0 0% 100% / 0.8);
+    --glass-card-border: hsl(220 13% 91%);
+
+    --radius: 0.625rem;
+
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 222 47% 11%;
+    --sidebar-primary: 258 90% 58%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 14% 94%;
+    --sidebar-accent-foreground: 222 47% 11%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 258 90% 58%;
+  }
+
+  /* Dark Theme — Deep Navy (Linear / Vercel style) */
+  .dark {
+    --background: 222 47% 5%;
+    --foreground: 213 31% 91%;
+
+    --card: 222 47% 8%;
+    --card-foreground: 213 31% 91%;
+
+    --popover: 222 47% 7%;
+    --popover-foreground: 213 31% 91%;
+
+    --primary: 258 90% 65%;
+    --primary-foreground: 0 0% 100%;
+    --primary-glow: 258 90% 75%;
+
+    --secondary: 222 37% 14%;
+    --secondary-foreground: 213 31% 91%;
+
+    --muted: 222 37% 14%;
+    --muted-foreground: 215 20% 60%;
+
+    --accent: 222 37% 16%;
+    --accent-foreground: 213 31% 91%;
+
+    --destructive: 0 75% 55%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 217 33% 17%;
+    --input: 217 33% 17%;
+    --ring: 258 90% 65%;
+
+    --gradient-primary: linear-gradient(135deg, hsl(258 90% 65%), hsl(230 80% 62%));
+    --gradient-secondary: linear-gradient(135deg, hsl(258 90% 65% / 0.12), hsl(230 80% 62% / 0.12));
+    --glass-bg: hsl(222 47% 8% / 0.9);
+    --glass-border: hsl(217 33% 20%);
+    --voice-pulse: 0 0 20px hsl(258 90% 65% / 0.45);
+    --shadow-glow: 0 8px 30px hsl(258 90% 65% / 0.2);
+
+    --ai-accent-cyan: 194 85% 55%;
+    --ai-accent-green: 160 64% 52%;
+    --ai-accent-pink: 328 73% 65%;
+    --ai-accent-blue: 221 83% 62%;
+
+    --ai-gradient-primary: linear-gradient(135deg, hsl(258 90% 65%), hsl(194 85% 55%));
+    --ai-gradient-glow: radial-gradient(circle at 50% 0%, hsl(258 90% 65% / 0.1), transparent);
+    --ai-gradient-border: linear-gradient(135deg, hsl(258 90% 65% / 0.35), hsl(194 85% 55% / 0.2), transparent);
+
+    --card-glow: 0 1px 3px hsl(222 100% 2% / 0.5), 0 4px 12px hsl(222 100% 2% / 0.3);
+    --card-glow-hover: 0 4px 16px hsl(258 90% 65% / 0.18);
+    --card-border-glow: 0 0 0 1px hsl(194 85% 55% / 0.18);
+
+    --glass-card-bg: hsl(222 47% 8% / 0.7);
+    --glass-card-border: hsl(217 33% 20%);
+
+    --sidebar-background: 222 47% 6%;
+    --sidebar-foreground: 213 31% 91%;
+    --sidebar-primary: 258 90% 65%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 222 37% 14%;
+    --sidebar-accent-foreground: 213 31% 91%;
+    --sidebar-border: 217 33% 17%;
+    --sidebar-ring: 258 90% 65%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1, h2, h3, h4 {
+    letter-spacing: -0.025em;
+    font-weight: 600;
+    line-height: 1.3;
+  }
+
+  /* Refined input focus ring */
+  input:focus-visible, textarea:focus-visible, select:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px hsl(var(--background)), 0 0 0 4px hsl(var(--ring) / 0.4);
+  }
+
+  .dark body {
+    background-image:
+      radial-gradient(ellipse at 20% 0%, hsl(258 60% 16%) 0%, transparent 55%),
+      radial-gradient(ellipse at 80% 10%, hsl(222 47% 10%) 0%, transparent 50%),
+      linear-gradient(180deg, hsl(222 47% 6%) 0%, hsl(222 47% 4%) 100%);
+    background-attachment: fixed;
+  }
+
+  /* Mobile optimizations */
+  @media (max-width: 640px) {
+    /* Prevent horizontal scroll */
+    * {
+      @apply max-w-full;
+    }
+    
+    html, body {
+      @apply overflow-x-hidden;
+    }
+    
+    .container {
+      @apply px-4 max-w-full;
+    }
+    
+    /* Ensure all sections stay within viewport */
+    section {
+      @apply max-w-full overflow-x-hidden;
+    }
+    
+    /* Fix any potential width issues */
+    div, span, p, h1, h2, h3, h4, h5, h6 {
+      @apply max-w-full break-words;
+    }
+    
+    h1 {
+      @apply text-2xl leading-tight;
+    }
+    
+    h2 {
+      @apply text-xl;
+    }
+    
+    h3 {
+      @apply text-lg;
+    }
+    
+    .text-4xl {
+      @apply text-2xl;
+    }
+    
+    .text-3xl {
+      @apply text-xl;
+    }
+    
+    .text-2xl {
+      @apply text-lg;
+    }
+    
+    .text-xl {
+      @apply text-base;
+    }
+    
+    /* Ensure proper touch targets */
+    button {
+      @apply min-h-[44px] max-w-full;
+    }
+    
+    /* Better mobile spacing */
+    .space-y-8 > * + * {
+      @apply mt-4;
+    }
+    
+    .space-y-6 > * + * {
+      @apply mt-3;
+    }
+    
+    /* Mobile-friendly padding */
+    .p-8 {
+      @apply p-4;
+    }
+    
+    .p-6 {
+      @apply p-4;
+    }
+    
+    /* Responsive margins */
+    .mb-8 {
+      @apply mb-4;
+    }
+    
+    .mb-6 {
+      @apply mb-3;
+    }
+    
+    /* Fix horizontal overflow issues */
+    .max-w-4xl, .max-w-3xl, .max-w-2xl, .max-w-xl {
+      @apply max-w-full;
+    }
+  }
+}
+
+/* Enhanced voice-specific animations and styles */
+@keyframes pulse-voice {
+  0%, 100% { 
+    transform: scaleY(1);
+    opacity: 0.7;
+  }
+  50% { 
+    transform: scaleY(1.8);
+    opacity: 1;
+  }
+}
+
+@keyframes voice-glow {
+  0%, 100% {
+    box-shadow: 0 0 5px hsl(var(--primary) / 0.3);
+  }
+  50% {
+    box-shadow: 0 0 20px hsl(var(--primary) / 0.6), 0 0 30px hsl(var(--primary) / 0.4);
+  }
+}
+
+@keyframes transcription-pulse {
+  0%, 100% {
+    opacity: 0.6;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@layer utilities {
+  /* Enhanced voice and input method animations */
+  .animate-pulse-voice {
+    animation: pulse-voice 1.2s ease-in-out infinite;
+  }
+  
+  .animate-voice-glow {
+    animation: voice-glow 2s ease-in-out infinite;
+  }
+  
+  .animate-transcription-pulse {
+    animation: transcription-pulse 1.5s ease-in-out infinite;
+  }
+  
+  .animate-fade-in {
+    animation: fade-in 0.4s ease-out;
+  }
+  
+  .animate-slide-in-right {
+    animation: slide-in-right 0.4s ease-out;
+  }
+
+  .animate-scale-in {
+    animation: scale-in 0.2s ease-out;
+  }
+
+  /* Enhanced transition utilities for method switching */
+  .transition-method-switch {
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .transition-voice-state {
+    transition: all 0.2s ease-out;
+  }
+  
+  .transition-message-appear {
+    transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  
+  /* AI Theme Utilities */
+  .ai-gradient-text {
+    background: var(--ai-gradient-primary);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  
+  .ai-section-header {
+    background: var(--ai-gradient-glow);
+    border-bottom: 1px solid hsl(var(--ai-accent-cyan) / 0.2);
+    position: relative;
+  }
+  
+  .ai-section-header::after {
+    content: '';
+    position: absolute;
+    bottom: -1px;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: var(--ai-gradient-primary);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+  
+  .ai-section-header:hover::after {
+    opacity: 1;
+  }
+  
+  .ai-card-container {
+    background: var(--ai-gradient-glow);
+    border-radius: 0.75rem;
+    padding: 0.5rem;
+  }
+}
+
+/* Component-specific styles for voice input */
+.voice-input-active {
+  border-color: hsl(217 91% 60%);
+  background-color: hsl(217 91% 60% / 0.1);
+  box-shadow: 0 4px 20px -2px hsl(217 91% 60% / 0.25);
+}
+
+.voice-input-success {
+  border-color: hsl(142 76% 36%);
+  background-color: hsl(142 76% 36% / 0.1);
+  box-shadow: 0 4px 20px -2px hsl(142 76% 36% / 0.25);
+}
+
+.voice-input-error {
+  border-color: hsl(0 84% 60%);
+  background-color: hsl(0 84% 60% / 0.1);
+  box-shadow: 0 4px 20px -2px hsl(0 84% 60% / 0.25);
+}
+
+.secure-input {
+  border-color: hsl(271 81% 56%);
+  background-color: hsl(271 81% 56% / 0.1);
+  box-shadow: 0 4px 20px -2px hsl(271 81% 56% / 0.25);
+}
+
+/* Method toggle button styles */
+.method-toggle-button {
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.method-toggle-button::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.method-toggle-button.voice-active::before {
+  background: linear-gradient(to right, hsl(217 91% 60% / 0.1), hsl(217 91% 70% / 0.1));
+  opacity: 1;
+}
+
+.method-toggle-button.text-active::before {
+  background: linear-gradient(to right, hsl(142 76% 36% / 0.1), hsl(142 76% 46% / 0.1));
+  opacity: 1;
+}
+
+.method-toggle-button.secure-active::before {
+  background: linear-gradient(to right, hsl(271 81% 56% / 0.1), hsl(271 81% 66% / 0.1));
+  opacity: 1;
+}

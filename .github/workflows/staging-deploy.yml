@@ -1,0 +1,64 @@
+# REFINEMENT = PREVIEW ONLY. Never deploy refinement to Production (no --prod).
+# New code lives on refinement; deploy to Production only by merging refinement → main and pushing main.
+name: Deploy to Staging
+
+on:
+  push:
+    branches: [ 'refinement', 'refinement/**' ]
+  pull_request:
+    branches: [ 'refinement', 'refinement/**' ]
+
+jobs:
+  deploy-staging:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Build project
+      run: npm run build
+      env:
+        NODE_ENV: staging
+
+    - name: Run tests
+      run: npm test
+      continue-on-error: true
+
+    # Preview only (no --prod). Aliased to staging.talkweb.io so refinement preview is available there.
+    - name: Deploy to Staging (Preview + staging.talkweb.io)
+      id: vercel-deploy
+      if: github.ref == 'refs/heads/refinement' || startsWith(github.ref, 'refs/heads/refinement/')
+      uses: amondnet/vercel-action@v25
+      with:
+        vercel-token: ${{ secrets.VERCEL_TOKEN }}
+        vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+        vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+        scope: ${{ secrets.VERCEL_ORG_ID }}
+        alias-domains: staging.talkweb.io
+
+    - name: Log staging URLs
+      if: steps.vercel-deploy.outcome == 'success'
+      run: |
+        echo "Preview URL: ${{ steps.vercel-deploy.outputs.preview-url }}"
+        echo "Staging: https://staging.talkweb.io"
+
+    - name: Comment PR
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: '🚀 Staging build completed! Preview your changes at: https://staging.talkweb.io'
+          })

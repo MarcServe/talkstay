@@ -1,0 +1,50 @@
+import { lazy, Suspense } from "react";
+import { Toaster } from "@/components/ui/toaster";
+import { Toaster as Sonner } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { ThemeProvider } from "next-themes";
+import Landing from "@/talkstay/pages/Landing";
+
+// Lazy-loaded surfaces (built out across phases)
+const GuestApp = lazy(() => import("@/talkstay/pages/GuestApp"));
+const HotelApp = lazy(() => import("@/talkstay/pages/HotelApp"));
+const NotFound = lazy(() => import("@/talkstay/pages/NotFound"));
+
+const queryClient = new QueryClient();
+
+const PageFallback = () => (
+  <div className="min-h-screen flex items-center justify-center text-muted-foreground">
+    Loading…
+  </div>
+);
+
+const App = () => (
+  <QueryClientProvider client={queryClient}>
+    <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
+      <TooltipProvider>
+        <Toaster />
+        <Sonner />
+        <BrowserRouter>
+          <Suspense fallback={<PageFallback />}>
+            <Routes>
+              {/* Marketing */}
+              <Route path="/" element={<Landing />} />
+
+              {/* Guest PWA — scanned from a room QR code */}
+              <Route path="/h/:hotelSlug/r/:roomId" element={<GuestApp />} />
+
+              {/* Hotel staff + admin (auth-gated inside) */}
+              <Route path="/app/*" element={<HotelApp />} />
+
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </Suspense>
+        </BrowserRouter>
+      </TooltipProvider>
+    </ThemeProvider>
+  </QueryClientProvider>
+);
+
+export default App;

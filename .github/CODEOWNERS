@@ -1,0 +1,21 @@
+# Global code owners - all files require review
+* @owner
+
+# Critical production files require admin review
+/.github/workflows/production-deploy.yml @owner
+/vercel-production.json @owner
+/public/widget.js @owner
+
+# Database and migration files
+/supabase/migrations/ @owner
+/scripts/database/ @owner
+
+# Configuration files
+/tailwind.config.ts @owner
+/vite.config.ts @owner
+/.env @owner
+
+# Security and deployment
+/.github/workflows/ @owner
+/public/.htaccess @owner
+/public/web.config @owner

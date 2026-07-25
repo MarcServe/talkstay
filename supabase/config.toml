@@ -1,0 +1,243 @@
+project_id = "oujqkygfmyapmrgxmhvt"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+
+[studio]
+enabled = true
+port = 54323
+
+[inbucket]
+enabled = true
+port = 54324
+
+[storage]
+enabled = true
+
+[auth]
+enabled = true
+enable_signup = true
+# Custom SMTP settings to use Resend
+[auth.email]
+enable_signup = true
+double_confirm_changes = true
+enable_confirmations = true
+# Email OTP / invite token lifetime: 24 hours
+otp_expiry = 86400
+
+[auth.external.apple]
+enabled = false
+
+[auth.external.azure]
+enabled = false
+
+[auth.external.bitbucket]
+enabled = false
+
+[auth.external.discord]
+enabled = false
+
+[auth.external.facebook]
+enabled = false
+
+[auth.external.github]
+enabled = false
+
+[auth.external.gitlab]
+enabled = false
+
+[auth.external.google]
+enabled = false
+
+[auth.external.linkedin]
+enabled = false
+
+[auth.external.notion]
+enabled = false
+
+[auth.external.slack]
+enabled = false
+
+[auth.external.spotify]
+enabled = false
+
+[auth.external.twitch]
+enabled = false
+
+[auth.external.twitter]
+enabled = false
+
+[auth.external.workos]
+enabled = false
+
+[auth.external.zoom]
+enabled = false
+
+[functions.parse-document]
+verify_jwt = false
+
+[functions.invite-workspace-member]
+verify_jwt = true
+
+[functions.scrape-website]
+verify_jwt = false
+
+[functions.ai-chat]
+verify_jwt = false
+
+[functions.analytics]
+verify_jwt = true
+
+[functions.realtime-session]
+verify_jwt = false
+
+[functions.realtime-token]
+verify_jwt = false
+
+[functions.voice-session]
+verify_jwt = false
+
+[functions.realtime-voice-form]
+verify_jwt = false
+
+[functions.realtime-test]
+verify_jwt = false
+
+[functions.get-available-slots]
+verify_jwt = false
+
+[functions.book-appointment]
+verify_jwt = false
+
+[functions.enhanced-booking]
+verify_jwt = false
+
+[functions.calendly-integration]
+verify_jwt = false
+
+[functions.stripe-webhook]
+verify_jwt = false
+
+[functions.guest-checkout]
+verify_jwt = false
+
+[functions.verify-payment]
+verify_jwt = false
+
+[functions.conversation-limit-check]
+verify_jwt = false
+
+[functions.increment-conversation]
+verify_jwt = false
+
+[functions.notify-limit-reached]
+verify_jwt = false
+
+[functions.monthly-limit-reset]
+verify_jwt = false
+
+[functions.user-limit-reset]
+verify_jwt = false
+
+[functions.check-subscription]
+verify_jwt = true
+
+[functions.create-checkout]
+verify_jwt = true
+
+[functions.customer-portal]
+verify_jwt = true
+
+[functions.daily-tasks]
+verify_jwt = false
+
+[functions.send-notification]
+verify_jwt = false
+
+[functions.analytics-tracking]
+verify_jwt = false
+
+[functions.platform-detection]
+verify_jwt = false
+
+[functions.auth-hook]
+verify_jwt = false
+
+[functions.send-welcome-email]
+verify_jwt = false
+
+[functions.google-calendar-oauth]
+verify_jwt = false
+
+[functions.whatsapp-redirect]
+verify_jwt = false
+
+[functions.knowledge-upsert]
+verify_jwt = false
+
+[functions.knowledge-search]
+verify_jwt = false
+
+[functions.knowledge-delete]
+verify_jwt = true
+
+[functions.submit-review]
+verify_jwt = false
+
+[functions.firecrawl-crawl]
+verify_jwt = true
+
+[functions.knowledge-sync-test]
+verify_jwt = true
+
+[functions.send-trial-reminder]
+verify_jwt = false
+
+[functions.trial-reminder-scheduler]
+verify_jwt = false
+
+[functions.api-gateway]
+verify_jwt = false
+
+[functions.generate-api-key]
+verify_jwt = true
+
+[functions.submit-support-request]
+verify_jwt = false
+
+[functions.send-project-pricing]
+verify_jwt = false
+
+[functions.inquiry-follow-up-scheduler]
+verify_jwt = false
+
+[functions.submit-voice-form]
+verify_jwt = false
+
+[functions.voice-form-chat]
+verify_jwt = false
+
+[functions.text-to-speech]
+verify_jwt = false
+
+[functions.firecrawl-webhook]
+verify_jwt = false
+
+[functions.reindex-knowledge]
+verify_jwt = false
+
+[functions.whatsapp-inbound]
+verify_jwt = false
+
+[functions.inbound-email-handler]
+verify_jwt = false
+
+[functions.send-email-reply]
+verify_jwt = true
