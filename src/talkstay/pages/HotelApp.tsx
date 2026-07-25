@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { Loader2, LogOut } from "lucide-react";
 import AuthPage from "@/talkstay/pages/AuthPage";
+import OperationsPanel from "@/talkstay/components/OperationsPanel";
 import RoomsPanel from "@/talkstay/components/RoomsPanel";
 import DepartmentsPanel from "@/talkstay/components/DepartmentsPanel";
 import KnowledgePanel from "@/talkstay/components/KnowledgePanel";
@@ -99,13 +100,15 @@ export default function HotelApp() {
         {!hotel ? (
           <CreateHotel onCreated={setHotel} />
         ) : (
-          <Tabs defaultValue="rooms">
+          <Tabs defaultValue="operations">
             <TabsList>
+              <TabsTrigger value="operations">Operations</TabsTrigger>
               <TabsTrigger value="rooms">Rooms &amp; QR</TabsTrigger>
               <TabsTrigger value="departments">Departments</TabsTrigger>
               <TabsTrigger value="knowledge">Knowledge</TabsTrigger>
               <TabsTrigger value="staff">Staff</TabsTrigger>
             </TabsList>
+            <TabsContent value="operations" className="mt-6"><OperationsPanel hotel={hotel} /></TabsContent>
             <TabsContent value="rooms" className="mt-6"><RoomsPanel hotel={hotel} /></TabsContent>
             <TabsContent value="departments" className="mt-6"><DepartmentsPanel hotel={hotel} /></TabsContent>
             <TabsContent value="knowledge" className="mt-6"><KnowledgePanel hotel={hotel} /></TabsContent>
