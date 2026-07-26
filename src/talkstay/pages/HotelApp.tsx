@@ -6,7 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { Loader2, LogOut } from "lucide-react";
+import { Loader2, LogOut, Bell } from "lucide-react";
+import { enablePush, pushSupported } from "@/talkstay/lib/push";
 import AuthPage from "@/talkstay/pages/AuthPage";
 import OperationsPanel from "@/talkstay/components/OperationsPanel";
 import InsightsPanel from "@/talkstay/components/InsightsPanel";
@@ -91,9 +92,22 @@ export default function HotelApp() {
             <span className="font-semibold">TalkStay</span>
             {hotel && <span className="text-sm text-muted-foreground">· {hotel.name}</span>}
           </div>
-          <Button variant="ghost" size="sm" onClick={() => supabase.auth.signOut()}>
-            <LogOut className="mr-1 h-4 w-4" /> Sign out
-          </Button>
+          <div className="flex items-center gap-1">
+            {hotel && pushSupported() && (
+              <Button
+                variant="outline" size="sm"
+                onClick={async () => {
+                  try { await enablePush(hotel.id); toast.success("Alerts enabled on this device."); }
+                  catch (e: any) { toast.error(e?.message ?? "Couldn't enable alerts"); }
+                }}
+              >
+                <Bell className="mr-1 h-4 w-4" /> Enable alerts
+              </Button>
+            )}
+            <Button variant="ghost" size="sm" onClick={() => supabase.auth.signOut()}>
+              <LogOut className="mr-1 h-4 w-4" /> Sign out
+            </Button>
+          </div>
         </div>
       </header>
 

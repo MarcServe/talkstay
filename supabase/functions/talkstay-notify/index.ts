@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import webpush from "npm:web-push@3.6.7";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -78,7 +79,35 @@ serve(async (req) => {
     const results: Record<string, boolean> = {};
     for (const to of recipients) results[to] = await sendEmail(to, subject, html);
 
-    return json({ ok: true, emailed: Object.keys(results), results });
+    // Web push to subscribed staff devices (department-scoped, or hotel-wide when
+    // the subscription has no department). Best-effort; prunes dead subscriptions.
+    let pushed = 0;
+    const vapidPub = (Deno.env.get("VAPID_PUBLIC_KEY") || "").trim();
+    const vapidPriv = (Deno.env.get("VAPID_PRIVATE_KEY") || "").trim();
+    if (vapidPub && vapidPriv) {
+      try {
+        webpush.setVapidDetails(Deno.env.get("VAPID_SUBJECT") || "mailto:notifications@talkweb.io", vapidPub, vapidPriv);
+        const { data: subs } = await admin
+          .from("ts_push_subscriptions").select("id, endpoint, p256dh, auth, department_key")
+          .eq("hotel_id", r.hotel_id);
+        for (const s of subs ?? []) {
+          if (s.department_key && s.department_key !== r.department_key) continue;
+          try {
+            await webpush.sendNotification(
+              { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
+              JSON.stringify({ title: subject, body: `Room ${roomNo}: ${r.summary}`, url: "https://talkstay.talkweb.io/app", urgent, tag: r.id })
+            );
+            pushed++;
+          } catch (err: any) {
+            if (err?.statusCode === 404 || err?.statusCode === 410) {
+              await admin.from("ts_push_subscriptions").delete().eq("id", s.id);
+            }
+          }
+        }
+      } catch { /* push best-effort */ }
+    }
+
+    return json({ ok: true, emailed: Object.keys(results), results, pushed });
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : String(e) }, 500);
   }
