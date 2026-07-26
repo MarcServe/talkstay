@@ -104,6 +104,16 @@ export default function OperationsPanel({ hotel }: { hotel: Hotel }) {
     // eslint-disable-next-line
   }, [hotel.id]);
 
+  // Resolve the current user's display identity for this hotel: "Name · Department".
+  const actorLabel = async (userId?: string, email?: string | null): Promise<string> => {
+    if (!userId) return email ?? "staff";
+    const { data: s } = await supabase
+      .from("ts_staff").select("name, department_key")
+      .eq("hotel_id", hotel.id).eq("user_id", userId).limit(1).maybeSingle();
+    const nm = s?.name || email || "staff";
+    return s?.department_key ? `${nm} · ${deptLabel(s.department_key)}` : nm;
+  };
+
   const advance = async (r: Req, to: string) => {
     const { data: { user } } = await supabase.auth.getUser();
     const { error } = await supabase
@@ -111,10 +121,11 @@ export default function OperationsPanel({ hotel }: { hotel: Hotel }) {
       .update({ status: to, assigned_staff_id: user?.id ?? null })
       .eq("id", r.id);
     if (error) { toast.error(error.message); return; }
-    // note = acting staff's email → powers the "Accepted by … at …" acknowledgement.
+    // note = acting staff's "Name · Department" → powers the acknowledgement line.
+    const label = await actorLabel(user?.id, user?.email);
     await supabase.from("ts_request_events").insert({
       request_id: r.id, status: to, actor_type: "staff", actor_id: user?.id ?? null,
-      note: user?.email ?? null,
+      note: label,
     });
     refresh();
   };

@@ -12,6 +12,7 @@ import { DEPARTMENTS, type Hotel } from "@/talkstay/lib/hotels";
 interface StaffRow {
   id: string;
   email: string;
+  name: string | null;
   department_key: string | null;
   role: string;
   status: string;
@@ -22,6 +23,7 @@ const ALL_DEPTS = "__all__";
 export default function StaffPanel({ hotel }: { hotel: Hotel }) {
   const [staff, setStaff] = useState<StaffRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [dept, setDept] = useState<string>(ALL_DEPTS);
   const [role, setRole] = useState("staff");
@@ -48,6 +50,7 @@ export default function StaffPanel({ hotel }: { hotel: Hotel }) {
       const { data, error } = await call({
         action: "invite",
         email: email.trim(),
+        name: name.trim() || null,
         departmentKey: dept === ALL_DEPTS ? null : dept,
         role,
       });
@@ -59,7 +62,7 @@ export default function StaffPanel({ hotel }: { hotel: Hotel }) {
       } else {
         toast.success(`${res.email} added to staff.`);
       }
-      setEmail("");
+      setEmail(""); setName("");
       await load();
     } catch (err: any) {
       toast.error(err?.message ?? "Failed to invite");
@@ -81,7 +84,11 @@ export default function StaffPanel({ hotel }: { hotel: Hotel }) {
   return (
     <div className="space-y-6">
       <form onSubmit={invite} className="flex flex-wrap items-end gap-3">
-        <div className="min-w-[220px] flex-1">
+        <div className="min-w-[140px]">
+          <label className="mb-1 block text-xs text-muted-foreground">Name</label>
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Sarah" />
+        </div>
+        <div className="min-w-[200px] flex-1">
           <label className="mb-1 block text-xs text-muted-foreground">Staff email</label>
           <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@hotel.com" />
         </div>
@@ -119,12 +126,13 @@ export default function StaffPanel({ hotel }: { hotel: Hotel }) {
         <div className="overflow-hidden rounded-xl border">
           <table className="w-full text-sm">
             <thead className="bg-muted/50 text-left text-xs text-muted-foreground">
-              <tr><th className="px-4 py-2">Email</th><th className="px-4 py-2">Department</th><th className="px-4 py-2">Role</th><th className="px-4 py-2"></th></tr>
+              <tr><th className="px-4 py-2">Name</th><th className="px-4 py-2">Email</th><th className="px-4 py-2">Department</th><th className="px-4 py-2">Role</th><th className="px-4 py-2"></th></tr>
             </thead>
             <tbody>
               {staff.map((s) => (
                 <tr key={s.id} className="border-t">
-                  <td className="px-4 py-2 font-medium">{s.email}</td>
+                  <td className="px-4 py-2 font-medium">{s.name || "—"}</td>
+                  <td className="px-4 py-2 text-muted-foreground">{s.email}</td>
                   <td className="px-4 py-2 text-muted-foreground">{deptLabel(s.department_key)}</td>
                   <td className="px-4 py-2 capitalize">{s.role}</td>
                   <td className="px-4 py-2 text-right">

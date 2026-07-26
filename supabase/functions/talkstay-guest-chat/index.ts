@@ -194,7 +194,7 @@ Keep replies to 1–3 short sentences.`;
           parameters: {
             type: "object",
             properties: {
-              department: { type: "string", enum: DEPARTMENTS },
+              department: { type: "string", enum: activeDepts },
               summary: { type: "string", description: "Short task description in ENGLISH for staff, incl. quantities (e.g. 'Deliver 3 extra towels to Room 214')." },
               priority: { type: "string", enum: ["low", "normal", "high", "urgent"] },
               is_complaint: { type: "boolean" },
@@ -258,7 +258,8 @@ Keep replies to 1–3 short sentences.`;
           const kb = await searchKnowledge(admin, ctx.hotelId, ctx.roomId, String(args.query || message), OPENAI_API_KEY);
           messages.push({ role: "tool", tool_call_id: tc.id, content: kb || "No knowledge-base entries matched. Do not invent an answer." });
         } else if (tc.function.name === "create_service_request") {
-          const dept = DEPARTMENTS.includes(args.department) ? args.department : "front_desk";
+          const dept = activeDepts.includes(args.department) ? args.department
+            : (DEPARTMENTS.includes(args.department) ? args.department : "front_desk");
           const isComplaint = !!args.is_complaint || dept === "duty_manager";
           guestIntent = isComplaint ? "complaint" : "request";
           const { data: reqRow, error } = await admin

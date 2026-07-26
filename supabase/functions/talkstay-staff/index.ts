@@ -40,7 +40,7 @@ serve(async (req) => {
     if (action === "list") {
       const { data: staff } = await admin
         .from("ts_staff")
-        .select("id, user_id, department_key, role, status, created_at")
+        .select("id, user_id, department_key, role, status, name, created_at")
         .eq("hotel_id", hotelId)
         .order("created_at", { ascending: true });
 
@@ -58,6 +58,7 @@ serve(async (req) => {
     if (action === "invite") {
       if (!email) return json({ error: "email required" }, 400);
       const cleanEmail = String(email).trim().toLowerCase();
+      const staffName = (body.name ? String(body.name).trim() : "") || null;
 
       // Find existing user by email (paginate a little).
       let userId: string | null = null;
@@ -76,6 +77,7 @@ serve(async (req) => {
           email: cleanEmail,
           password: tempPassword,
           email_confirm: true,
+          user_metadata: staffName ? { full_name: staffName } : undefined,
         });
         if (cErr || !created?.user) return json({ error: cErr?.message ?? "Could not create user" }, 400);
         userId = created.user.id;
@@ -89,6 +91,7 @@ serve(async (req) => {
           department_key: departmentKey || null,
           role: role || "staff",
           status: "active",
+          name: staffName,
         },
         { onConflict: "hotel_id,user_id,department_key" }
       );
