@@ -257,6 +257,8 @@ Keep replies to 1–3 short sentences.`;
             await admin.from("ts_request_events").insert({
               request_id: reqRow.id, status: "new", actor_type: "guest",
             });
+            // Alert the department (email now; web push added alongside). Fire-and-forget.
+            admin.functions.invoke("talkstay-notify", { body: { requestId: reqRow.id } }).catch(() => {});
             createdRequests.push(reqRow);
             messages.push({
               role: "tool", tool_call_id: tc.id,
