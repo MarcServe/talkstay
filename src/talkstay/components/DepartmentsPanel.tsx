@@ -29,19 +29,28 @@ export default function DepartmentsPanel({ hotel }: { hotel: Hotel }) {
   const [loading, setLoading] = useState(true);
   const [newDept, setNewDept] = useState("");
   const [adding, setAdding] = useState(false);
+  const [escPhone, setEscPhone] = useState("");
 
   const refresh = async () => {
     setLoading(true);
-    const [{ data, error }, staffRes] = await Promise.all([
+    const [{ data, error }, staffRes, hotelRes] = await Promise.all([
       supabase.from("ts_departments")
         .select("id, key, display_name, is_active, notify_email, escalate_after_minutes")
         .eq("hotel_id", hotel.id).order("display_name"),
       supabase.functions.invoke("talkstay-staff", { body: { hotelId: hotel.id, action: "list" } }),
+      supabase.from("ts_hotels").select("escalation_phone").eq("id", hotel.id).maybeSingle(),
     ]);
     if (error) toast.error(error.message);
     setDepts((data as Dept[]) ?? []);
     setRoster(((staffRes.data as any)?.staff as StaffRow[]) ?? []);
+    setEscPhone((hotelRes.data as any)?.escalation_phone ?? "");
     setLoading(false);
+  };
+
+  const saveEscPhone = async (v: string) => {
+    const val = v.trim() || null;
+    const { error } = await supabase.from("ts_hotels").update({ escalation_phone: val }).eq("id", hotel.id);
+    if (error) toast.error(error.message);
   };
 
   useEffect(() => { refresh(); /* eslint-disable-next-line */ }, [hotel.id]);
@@ -112,12 +121,24 @@ export default function DepartmentsPanel({ hotel }: { hotel: Hotel }) {
         Requests are auto-routed to these teams. Add an alert email and an escalation time for each.
       </p>
 
-      <form onSubmit={(e) => { e.preventDefault(); addDept(); }} className="flex items-center gap-2">
-        <Input value={newDept} onChange={(e) => setNewDept(e.target.value)} placeholder="Add a department (e.g. Spa, Valet)" className="max-w-xs" />
-        <Button type="submit" size="sm" disabled={adding || !newDept.trim()}>
-          <Plus className="mr-1 h-4 w-4" /> Add
-        </Button>
-      </form>
+      <div className="flex flex-wrap items-center gap-4">
+        <form onSubmit={(e) => { e.preventDefault(); addDept(); }} className="flex items-center gap-2">
+          <Input value={newDept} onChange={(e) => setNewDept(e.target.value)} placeholder="Add a department (e.g. Spa, Valet)" className="w-56" />
+          <Button type="submit" size="sm" disabled={adding || !newDept.trim()}>
+            <Plus className="mr-1 h-4 w-4" /> Add
+          </Button>
+        </form>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">Escalation call:</span>
+          <Input
+            type="tel"
+            defaultValue={escPhone}
+            placeholder="+44 7… (rings when overdue)"
+            className="h-8 w-52"
+            onBlur={(e) => { if (e.target.value.trim() !== escPhone) saveEscPhone(e.target.value); }}
+          />
+        </div>
+      </div>
 
       <div className="divide-y rounded-xl border">
         {depts.map((d) => (
