@@ -63,17 +63,37 @@ async function resolveRoom(
   };
 }
 
-async function searchKnowledge(admin: any, assistantId: string | null, query: string): Promise<string> {
-  if (!assistantId) return "";
+async function embedQuery(query: string, apiKey: string): Promise<number[] | null> {
   try {
-    const { data } = await admin.functions.invoke("enhanced-knowledge-search", {
-      body: { query, assistantId, includePerplexity: false, maxResults: 6 },
+    const clean = apiKey.replace(/[^\x21-\x7E]/g, "");
+    const r = await fetch("https://api.openai.com/v1/embeddings", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${clean}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ model: "text-embedding-3-small", input: query.slice(0, 4000) }),
     });
-    const results = (data?.results ?? []) as any[];
+    if (!r.ok) return null;
+    const d = await r.json();
+    return d.data?.[0]?.embedding ?? null;
+  } catch { return null; }
+}
+
+// Scoped retrieval: general + all department + THIS room's knowledge (never other rooms).
+async function searchKnowledge(admin: any, hotelId: string, roomId: string, query: string, apiKey: string): Promise<string> {
+  if (!apiKey) return "";
+  try {
+    const emb = await embedQuery(query, apiKey);
+    if (!emb) return "";
+    const { data } = await admin.rpc("ts_search_knowledge", {
+      query_embedding: `[${emb.join(",")}]`, p_hotel_id: hotelId, p_room_id: roomId, match_count: 6,
+    });
+    const results = (data ?? []) as any[];
     return results
-      .filter((r) => (r.quality_score ?? 0) >= 0.1 || (r.score ?? 0) >= 0.1)
+      .filter((r) => (r.similarity ?? 0) > 0.1)
       .slice(0, 5)
-      .map((r) => (r.title ? `[${r.title}]: ${r.content}` : r.content))
+      .map((r) => {
+        const tag = r.scope === "room" ? "[Room info] " : r.scope === "department" ? `[${r.department_key}] ` : "";
+        return r.title ? `${tag}[${r.title}]: ${r.content}` : `${tag}${r.content}`;
+      })
       .join("\n\n")
       .slice(0, 6000);
   } catch { return ""; }
@@ -235,7 +255,7 @@ Keep replies to 1–3 short sentences.`;
 
         if (tc.function.name === "answer_from_knowledge") {
           if (guestIntent === "other") guestIntent = "question";
-          const kb = await searchKnowledge(admin, ctx.assistantId, String(args.query || message));
+          const kb = await searchKnowledge(admin, ctx.hotelId, ctx.roomId, String(args.query || message), OPENAI_API_KEY);
           messages.push({ role: "tool", tool_call_id: tc.id, content: kb || "No knowledge-base entries matched. Do not invent an answer." });
         } else if (tc.function.name === "create_service_request") {
           const dept = DEPARTMENTS.includes(args.department) ? args.department : "front_desk";

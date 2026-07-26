@@ -1,146 +1,168 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import { toast } from "sonner";
-import { Loader2, Trash2, Plus, Save } from "lucide-react";
-import type { Hotel } from "@/talkstay/lib/hotels";
+import { Loader2, Trash2, Plus, Upload } from "lucide-react";
+import { DEPARTMENTS, listRooms, type Hotel, type Room } from "@/talkstay/lib/hotels";
 
-interface Entry { id: string; title: string; content: string; }
-
-const STARTERS = [
-  "Breakfast times", "Wi-Fi", "Check-out policy", "Room service menu",
-  "Pool & gym hours", "Parking", "Nearby attractions",
-];
+type Scope = "general" | "department" | "room";
+interface Entry { id: string; title: string | null; content: string; scope: string; department_key: string | null; room_id: string | null; }
 
 export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
+  const [scope, setScope] = useState<Scope>("general");
+  const [dept, setDept] = useState(DEPARTMENTS[0].key);
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [roomId, setRoomId] = useState("");
   const [entries, setEntries] = useState<Entry[]>([]);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [title, setTitle] = useState("");
+  const [content, setContent] = useState("");
+  const [busy, setBusy] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { listRooms(hotel.id).then((r) => { setRooms(r); if (r[0]) setRoomId(r[0].id); }); }, [hotel.id]);
 
   const load = async () => {
     setLoading(true);
-    if (!hotel.assistant_id) { setEntries([]); setLoading(false); return; }
     const { data, error } = await supabase
-      .from("assistants")
-      .select("scraped_content")
-      .eq("id", hotel.assistant_id)
-      .maybeSingle();
+      .from("ts_knowledge")
+      .select("id, title, content, scope, department_key, room_id")
+      .eq("hotel_id", hotel.id)
+      .order("created_at", { ascending: false });
     if (error) toast.error(error.message);
-    const raw = (data?.scraped_content as any)?.manualEntries;
-    setEntries(Array.isArray(raw) ? raw.filter((e: any) => e?.title || e?.content) : []);
+    setEntries((data as Entry[]) ?? []);
     setLoading(false);
   };
-
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [hotel.id]);
 
-  const addEntry = (title = "") =>
-    setEntries((p) => [...p, { id: `entry-${Date.now()}-${p.length}`, title, content: "" }]);
-  const update = (id: string, patch: Partial<Entry>) =>
-    setEntries((p) => p.map((e) => (e.id === id ? { ...e, ...patch } : e)));
-  const remove = (id: string) => setEntries((p) => p.filter((e) => e.id !== id));
+  const visible = useMemo(() => entries.filter((e) => {
+    if (e.scope !== scope) return false;
+    if (scope === "department") return e.department_key === dept;
+    if (scope === "room") return e.room_id === roomId;
+    return true;
+  }), [entries, scope, dept, roomId]);
 
-  const saveAndIndex = async () => {
-    if (!hotel.assistant_id) { toast.error("Hotel has no assistant"); return; }
-    const clean = entries
-      .map((e) => ({ ...e, title: e.title.trim(), content: e.content.trim() }))
-      .filter((e) => e.content.length > 2);
-    setSaving(true);
+  const targetPayload = () => ({
+    hotelId: hotel.id, scope,
+    departmentKey: scope === "department" ? dept : null,
+    roomId: scope === "room" ? roomId : null,
+  });
+
+  const addEntry = async () => {
+    if (!content.trim()) return;
+    if (scope === "room" && !roomId) { toast.error("Add a room first."); return; }
+    setBusy(true);
     try {
-      // 1. Persist entries onto the assistant (canonical, editable copy).
-      const { data: cur } = await supabase
-        .from("assistants").select("scraped_content").eq("id", hotel.assistant_id).maybeSingle();
-      const merged = { ...((cur?.scraped_content as any) || {}), manualEntries: clean };
-      const { error: upErr } = await supabase
-        .from("assistants").update({ scraped_content: merged }).eq("id", hotel.assistant_id);
-      if (upErr) throw upErr;
-
-      // 2. Embed + index into knowledge_vectors via the shared knowledge-upsert fn.
-      if (clean.length > 0) {
-        const { error: idxErr } = await supabase.functions.invoke("knowledge-upsert", {
-          body: {
-            assistantId: hotel.assistant_id,
-            websiteUrl: "https://talkstay.talkweb.io",
-            pages: clean.map((e) => ({
-              url: `manual://${e.id}`,
-              title: e.title || "Hotel info",
-              content: e.content,
-            })),
-            replace: false,
-            tags: ["manual", "hotel"],
-          },
-        });
-        if (idxErr) {
-          toast.warning("Saved, but indexing had an issue — entries still available.");
-        } else {
-          toast.success(`Saved & indexed ${clean.length} entr${clean.length === 1 ? "y" : "ies"}.`);
-        }
-      } else {
-        toast.success("Saved.");
-      }
-      setEntries(clean);
-    } catch (e: any) {
-      toast.error(e?.message ?? "Failed to save");
-    } finally {
-      setSaving(false);
-    }
+      const { data, error } = await supabase.functions.invoke("talkstay-knowledge", {
+        body: { action: "upsert", title: title.trim() || null, content: content.trim(), ...targetPayload() },
+      });
+      if (error) throw error;
+      if ((data as any)?.error) throw new Error((data as any).error);
+      setTitle(""); setContent("");
+      await load();
+      toast.success("Saved & indexed.");
+    } catch (e: any) { toast.error(e?.message ?? "Failed to save"); }
+    finally { setBusy(false); }
   };
 
-  if (loading) {
-    return <div className="flex items-center gap-2 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</div>;
-  }
+  const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (scope === "room" && !roomId) { toast.error("Add a room first."); return; }
+    setBusy(true);
+    try {
+      // Reuse TalkWeb's parse-document to extract text from PDF/DOCX/TXT.
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("fileName", file.name);
+      const { data: parsed, error: pErr } = await supabase.functions.invoke("parse-document", { body: fd });
+      if (pErr) throw new Error(`Couldn't read the document: ${pErr.message}`);
+      const text = ((parsed?.pages ?? []) as any[]).map((p) => p.content || "").join("\n\n").trim();
+      if (text.length < 20) throw new Error("No readable text found in that file.");
+      const { data, error } = await supabase.functions.invoke("talkstay-knowledge", {
+        body: { action: "upsert", title: file.name.replace(/\.[^.]+$/, ""), content: text, ...targetPayload() },
+      });
+      if (error) throw error;
+      if ((data as any)?.error) throw new Error((data as any).error);
+      await load();
+      toast.success(`Indexed “${file.name}”.`);
+    } catch (e: any) { toast.error(e?.message ?? "Upload failed"); }
+    finally { setBusy(false); }
+  };
+
+  const del = async (id: string) => {
+    const { data, error } = await supabase.functions.invoke("talkstay-knowledge", { body: { action: "delete", id } });
+    if (error || (data as any)?.error) { toast.error(error?.message ?? (data as any)?.error); return; }
+    load();
+  };
 
   return (
     <div className="space-y-5">
-      <p className="text-sm text-muted-foreground">
-        Add what your guests ask about — breakfast times, Wi-Fi, check-out, menus, policies.
-        The assistant answers from this. One topic per entry works best.
+      {/* Scope selector */}
+      <div className="flex flex-wrap items-center gap-2">
+        {(["general", "department", "room"] as Scope[]).map((s) => (
+          <Button key={s} size="sm" variant={scope === s ? "default" : "outline"} className="capitalize" onClick={() => setScope(s)}>
+            {s}
+          </Button>
+        ))}
+        {scope === "department" && (
+          <Select value={dept} onValueChange={setDept}>
+            <SelectTrigger className="h-8 w-44"><SelectValue /></SelectTrigger>
+            <SelectContent>{DEPARTMENTS.map((d) => <SelectItem key={d.key} value={d.key}>{d.display_name}</SelectItem>)}</SelectContent>
+          </Select>
+        )}
+        {scope === "room" && (
+          <Select value={roomId} onValueChange={setRoomId}>
+            <SelectTrigger className="h-8 w-44"><SelectValue placeholder="Select room" /></SelectTrigger>
+            <SelectContent>{rooms.map((r) => <SelectItem key={r.id} value={r.id}>Room {r.room_number}</SelectItem>)}</SelectContent>
+          </Select>
+        )}
+      </div>
+      <p className="text-xs text-muted-foreground">
+        {scope === "general" && "Hotel-wide info every guest can ask about (breakfast, wifi, checkout, policies)."}
+        {scope === "department" && "Guest-facing info for a team (menus, spa treatments, opening hours)."}
+        {scope === "room" && "Info shown only to this room's guest (appliance guide, balcony access, quirks)."}
       </p>
 
-      {entries.length === 0 && (
-        <div className="flex flex-wrap gap-2">
-          {STARTERS.map((s) => (
-            <Button key={s} size="sm" variant="outline" onClick={() => addEntry(s)}>
-              <Plus className="mr-1 h-3 w-3" /> {s}
-            </Button>
+      {/* Add */}
+      <div className="rounded-xl border p-4 space-y-2">
+        <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title (optional)" />
+        <Textarea value={content} onChange={(e) => setContent(e.target.value)} placeholder="Type the information…" rows={3} />
+        <div className="flex items-center justify-between">
+          <input ref={fileRef} type="file" className="hidden" accept=".pdf,.txt,.md,.docx,.json,.csv" onChange={onFile} />
+          <Button size="sm" variant="outline" disabled={busy} onClick={() => fileRef.current?.click()}>
+            <Upload className="mr-1 h-4 w-4" /> Upload document
+          </Button>
+          <Button size="sm" disabled={busy || !content.trim()} onClick={addEntry}>
+            {busy ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Plus className="mr-1 h-4 w-4" />} Add
+          </Button>
+        </div>
+      </div>
+
+      {/* Entries */}
+      {loading ? (
+        <div className="flex items-center gap-2 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</div>
+      ) : visible.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No entries in this scope yet.</p>
+      ) : (
+        <div className="divide-y rounded-xl border">
+          {visible.map((e) => (
+            <div key={e.id} className="flex items-start gap-3 px-4 py-3">
+              <div className="min-w-0 flex-1">
+                {e.title && <div className="text-sm font-medium">{e.title}</div>}
+                <div className="truncate text-sm text-muted-foreground">{e.content}</div>
+              </div>
+              <Button size="sm" variant="ghost" onClick={() => del(e.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+            </div>
           ))}
         </div>
       )}
-
-      <div className="space-y-4">
-        {entries.map((e) => (
-          <div key={e.id} className="rounded-xl border p-4">
-            <div className="mb-2 flex items-center gap-2">
-              <Input
-                value={e.title}
-                onChange={(ev) => update(e.id, { title: ev.target.value })}
-                placeholder="Title (e.g. Breakfast times)"
-                className="font-medium"
-              />
-              <Button size="sm" variant="ghost" onClick={() => remove(e.id)}>
-                <Trash2 className="h-4 w-4 text-destructive" />
-              </Button>
-            </div>
-            <Textarea
-              value={e.content}
-              onChange={(ev) => update(e.id, { content: ev.target.value })}
-              placeholder="Breakfast is served 7–10:30am in the ground-floor restaurant…"
-              rows={3}
-            />
-          </div>
-        ))}
-      </div>
-
-      <div className="flex items-center justify-between">
-        <Button variant="outline" size="sm" onClick={() => addEntry()}>
-          <Plus className="mr-1 h-4 w-4" /> Add entry
-        </Button>
-        <Button onClick={saveAndIndex} disabled={saving}>
-          {saving ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Save className="mr-1 h-4 w-4" />}
-          Save &amp; index
-        </Button>
-      </div>
     </div>
   );
 }
