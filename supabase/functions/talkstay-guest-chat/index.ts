@@ -30,6 +30,40 @@ interface RoomCtx {
   hotelId: string; hotelName: string; assistantId: string | null;
   roomId: string; roomNumber: string; language: string; slug: string;
   departments: string[];
+  rules: { department_key: string; keywords: string[] }[];
+}
+
+// Built-in deterministic keyword routing (safety net + works when OpenAI is down).
+// Hotel-configured ts_routing_rules take precedence over these.
+const DEFAULT_RULES: Record<string, string[]> = {
+  housekeeping: ["towel", "towels", "clean", "cleaning", "bedding", "pillow", "pillows", "sheets", "blanket", "toiletries", "soap", "shampoo", "amenities", "make up the room", "tidy", "rubbish", "bin"],
+  laundry: ["laundry", "dry clean", "dry-clean", "ironing", "iron my", "press my", "wash my clothes"],
+  kitchen: ["food", "breakfast", "lunch", "dinner", "room service", "menu", "meal", "hungry", "snack", "sandwich", "burger", "pizza", "coffee", "tea", "order food"],
+  bar: ["drink", "wine", "beer", "cocktail", "bottle", "champagne", "minibar", "whisky", "whiskey", "vodka", "gin", "spirits"],
+  maintenance: ["broken", "not working", "doesn't work", "leak", "leaking", "ac ", "air con", "air-con", "air conditioning", "heating", "heater", "tv", "television", "light", "bulb", "toilet", "shower", "tap", "hot water", "wifi not", "internet not", "won't turn"],
+  concierge: ["taxi", "cab", "uber", "recommend", "recommendation", "restaurant nearby", "directions", "luggage", "bags", "tour", "tickets", "attraction", "things to do"],
+  front_desk: ["checkout", "check out", "check-out", "late checkout", "early check", "bill", "invoice", "charge", "receipt", "room key", "key card", "room access", "extend my stay"],
+  duty_manager: ["complaint", "complain", "manager", "unacceptable", "terrible", "awful", "disgusting", "refund", "compensation", "safety", "emergency", "police", "dangerous", "threat", "harass", "discriminat"],
+};
+
+/** Deterministic route. Returns {dept, source} or null. Hotel rules are authoritative. */
+function classifyDeterministic(message: string, ctx: RoomCtx): { dept: string; source: "rule" | "keyword" } | null {
+  const m = ` ${message.toLowerCase()} `;
+  // 1) hotel-configured rules first (authoritative)
+  for (const r of ctx.rules) {
+    if (!ctx.departments.includes(r.department_key)) continue;
+    if ((r.keywords || []).some((k) => k && m.includes(k.toLowerCase()))) {
+      return { dept: r.department_key, source: "rule" };
+    }
+  }
+  // 2) built-in defaults — pick the department with the most keyword hits
+  let best: { dept: string; hits: number } | null = null;
+  for (const [dept, kws] of Object.entries(DEFAULT_RULES)) {
+    if (!ctx.departments.includes(dept)) continue;
+    const hits = kws.filter((k) => m.includes(k)).length;
+    if (hits > 0 && (!best || hits > best.hits)) best = { dept, hits };
+  }
+  return best ? { dept: best.dept, source: "keyword" } : null;
 }
 
 async function resolveRoom(
@@ -52,14 +86,17 @@ async function resolveRoom(
     .from("ts_rooms").select("id, room_number").eq("id", roomId).maybeSingle();
   if (!room) return null;
 
-  const { data: depts } = await admin
-    .from("ts_departments").select("key").eq("hotel_id", hotel.id).eq("is_active", true);
+  const [{ data: depts }, { data: rules }] = await Promise.all([
+    admin.from("ts_departments").select("key").eq("hotel_id", hotel.id).eq("is_active", true),
+    admin.from("ts_routing_rules").select("department_key, keywords").eq("hotel_id", hotel.id).eq("is_active", true),
+  ]);
 
   return {
     hotelId: hotel.id, hotelName: hotel.name, assistantId: hotel.assistant_id,
     roomId: room.id, roomNumber: room.room_number,
     language: hotel.default_language || "English", slug: hotel.slug,
     departments: (depts ?? []).map((d: any) => d.key),
+    rules: (rules ?? []) as any,
   };
 }
 
@@ -231,75 +268,116 @@ Keep replies to 1–3 short sentences.`;
       return json({ reply, requests: createdRequests, language: ctx.language });
     };
 
-    // Up to 2 tool rounds.
-    for (let round = 0; round < 3; round++) {
-      const resp = await fetch(OPENAI, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "gpt-4o-mini", messages, tools, tool_choice: "auto", temperature: 0.5, max_tokens: 500 }),
-      });
-      if (!resp.ok) return json({ error: `AI error ${resp.status}` }, 502);
-      const data = await resp.json();
-      const msg = data.choices?.[0]?.message;
-      if (!msg) return json({ error: "No AI response" }, 502);
-
-      const toolCalls = msg.tool_calls ?? [];
-      if (toolCalls.length === 0) {
-        return await logAndReturn(msg.content ?? "");
+    // Shared request-creation (used by both the LLM path and the deterministic
+    // fallback), records HOW it was classified for observability + triage.
+    const createRequest = async (
+      dept0: string, summary: string,
+      o: { isComplaint?: boolean; isChargeable?: boolean; priority?: string; method: string; needsTriage?: boolean }
+    ) => {
+      const dept = ctx.departments.includes(dept0) ? dept0 : (DEPARTMENTS.includes(dept0) ? dept0 : "front_desk");
+      const isComplaint = o.isComplaint ?? (dept === "duty_manager");
+      const { data: reqRow } = await admin.from("ts_service_requests").insert({
+        hotel_id: ctx.hotelId, room_id: ctx.roomId, department_key: dept,
+        intent: message.slice(0, 200), summary: summary.slice(0, 500),
+        priority: isComplaint ? "urgent" : (o.priority || "normal"),
+        is_complaint: isComplaint, is_chargeable: !!o.isChargeable,
+        guest_language: ctx.language, session_id: sessionId || null,
+        classification_method: o.method, needs_triage: !!o.needsTriage,
+        conversation: [...history.slice(-6), { role: "user", content: message }],
+      }).select("id, department_key, summary, status, is_complaint").single();
+      if (reqRow) {
+        await admin.from("ts_request_events").insert({ request_id: reqRow.id, status: "new", actor_type: "guest" });
+        admin.functions.invoke("talkstay-notify", { body: { requestId: reqRow.id } }).catch(() => {});
+        createdRequests.push(reqRow);
       }
+      return reqRow;
+    };
 
-      messages.push(msg);
-      for (const tc of toolCalls) {
-        let args: any = {};
-        try { args = JSON.parse(tc.function.arguments || "{}"); } catch { /* ignore */ }
-
-        if (tc.function.name === "answer_from_knowledge") {
-          if (guestIntent === "other") guestIntent = "question";
-          const kb = await searchKnowledge(admin, ctx.hotelId, ctx.roomId, String(args.query || message), OPENAI_API_KEY);
-          messages.push({ role: "tool", tool_call_id: tc.id, content: kb || "No knowledge-base entries matched. Do not invent an answer." });
-        } else if (tc.function.name === "create_service_request") {
-          const dept = activeDepts.includes(args.department) ? args.department
-            : (DEPARTMENTS.includes(args.department) ? args.department : "front_desk");
-          const isComplaint = !!args.is_complaint || dept === "duty_manager";
-          guestIntent = isComplaint ? "complaint" : "request";
-          const { data: reqRow, error } = await admin
-            .from("ts_service_requests")
-            .insert({
-              hotel_id: ctx.hotelId, room_id: ctx.roomId, department_key: dept,
-              intent: message.slice(0, 200), summary: String(args.summary || message).slice(0, 500),
-              priority: isComplaint ? "urgent" : (args.priority || "normal"),
-              is_complaint: isComplaint, is_chargeable: !!args.is_chargeable,
-              guest_language: ctx.language, session_id: sessionId || null,
-              conversation: [...history.slice(-6), { role: "user", content: message }],
-            })
-            .select("id, department_key, summary, status, is_complaint")
-            .single();
-          if (!error && reqRow) {
-            await admin.from("ts_request_events").insert({
-              request_id: reqRow.id, status: "new", actor_type: "guest",
-            });
-            // Alert the department (email now; web push added alongside). Fire-and-forget.
-            admin.functions.invoke("talkstay-notify", { body: { requestId: reqRow.id } }).catch(() => {});
-            createdRequests.push(reqRow);
-            messages.push({
-              role: "tool", tool_call_id: tc.id,
-              content: JSON.stringify({ ok: true, department: dept, eta: ETA[dept] || "shortly", is_complaint: isComplaint }),
-            });
-          } else {
-            messages.push({ role: "tool", tool_call_id: tc.id, content: JSON.stringify({ ok: false }) });
+    // LLM call with timeout + one retry (handles OpenAI slowness/rate limits at scale).
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    const callLLM = async (): Promise<any> => {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const ctrl = new AbortController();
+          const t = setTimeout(() => ctrl.abort(), 15000);
+          const resp = await fetch(OPENAI, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ model: "gpt-4o-mini", messages, tools, tool_choice: "auto", temperature: 0.4, max_tokens: 500 }),
+            signal: ctrl.signal,
+          });
+          clearTimeout(t);
+          if (!resp.ok) {
+            if (attempt === 0 && (resp.status === 429 || resp.status >= 500)) { await sleep(700); continue; }
+            throw new Error(`status ${resp.status}`);
           }
-        } else {
-          messages.push({ role: "tool", tool_call_id: tc.id, content: "{}" });
+          return await resp.json();
+        } catch (e) {
+          if (attempt === 0) { await sleep(700); continue; }
+          throw e;
         }
       }
-    }
+    };
 
-    // Fell through the tool loop — return a safe closing reply.
-    return await logAndReturn(
-      createdRequests.length
+    try {
+      for (let round = 0; round < 3; round++) {
+        const data = await callLLM();
+        const msg = data?.choices?.[0]?.message;
+        if (!msg) throw new Error("no message");
+
+        const toolCalls = msg.tool_calls ?? [];
+        if (toolCalls.length === 0) return await logAndReturn(msg.content ?? "");
+
+        messages.push(msg);
+        for (const tc of toolCalls) {
+          let args: any = {};
+          try { args = JSON.parse(tc.function.arguments || "{}"); } catch { /* ignore */ }
+
+          if (tc.function.name === "answer_from_knowledge") {
+            if (guestIntent === "other") guestIntent = "question";
+            const kb = await searchKnowledge(admin, ctx.hotelId, ctx.roomId, String(args.query || message), OPENAI_API_KEY);
+            messages.push({ role: "tool", tool_call_id: tc.id, content: kb || "No knowledge-base entries matched. Do not invent an answer." });
+          } else if (tc.function.name === "create_service_request") {
+            // HYBRID ROUTING: hotel keyword rule (authoritative) > LLM dept > built-in
+            // keyword default > front-desk fallback (flagged for human triage).
+            const det = classifyDeterministic(message, ctx);
+            const llmValid = ctx.departments.includes(args.department);
+            let dept: string, method: string, needsTriage = false;
+            if (det?.source === "rule") { dept = det.dept; method = "rule"; }
+            else if (llmValid) { dept = args.department; method = "llm"; }
+            else if (det) { dept = det.dept; method = "keyword"; }
+            else { dept = "front_desk"; method = "fallback"; needsTriage = true; }
+
+            const isComplaint = !!args.is_complaint || dept === "duty_manager";
+            guestIntent = isComplaint ? "complaint" : "request";
+            const reqRow = await createRequest(dept, String(args.summary || message),
+              { isComplaint, isChargeable: !!args.is_chargeable, priority: args.priority, method, needsTriage });
+            messages.push({
+              role: "tool", tool_call_id: tc.id,
+              content: JSON.stringify(reqRow ? { ok: true, department: dept, eta: ETA[dept] || "shortly", is_complaint: isComplaint } : { ok: false }),
+            });
+          } else {
+            messages.push({ role: "tool", tool_call_id: tc.id, content: "{}" });
+          }
+        }
+      }
+      return await logAndReturn(createdRequests.length
         ? "Done — I've passed that to the team. They'll be with you shortly."
-        : "I've noted that. Is there anything else I can help with?"
-    );
+        : "I've noted that. Is there anything else I can help with?");
+    } catch (_llmErr) {
+      // ⛑️ DETERMINISTIC FALLBACK — OpenAI failed/timed out. NEVER lose the request.
+      const det = classifyDeterministic(message, ctx);
+      if (det) {
+        const isComplaint = det.dept === "duty_manager";
+        guestIntent = isComplaint ? "complaint" : "request";
+        await createRequest(det.dept, message, { isComplaint, method: det.source, needsTriage: det.source === "keyword" });
+        return await logAndReturn("Thanks — I've passed your request to the team. They'll be with you shortly.");
+      }
+      // No clear intent — still don't drop it: send to front desk for human triage.
+      guestIntent = "other";
+      await createRequest("front_desk", message, { method: "fallback", needsTriage: true });
+      return await logAndReturn("Thanks for your message — reception has it and will follow up with you shortly.");
+    }
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : String(e) }, 500);
   }

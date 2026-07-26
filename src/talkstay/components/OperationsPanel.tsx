@@ -14,6 +14,7 @@ interface Req {
   status: string;
   priority: string;
   is_complaint: boolean;
+  needs_triage: boolean;
   guest_language: string | null;
   created_at: string;
   ts_rooms?: { room_number: string } | null;
@@ -64,7 +65,7 @@ export default function OperationsPanel({ hotel }: { hotel: Hotel }) {
   const refresh = async () => {
     const { data, error } = await supabase
       .from("ts_service_requests")
-      .select("id, room_id, department_key, summary, status, priority, is_complaint, guest_language, created_at, ts_rooms(room_number)")
+      .select("id, room_id, department_key, summary, status, priority, is_complaint, needs_triage, guest_language, created_at, ts_rooms(room_number)")
       .eq("hotel_id", hotel.id)
       .order("created_at", { ascending: false })
       .limit(200);
@@ -198,6 +199,7 @@ export default function OperationsPanel({ hotel }: { hotel: Hotel }) {
                       )}
                       {r.priority === "urgent" && <Badge className="bg-red-500/15 text-red-600">Urgent</Badge>}
                       {overdue && <Badge className="bg-red-500/15 text-red-600">Overdue</Badge>}
+                      {r.needs_triage && <Badge className="bg-amber-500/15 text-amber-600">Check routing</Badge>}
                     </div>
                     <p className="mt-1 text-sm">{r.summary}</p>
                     <p className="mt-1 text-xs text-muted-foreground">
