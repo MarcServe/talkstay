@@ -72,8 +72,18 @@ serve(async (req) => {
 
     const recipients = new Set<string>();
     if (deptEmail) recipients.add(deptEmail);
-    // Fallback to owner if no department email; always copy owner on complaints/urgent.
-    if (!deptEmail && ownerEmail) recipients.add(ownerEmail);
+
+    // Staff assigned to this department also get the alert.
+    const { data: assigned } = await admin
+      .from("ts_staff").select("user_id")
+      .eq("hotel_id", r.hotel_id).eq("department_key", r.department_key).eq("status", "active");
+    for (const s of assigned ?? []) {
+      const { data: su } = await admin.auth.admin.getUserById(s.user_id);
+      if (su?.user?.email) recipients.add(su.user.email);
+    }
+
+    // Fallback to owner if nobody else; always copy owner on complaints/urgent.
+    if (recipients.size === 0 && ownerEmail) recipients.add(ownerEmail);
     if (urgent && ownerEmail) recipients.add(ownerEmail);
 
     const results: Record<string, boolean> = {};
