@@ -116,26 +116,48 @@ async function embedQuery(query: string, apiKey: string): Promise<number[] | nul
   } catch { return null; }
 }
 
-// Scoped retrieval: general + all department + THIS room's knowledge (never other rooms).
-async function searchKnowledge(admin: any, hotelId: string, roomId: string, query: string, apiKey: string): Promise<string> {
-  if (!apiKey) return "";
-  try {
-    const emb = await embedQuery(query, apiKey);
-    if (!emb) return "";
-    const { data } = await admin.rpc("ts_search_knowledge", {
-      query_embedding: `[${emb.join(",")}]`, p_hotel_id: hotelId, p_room_id: roomId, match_count: 6,
-    });
-    const results = (data ?? []) as any[];
-    return results
-      .filter((r) => (r.similarity ?? 0) > 0.1)
-      .slice(0, 5)
-      .map((r) => {
-        const tag = r.scope === "room" ? "[Room info] " : r.scope === "department" ? `[${r.department_key}] ` : "";
-        return r.title ? `${tag}[${r.title}]: ${r.content}` : `${tag}${r.content}`;
-      })
-      .join("\n\n")
-      .slice(0, 6000);
-  } catch { return ""; }
+// Merged retrieval:
+//  (a) room/department/general entries from ts_knowledge (room-scoped, never other rooms)
+//  (b) the hotel WEBSITE + documents knowledge from TalkWeb's knowledge_vectors
+//      (via enhanced-knowledge-search on the hotel's linked assistant)
+// Room/department info first, then site content.
+async function searchKnowledge(
+  admin: any, hotelId: string, roomId: string, assistantId: string | null,
+  query: string, apiKey: string
+): Promise<string> {
+  const parts: string[] = [];
+
+  // (a) TalkStay layered KB
+  if (apiKey) {
+    try {
+      const emb = await embedQuery(query, apiKey);
+      if (emb) {
+        const { data } = await admin.rpc("ts_search_knowledge", {
+          query_embedding: `[${emb.join(",")}]`, p_hotel_id: hotelId, p_room_id: roomId, match_count: 5,
+        });
+        for (const r of ((data ?? []) as any[]).filter((r) => (r.similarity ?? 0) > 0.1).slice(0, 4)) {
+          const tag = r.scope === "room" ? "[Room info] " : r.scope === "department" ? `[${r.department_key}] ` : "";
+          parts.push(r.title ? `${tag}[${r.title}]: ${r.content}` : `${tag}${r.content}`);
+        }
+      }
+    } catch { /* best-effort */ }
+  }
+
+  // (b) TalkWeb website/document knowledge (assistant-scoped)
+  if (assistantId) {
+    try {
+      const { data } = await admin.functions.invoke("enhanced-knowledge-search", {
+        body: { query, assistantId, includePerplexity: false, maxResults: 6 },
+      });
+      for (const r of ((data?.results ?? []) as any[])
+        .filter((r) => (r.quality_score ?? 0) >= 0.1 || (r.score ?? 0) >= 0.1)
+        .slice(0, 4)) {
+        parts.push(r.title ? `[${r.title}]: ${r.content}` : String(r.content ?? ""));
+      }
+    } catch { /* best-effort */ }
+  }
+
+  return parts.join("\n\n").slice(0, 6000);
 }
 
 const OPENAI = "https://api.openai.com/v1/chat/completions";
@@ -160,6 +182,9 @@ serve(async (req) => {
       return json({
         hotelName: ctx.hotelName, roomNumber: ctx.roomNumber, language: ctx.language,
         departments: ctx.departments, branding: ctx.branding,
+        // Assistant id powers the voice session (TalkWeb realtime stack); assistant
+        // ids are public by design in TalkWeb's widget embeds.
+        assistantId: ctx.assistantId,
         greeting: `Hi! You're in Room ${ctx.roomNumber} at ${ctx.hotelName}. How can I help — anything you need, or a question about the hotel?`,
       });
     }
@@ -337,7 +362,7 @@ Keep replies to 1–3 short sentences.`;
 
           if (tc.function.name === "answer_from_knowledge") {
             if (guestIntent === "other") guestIntent = "question";
-            const kb = await searchKnowledge(admin, ctx.hotelId, ctx.roomId, String(args.query || message), OPENAI_API_KEY);
+            const kb = await searchKnowledge(admin, ctx.hotelId, ctx.roomId, ctx.assistantId, String(args.query || message), OPENAI_API_KEY);
             messages.push({ role: "tool", tool_call_id: tc.id, content: kb || "No knowledge-base entries matched. Do not invent an answer." });
           } else if (tc.function.name === "create_service_request") {
             // HYBRID ROUTING: hotel keyword rule (authoritative) > LLM dept > built-in

@@ -2,14 +2,20 @@ import { useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Loader2, Send, ClipboardList, Star, X, Mic, MicOff } from "lucide-react";
+import { Loader2, Send, ClipboardList, Star, X, Mic, Globe, Check } from "lucide-react";
+import { RealtimeChat } from "@/utils/RealtimeChat";
 import {
   fetchContext, sendMessage, fetchMyRequests, submitReview,
   getSessionId, loadHistory, saveHistory, getNotifyChoice, setNotifyChoice,
   STATUS_LABEL, type ChatMsg, type GuestRequest, type GuestBranding,
 } from "@/talkstay/lib/guest";
 
-type Ctx = { hotelName: string; roomNumber: string; greeting: string; branding?: GuestBranding };
+type Ctx = {
+  hotelName: string; roomNumber: string; greeting: string;
+  branding?: GuestBranding; assistantId?: string | null;
+};
+
+type Msg = ChatMsg | { role: "request"; content: string };
 
 export default function GuestApp() {
   const { hotelSlug = "", roomId = "" } = useParams();
@@ -18,89 +24,117 @@ export default function GuestApp() {
 
   const [ctx, setCtx] = useState<Ctx | null>(null);
   const [invalid, setInvalid] = useState(false);
-  const [msgs, setMsgs] = useState<ChatMsg[]>([]);
+  const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [notifyOpen, setNotifyOpen] = useState(false);
   const [requestsOpen, setRequestsOpen] = useState(false);
-  const [listening, setListening] = useState(false);
+
+  // Voice state (TalkWeb realtime stack)
+  const [voiceState, setVoiceState] = useState<"idle" | "connecting" | "connected">("idle");
+  const [isListening, setIsListening] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const chatRef = useRef<RealtimeChat | null>(null);
+  const liveAssistantRef = useRef("");
+
   const sid = hotelSlug && roomId ? getSessionId(hotelSlug, roomId) : "";
   const scroller = useRef<HTMLDivElement>(null);
-  const recognitionRef = useRef<any>(null);
-
-  const SpeechRecognition =
-    typeof window !== "undefined" ? (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition : null;
-  const voiceSupported = !!SpeechRecognition;
-
-  const speak = (text: string) => {
-    try {
-      if (typeof window === "undefined" || !window.speechSynthesis) return;
-      window.speechSynthesis.cancel();
-      const u = new SpeechSynthesisUtterance(text);
-      u.rate = 1; u.pitch = 1;
-      window.speechSynthesis.speak(u);
-    } catch { /* ignore */ }
-  };
-
-  const startListening = () => {
-    if (!voiceSupported || busy) return;
-    try {
-      const rec = new SpeechRecognition();
-      rec.lang = navigator.language || "en-GB";
-      rec.interimResults = false;
-      rec.maxAlternatives = 1;
-      rec.onresult = (e: any) => {
-        const transcript = e.results?.[0]?.[0]?.transcript?.trim();
-        if (transcript) send(transcript, true);
-      };
-      rec.onend = () => setListening(false);
-      rec.onerror = () => setListening(false);
-      recognitionRef.current = rec;
-      setListening(true);
-      rec.start();
-    } catch { setListening(false); }
-  };
-
-  const stopListening = () => {
-    try { recognitionRef.current?.stop(); } catch { /* ignore */ }
-    setListening(false);
-  };
 
   useEffect(() => {
     if (!hotelSlug || !roomId || !token) { setInvalid(true); return; }
     fetchContext(hotelSlug, roomId, token)
       .then((c) => {
         setCtx(c);
-        const prev = loadHistory(sid);
+        const prev = loadHistory(sid) as Msg[];
         setMsgs(prev.length ? prev : [{ role: "assistant", content: c.greeting }]);
       })
       .catch(() => setInvalid(true));
+    return () => { chatRef.current?.disconnect(); };
     // eslint-disable-next-line
   }, [hotelSlug, roomId, token]);
 
   useEffect(() => {
-    if (sid && msgs.length) saveHistory(sid, msgs);
+    if (sid && msgs.length) saveHistory(sid, msgs.filter((m) => m.role !== "request") as ChatMsg[]);
     scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: "smooth" });
   }, [msgs, sid]);
 
-  const send = async (raw: string, viaVoice = false) => {
+  const append = (m: Msg) => setMsgs((prev) => [...prev, m]);
+
+  // Hotel layer: forward a final utterance to the TalkStay routing brain. If it
+  // creates request(s), show confirmation chips + the notification choice sheet.
+  const routeThroughHotelBrain = async (text: string, surfaceReply: boolean) => {
+    try {
+      const history = msgs.filter((m) => m.role !== "request") as ChatMsg[];
+      const res = await sendMessage({ hotelSlug, roomId, token, sessionId: sid, message: text, history });
+      if (res.requests?.length) {
+        for (const r of res.requests) {
+          append({ role: "request", content: r.summary });
+        }
+        if (!getNotifyChoice(sid)) setNotifyOpen(true);
+      }
+      if (surfaceReply) append({ role: "assistant", content: res.reply });
+      return res;
+    } catch {
+      if (surfaceReply) append({ role: "assistant", content: "Sorry — something went wrong. Please try again." });
+      return null;
+    }
+  };
+
+  // Typed path (single brain: talkstay-guest-chat).
+  const sendTyped = async (raw: string) => {
     const text = raw.trim();
     if (!text || busy) return;
     setInput("");
-    const next = [...msgs, { role: "user" as const, content: text }];
-    setMsgs(next);
+    append({ role: "user", content: text });
     setBusy(true);
+    await routeThroughHotelBrain(text, true);
+    setBusy(false);
+  };
+
+  // Voice path (TalkWeb RealtimeChat → realtime-token, WebRTC).
+  const startVoice = async () => {
+    if (!ctx?.assistantId) return;
+    setVoiceState("connecting");
     try {
-      const res = await sendMessage({ hotelSlug, roomId, token, sessionId: sid, message: text, history: msgs });
-      setMsgs((m) => [...m, { role: "assistant", content: res.reply }]);
-      if (viaVoice) speak(res.reply);
-      if (res.requests?.length && !getNotifyChoice(sid)) setNotifyOpen(true);
+      const chat = new RealtimeChat(ctx.assistantId, {
+        onUserSpeechStart: () => setIsListening(true),
+        onUserSpeechStop: () => setIsListening(false),
+        onUserTranscript: (text, isFinal) => {
+          if (isFinal && text.trim()) {
+            append({ role: "user", content: text.trim() });
+            // Hotel layer in background; spoken reply comes from the voice session.
+            routeThroughHotelBrain(text.trim(), false);
+          }
+        },
+        onAssistantTranscript: (text, isDone) => {
+          if (isDone && text.trim() && text.trim() !== liveAssistantRef.current) {
+            liveAssistantRef.current = text.trim();
+            append({ role: "assistant", content: text.trim() });
+          }
+        },
+        onAssistantAudioStart: () => setIsSpeaking(true),
+        onAssistantAudioEnd: () => setIsSpeaking(false),
+        onError: () => { /* keep session; transcript continues */ },
+        onInactivityTimeout: () => stopVoice(),
+      } as any);
+      chatRef.current = chat;
+      await chat.init();
+      setVoiceState("connected");
     } catch {
-      setMsgs((m) => [...m, { role: "assistant", content: "Sorry — something went wrong. Please try again." }]);
-    } finally {
-      setBusy(false);
+      setVoiceState("idle");
+      append({ role: "assistant", content: "Voice couldn't start — you can type your message below." });
     }
   };
+
+  const stopVoice = () => {
+    chatRef.current?.disconnect();
+    chatRef.current = null;
+    setVoiceState("idle");
+    setIsListening(false);
+    setIsSpeaking(false);
+  };
+
+  const toggleVoice = () => (voiceState === "idle" ? startVoice() : stopVoice());
 
   if (invalid) {
     return (
@@ -114,35 +148,109 @@ export default function GuestApp() {
     return <div className="flex min-h-screen items-center justify-center text-muted-foreground"><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Connecting…</div>;
   }
 
-  const brand = ctx.branding?.primary_color || undefined;
+  const brand = ctx.branding?.primary_color || "#7c3aed";
   const logo = ctx.branding?.logo_url || undefined;
+  const voiceAvailable = !!ctx.assistantId;
+
+  const orbLabel =
+    voiceState === "connecting" ? "Setting up your microphone…"
+    : isSpeaking ? "Speaking…"
+    : voiceState === "connected" ? (isListening ? "Listening…" : "I'm listening — just talk")
+    : "Tap to Talk";
 
   return (
     <div className="mx-auto flex h-[100dvh] max-w-md flex-col bg-background">
-      <header className="flex items-center justify-between border-b px-4 py-3">
-        <div className="flex items-center gap-2.5">
-          {logo && <img src={logo} alt="" className="h-9 w-9 rounded-lg object-cover" />}
-          <div>
-            <div className="font-semibold leading-tight">{ctx.hotelName}</div>
-            <div className="text-xs text-muted-foreground">Room {ctx.roomNumber}</div>
-          </div>
+      {/* Header — TalkWeb widget style */}
+      <header className="border-b px-4 pb-3 pt-4 text-center">
+        <div className="mb-1 flex items-start justify-end">
+          <Button variant="outline" size="sm" onClick={() => setRequestsOpen(true)}>
+            <ClipboardList className="mr-1 h-4 w-4" /> My requests
+          </Button>
         </div>
-        <Button variant="outline" size="sm" onClick={() => setRequestsOpen(true)}>
-          <ClipboardList className="mr-1 h-4 w-4" /> My requests
-        </Button>
+        {logo && <img src={logo} alt="" className="mx-auto mb-2 h-14 w-14 rounded-xl object-cover" />}
+        <h1 className="text-lg font-bold leading-tight">{ctx.hotelName}</h1>
+        <p className="text-sm text-muted-foreground">Room {ctx.roomNumber} · Voice Stay</p>
+        <div className="mt-2 inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs text-muted-foreground">
+          <Globe className="h-3.5 w-3.5" /> Speak Any Language
+        </div>
       </header>
 
-      <div ref={scroller} className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
-        {msgs.map((m, i) => (
-          <div key={i} className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
-            <div
-              className={`max-w-[85%] rounded-2xl px-4 py-2 text-sm ${m.role === "user" ? "text-white" : "bg-muted"}`}
-              style={m.role === "user" ? { backgroundColor: brand || "hsl(var(--primary))" } : undefined}
-            >
-              {m.content}
+      {/* Voice orb — copied from TalkWeb's SimplifiedVoiceInterface */}
+      <div
+        className="flex flex-col items-center gap-3 py-6"
+        style={{ background: `linear-gradient(180deg, ${brand}0d, transparent)` }}
+      >
+        <div className="relative">
+          {isSpeaking && (
+            <div className="absolute inset-0 animate-pulse rounded-full">
+              <div className="-m-2 h-28 w-28 rounded-full" style={{ background: `linear-gradient(135deg, ${brand}4d, ${brand}1a)` }} />
             </div>
-          </div>
-        ))}
+          )}
+          <button
+            onClick={toggleVoice}
+            disabled={!voiceAvailable || voiceState === "connecting"}
+            className="relative z-10 flex h-24 w-24 items-center justify-center rounded-full shadow-xl transition-all duration-300 hover:scale-105 disabled:cursor-not-allowed disabled:opacity-50"
+            style={{
+              background: isListening && !isSpeaking
+                ? "linear-gradient(135deg, #ef4444, #dc2626)"
+                : `linear-gradient(135deg, ${brand}, ${brand}cc)`,
+              boxShadow: isSpeaking ? `0 0 30px ${brand}80, 0 0 60px ${brand}4d` : undefined,
+            }}
+            aria-label={voiceState === "idle" ? "Start voice" : "Stop voice"}
+          >
+            {voiceState === "connecting" ? (
+              <Loader2 className="h-8 w-8 animate-spin text-white" />
+            ) : (
+              <div className="relative">
+                <Mic className={`h-9 w-9 text-white ${isSpeaking ? "animate-pulse" : ""}`} />
+                {isListening && !isSpeaking && (
+                  <div className="absolute inset-0 animate-ping opacity-75">
+                    <div className="h-full w-full rounded-full bg-white/20" />
+                  </div>
+                )}
+              </div>
+            )}
+            {isSpeaking && (
+              <>
+                <div className="absolute inset-0 animate-ping rounded-full bg-white/10" style={{ animationDuration: "1.5s" }} />
+                <div className="absolute inset-0 animate-ping rounded-full bg-white/5" style={{ animationDuration: "2s", animationDelay: "0.3s" }} />
+              </>
+            )}
+          </button>
+        </div>
+        <div className="text-center">
+          <p className="text-base font-semibold">{orbLabel}</p>
+          {voiceState === "idle" && (
+            <p className="text-xs text-muted-foreground">
+              {voiceAvailable ? "Start a voice conversation" : "Voice unavailable — type below"}
+            </p>
+          )}
+          {voiceState === "connected" && (
+            <button onClick={stopVoice} className="mt-0.5 text-xs text-muted-foreground underline">End voice</button>
+          )}
+        </div>
+      </div>
+
+      {/* Transcript */}
+      <div ref={scroller} className="flex-1 space-y-3 overflow-y-auto px-4 pb-4">
+        {msgs.map((m, i) =>
+          m.role === "request" ? (
+            <div key={i} className="flex justify-center">
+              <span className="inline-flex items-center gap-1.5 rounded-full border bg-muted/60 px-3 py-1 text-xs text-muted-foreground">
+                <Check className="h-3.5 w-3.5 text-green-600" /> Sent to the team — {m.content}
+              </span>
+            </div>
+          ) : (
+            <div key={i} className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
+              <div
+                className={`max-w-[85%] rounded-2xl px-4 py-2 text-sm ${m.role === "user" ? "text-white" : "bg-muted"}`}
+                style={m.role === "user" ? { backgroundColor: brand } : undefined}
+              >
+                {m.content}
+              </div>
+            </div>
+          )
+        )}
         {busy && (
           <div className="flex justify-start">
             <div className="rounded-2xl bg-muted px-4 py-2 text-sm text-muted-foreground">…</div>
@@ -150,28 +258,18 @@ export default function GuestApp() {
         )}
       </div>
 
+      {/* Typed input — TalkWeb style */}
       <form
-        onSubmit={(e) => { e.preventDefault(); send(input, false); }}
+        onSubmit={(e) => { e.preventDefault(); sendTyped(input); }}
         className="flex items-center gap-2 border-t px-3 py-3"
       >
-        {voiceSupported && (
-          <Button
-            type="button" size="icon"
-            variant={listening ? "default" : "outline"}
-            onClick={() => (listening ? stopListening() : startListening())}
-            disabled={busy}
-            aria-label={listening ? "Stop listening" : "Speak"}
-          >
-            {listening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-          </Button>
-        )}
         <Input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder={listening ? "Listening…" : "Speak or type…"}
+          placeholder="Or type your message…"
           disabled={busy}
         />
-        <Button type="submit" size="icon" disabled={busy || !input.trim()} style={brand ? { backgroundColor: brand } : undefined}>
+        <Button type="submit" size="icon" disabled={busy || !input.trim()} style={{ backgroundColor: brand }}>
           <Send className="h-4 w-4" />
         </Button>
       </form>

@@ -47,7 +47,10 @@ export async function fetchContext(hotelSlug: string, roomId: string, token: str
   const { data, error } = await fn({ action: "context", hotelSlug, roomId, token });
   if (error) throw error;
   if ((data as any)?.error) throw new Error((data as any).error);
-  return data as { hotelName: string; roomNumber: string; language: string; greeting: string; departments: string[]; branding?: GuestBranding };
+  return data as {
+    hotelName: string; roomNumber: string; language: string; greeting: string;
+    departments: string[]; branding?: GuestBranding; assistantId?: string | null;
+  };
 }
 
 export async function sendMessage(args: {

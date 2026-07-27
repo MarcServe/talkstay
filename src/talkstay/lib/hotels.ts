@@ -65,17 +65,26 @@ export async function getMyHotel(): Promise<Hotel | null> {
   return (data as Hotel) ?? null;
 }
 
+function normalizeUrl(raw?: string): string | null {
+  const v = (raw || "").trim();
+  if (!v) return null;
+  const withProto = /^https?:\/\//i.test(v) ? v : `https://${v}`;
+  try { return new URL(withProto).toString().replace(/\/$/, ""); } catch { return null; }
+}
+
 /**
  * Create a hotel + its linked assistant (for voice/KB reuse) + seed the 8
  * departments. All under the owner's session (RLS: user_id = auth.uid()).
  */
 export async function createHotel(input: {
   name: string;
+  website_url?: string;
   default_language?: string;
   timezone?: string;
 }): Promise<Hotel> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Not signed in");
+  const websiteUrl = normalizeUrl(input.website_url);
 
   // 1. Linked assistant — reuses TalkWeb's voice + knowledge-base pipeline.
   const { data: assistant, error: aErr } = await supabase
@@ -83,9 +92,9 @@ export async function createHotel(input: {
     .insert({
       user_id: user.id,
       business_name: input.name,
-      // Hotels typically have no scrapable website; KB is entered manually. The
-      // column is NOT NULL, so store a stable placeholder.
-      website_url: "https://talkstay.talkweb.io",
+      // Real hotel website when given (enables TalkWeb's scraping/content infra);
+      // the column is NOT NULL so fall back to a stable placeholder.
+      website_url: websiteUrl ?? "https://talkstay.talkweb.io",
       language: input.default_language ?? "English",
       voice_type: "female",
       tone: "warm, professional",
@@ -120,6 +129,47 @@ export async function createHotel(input: {
   );
 
   return hotel as Hotel;
+}
+
+/**
+ * Website → starter knowledge, using TalkWeb's exact ingest pipeline
+ * (same sequence as TalkWeb's KnowledgeManager):
+ *  1. scrape-website { url }                    → quick single-page content
+ *  2. knowledge-upsert { pages }                → embed + index it now
+ *  3. knowledge-upsert { useScraper:'firecrawl' } → full site crawl in background
+ *     (firecrawl-webhook indexes every page as it completes)
+ */
+export async function ingestHotelWebsite(
+  assistantId: string,
+  websiteUrl: string
+): Promise<{ chunks: number; crawlStarted: boolean }> {
+  let chunks = 0;
+
+  const { data: scrapeData, error: scrapeError } = await supabase.functions.invoke(
+    "scrape-website", { body: { url: websiteUrl } }
+  );
+  if (!scrapeError && scrapeData?.data?.content) {
+    const pages = [{
+      url: websiteUrl,
+      title: scrapeData.data.title || "Website Content",
+      content: scrapeData.data.content,
+    }];
+    const { data: up } = await supabase.functions.invoke("knowledge-upsert", {
+      body: { assistantId, websiteUrl, pages, replace: false },
+    });
+    chunks = up?.chunks ?? 0;
+  }
+
+  // Full-site crawl (async; indexed by firecrawl-webhook as pages complete).
+  let crawlStarted = false;
+  try {
+    const { error } = await supabase.functions.invoke("knowledge-upsert", {
+      body: { assistantId, websiteUrl, useScraper: "firecrawl", crawlLimit: 60, crawlDepth: 3 },
+    });
+    crawlStarted = !error;
+  } catch { /* non-blocking */ }
+
+  return { chunks, crawlStarted };
 }
 
 export async function listRooms(hotelId: string): Promise<Room[]> {

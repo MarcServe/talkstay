@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import {
   Loader2, LogOut, Bell, Menu, X,
-  Inbox, BarChart3, QrCode, Building2, BookOpen, Users, Palette,
+  Inbox, BarChart3, QrCode, Building2, BookOpen, Users, Palette, Globe,
 } from "lucide-react";
 import { enablePush, pushSupported } from "@/talkstay/lib/push";
 import AuthPage from "@/talkstay/pages/AuthPage";
@@ -16,9 +16,10 @@ import InsightsPanel from "@/talkstay/components/InsightsPanel";
 import RoomsPanel from "@/talkstay/components/RoomsPanel";
 import DepartmentsPanel from "@/talkstay/components/DepartmentsPanel";
 import KnowledgePanel from "@/talkstay/components/KnowledgePanel";
+import ContentPanel from "@/talkstay/components/ContentPanel";
 import StaffPanel from "@/talkstay/components/StaffPanel";
 import BrandingPanel from "@/talkstay/components/BrandingPanel";
-import { createHotel, getMyHotel, type Hotel } from "@/talkstay/lib/hotels";
+import { createHotel, getMyHotel, ingestHotelWebsite, type Hotel } from "@/talkstay/lib/hotels";
 
 const NAV = [
   { key: "operations", label: "Operations", icon: Inbox },
@@ -26,6 +27,7 @@ const NAV = [
   { key: "rooms", label: "Rooms & QR", icon: QrCode },
   { key: "branding", label: "Branding", icon: Palette },
   { key: "departments", label: "Departments", icon: Building2 },
+  { key: "content", label: "Content", icon: Globe },
   { key: "knowledge", label: "Knowledge", icon: BookOpen },
   { key: "staff", label: "Staff", icon: Users },
 ] as const;
@@ -33,21 +35,48 @@ type NavKey = (typeof NAV)[number]["key"];
 
 function CreateHotel({ onCreated }: { onCreated: (h: Hotel) => void }) {
   const [name, setName] = useState("");
+  const [website, setWebsite] = useState("");
   const [language, setLanguage] = useState("English");
   const [busy, setBusy] = useState(false);
+  const [stage, setStage] = useState("");
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
     setBusy(true);
     try {
-      const hotel = await createHotel({ name: name.trim(), default_language: language });
-      toast.success("Hotel created");
+      setStage("Creating your hotel…");
+      const hotel = await createHotel({
+        name: name.trim(),
+        website_url: website.trim() || undefined,
+        default_language: language,
+      });
+
+      // Starter knowledge from the hotel's website (TalkWeb scrape pipeline).
+      if (website.trim() && hotel.assistant_id) {
+        setStage("Reading your website…");
+        try {
+          const { chunks, crawlStarted } = await ingestHotelWebsite(
+            hotel.assistant_id,
+            website.trim().startsWith("http") ? website.trim() : `https://${website.trim()}`
+          );
+          toast.success(
+            chunks > 0
+              ? `Hotel created — indexed ${chunks} knowledge chunks from your website.${crawlStarted ? " Full site crawl running in the background." : ""}`
+              : "Hotel created. Website scrape is running — check the Content section."
+          );
+        } catch {
+          toast.message("Hotel created. Website scrape didn't finish — you can run it from the Content section.");
+        }
+      } else {
+        toast.success("Hotel created");
+      }
       onCreated(hotel);
     } catch (err: any) {
       toast.error(err?.message ?? "Failed to create hotel");
     } finally {
       setBusy(false);
+      setStage("");
     }
   };
 
@@ -65,11 +94,18 @@ function CreateHotel({ onCreated }: { onCreated: (h: Hotel) => void }) {
             <Input id="hotel-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="The Grand Hotel" />
           </div>
           <div className="space-y-1.5">
+            <Label htmlFor="hotel-web">Hotel website (optional)</Label>
+            <Input id="hotel-web" value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="https://yourhotel.com" />
+            <p className="text-xs text-muted-foreground">
+              We'll read your website so the assistant can answer guest questions from day one.
+            </p>
+          </div>
+          <div className="space-y-1.5">
             <Label htmlFor="hotel-lang">Primary language</Label>
             <Input id="hotel-lang" value={language} onChange={(e) => setLanguage(e.target.value)} />
           </div>
           <Button type="submit" disabled={busy} className="w-full">
-            {busy ? "Creating…" : "Create hotel"}
+            {busy ? (stage || "Creating…") : "Create hotel"}
           </Button>
         </form>
       </div>
@@ -84,6 +120,7 @@ function Panel({ active, hotel, onHotel }: { active: NavKey; hotel: Hotel; onHot
     case "rooms": return <RoomsPanel hotel={hotel} />;
     case "branding": return <BrandingPanel hotel={hotel} onSaved={(b) => onHotel({ ...hotel, branding: b })} />;
     case "departments": return <DepartmentsPanel hotel={hotel} />;
+    case "content": return <ContentPanel hotel={hotel} />;
     case "knowledge": return <KnowledgePanel hotel={hotel} />;
     case "staff": return <StaffPanel hotel={hotel} />;
   }
