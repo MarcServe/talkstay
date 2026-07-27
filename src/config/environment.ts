@@ -25,6 +25,18 @@ export const getEnvironment = (): Environment => {
   return 'production';
 };
 
+/**
+ * Canonical PUBLIC base URL that guest QR codes must always encode — regardless
+ * of where the dashboard is opened (localhost, a Vercel preview, etc.). A printed
+ * QR must resolve on a guest's phone, so it can never contain localhost.
+ * Override per-deployment with VITE_PUBLIC_BASE_URL.
+ */
+export const getPublicBaseUrl = (): string => {
+  const fromEnv = (import.meta.env.VITE_PUBLIC_BASE_URL as string | undefined)?.trim();
+  if (fromEnv) return fromEnv.replace(/\/+$/, '');
+  return 'https://talkstay.talkweb.io';
+};
+
 export const isProduction = () => getEnvironment() === 'production';
 export const isStaging = () => getEnvironment() === 'staging';
 export const isDevelopment = () => getEnvironment() === 'development';

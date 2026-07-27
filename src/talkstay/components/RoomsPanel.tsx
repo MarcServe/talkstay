@@ -5,11 +5,12 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { Trash2, QrCode, Loader2 } from "lucide-react";
 import { addRoom, deleteRoom, getRoomToken, listRooms, type Hotel, type Room } from "@/talkstay/lib/hotels";
+import { getPublicBaseUrl } from "@/config/environment";
 
 function guestUrl(hotel: Hotel, room: Room, token: string): string {
-  const origin =
-    typeof window !== "undefined" ? window.location.origin : "https://talkstay.talkweb.io";
-  return `${origin}/h/${hotel.slug}/r/${room.id}?token=${token}`;
+  // Always the canonical production URL — a printed QR must resolve on a guest's
+  // phone, never localhost/preview.
+  return `${getPublicBaseUrl()}/h/${hotel.slug}/r/${room.id}?token=${token}`;
 }
 
 export default function RoomsPanel({ hotel }: { hotel: Hotel }) {
