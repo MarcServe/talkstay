@@ -6,10 +6,10 @@ import { Loader2, Send, ClipboardList, Star, X, Mic, MicOff } from "lucide-react
 import {
   fetchContext, sendMessage, fetchMyRequests, submitReview,
   getSessionId, loadHistory, saveHistory, getNotifyChoice, setNotifyChoice,
-  STATUS_LABEL, type ChatMsg, type GuestRequest,
+  STATUS_LABEL, type ChatMsg, type GuestRequest, type GuestBranding,
 } from "@/talkstay/lib/guest";
 
-type Ctx = { hotelName: string; roomNumber: string; greeting: string };
+type Ctx = { hotelName: string; roomNumber: string; greeting: string; branding?: GuestBranding };
 
 export default function GuestApp() {
   const { hotelSlug = "", roomId = "" } = useParams();
@@ -114,12 +114,18 @@ export default function GuestApp() {
     return <div className="flex min-h-screen items-center justify-center text-muted-foreground"><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Connecting…</div>;
   }
 
+  const brand = ctx.branding?.primary_color || undefined;
+  const logo = ctx.branding?.logo_url || undefined;
+
   return (
     <div className="mx-auto flex h-[100dvh] max-w-md flex-col bg-background">
       <header className="flex items-center justify-between border-b px-4 py-3">
-        <div>
-          <div className="font-semibold leading-tight">{ctx.hotelName}</div>
-          <div className="text-xs text-muted-foreground">Room {ctx.roomNumber}</div>
+        <div className="flex items-center gap-2.5">
+          {logo && <img src={logo} alt="" className="h-9 w-9 rounded-lg object-cover" />}
+          <div>
+            <div className="font-semibold leading-tight">{ctx.hotelName}</div>
+            <div className="text-xs text-muted-foreground">Room {ctx.roomNumber}</div>
+          </div>
         </div>
         <Button variant="outline" size="sm" onClick={() => setRequestsOpen(true)}>
           <ClipboardList className="mr-1 h-4 w-4" /> My requests
@@ -129,8 +135,10 @@ export default function GuestApp() {
       <div ref={scroller} className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
         {msgs.map((m, i) => (
           <div key={i} className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
-            <div className={`max-w-[85%] rounded-2xl px-4 py-2 text-sm ${
-              m.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
+            <div
+              className={`max-w-[85%] rounded-2xl px-4 py-2 text-sm ${m.role === "user" ? "text-white" : "bg-muted"}`}
+              style={m.role === "user" ? { backgroundColor: brand || "hsl(var(--primary))" } : undefined}
+            >
               {m.content}
             </div>
           </div>
@@ -163,7 +171,7 @@ export default function GuestApp() {
           placeholder={listening ? "Listening…" : "Speak or type…"}
           disabled={busy}
         />
-        <Button type="submit" size="icon" disabled={busy || !input.trim()}>
+        <Button type="submit" size="icon" disabled={busy || !input.trim()} style={brand ? { backgroundColor: brand } : undefined}>
           <Send className="h-4 w-4" />
         </Button>
       </form>

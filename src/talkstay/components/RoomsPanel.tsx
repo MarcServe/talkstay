@@ -3,7 +3,7 @@ import { QRCodeCanvas } from "qrcode.react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { Trash2, QrCode, Loader2 } from "lucide-react";
+import { Trash2, QrCode, Loader2, ExternalLink } from "lucide-react";
 import { addRoom, deleteRoom, getRoomToken, listRooms, type Hotel, type Room } from "@/talkstay/lib/hotels";
 import { getPublicBaseUrl } from "@/config/environment";
 
@@ -60,6 +60,16 @@ export default function RoomsPanel({ hotel }: { hotel: Hotel }) {
     }
   };
 
+  const preview = async (room: Room) => {
+    try {
+      const token = await getRoomToken(room.id);
+      if (!token) { toast.error("No active token for this room"); return; }
+      window.open(guestUrl(hotel, room, token), "_blank", "noopener");
+    } catch (e: any) {
+      toast.error(e?.message ?? "Failed to open preview");
+    }
+  };
+
   const onDelete = async (room: Room) => {
     if (!confirm(`Delete room ${room.room_number}?`)) return;
     try {
@@ -69,6 +79,9 @@ export default function RoomsPanel({ hotel }: { hotel: Hotel }) {
       toast.error(e?.message ?? "Failed to delete");
     }
   };
+
+  const brandColor = hotel.branding?.primary_color || "#000000";
+  const brandLogo = hotel.branding?.logo_url || undefined;
 
   return (
     <div className="space-y-6">
@@ -105,10 +118,13 @@ export default function RoomsPanel({ hotel }: { hotel: Hotel }) {
                   <td className="px-4 py-2 text-muted-foreground">{r.floor || "—"}</td>
                   <td className="px-4 py-2">
                     <div className="flex justify-end gap-1">
-                      <Button size="sm" variant="outline" onClick={() => showQr(r)}>
+                      <Button size="sm" variant="ghost" onClick={() => preview(r)} title="Preview this room's assistant">
+                        <ExternalLink className="h-4 w-4" />
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => showQr(r)} title="Show QR code">
                         <QrCode className="h-4 w-4" />
                       </Button>
-                      <Button size="sm" variant="ghost" onClick={() => onDelete(r)}>
+                      <Button size="sm" variant="ghost" onClick={() => onDelete(r)} title="Delete room">
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
                     </div>
@@ -126,7 +142,11 @@ export default function RoomsPanel({ hotel }: { hotel: Hotel }) {
             <h3 className="mb-1 font-semibold">Room {qr.room.room_number}</h3>
             <p className="mb-4 text-xs text-muted-foreground">Print this and place it in the room.</p>
             <div className="flex justify-center rounded-xl bg-white p-4">
-              <QRCodeCanvas value={qr.url} size={200} includeMargin />
+              <QRCodeCanvas
+                value={qr.url} size={200} includeMargin level="H"
+                fgColor={brandColor}
+                imageSettings={brandLogo ? { src: brandLogo, height: 40, width: 40, excavate: true } : undefined}
+              />
             </div>
             <p className="mt-3 break-all text-[10px] text-muted-foreground">{qr.url}</p>
             <Button className="mt-4 w-full" variant="outline" onClick={() => setQr(null)}>Close</Button>

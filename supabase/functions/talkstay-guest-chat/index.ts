@@ -31,6 +31,7 @@ interface RoomCtx {
   roomId: string; roomNumber: string; language: string; slug: string;
   departments: string[];
   rules: { department_key: string; keywords: string[] }[];
+  branding: Record<string, unknown>;
 }
 
 // Built-in deterministic keyword routing (safety net + works when OpenAI is down).
@@ -78,7 +79,7 @@ async function resolveRoom(
 
   const { data: hotel } = await admin
     .from("ts_hotels")
-    .select("id, name, slug, assistant_id, default_language")
+    .select("id, name, slug, assistant_id, default_language, branding")
     .eq("id", tok.hotel_id).maybeSingle();
   if (!hotel || hotel.slug !== hotelSlug) return null;
 
@@ -97,6 +98,7 @@ async function resolveRoom(
     language: hotel.default_language || "English", slug: hotel.slug,
     departments: (depts ?? []).map((d: any) => d.key),
     rules: (rules ?? []) as any,
+    branding: (hotel as any).branding || {},
   };
 }
 
@@ -157,7 +159,7 @@ serve(async (req) => {
     if (action === "context") {
       return json({
         hotelName: ctx.hotelName, roomNumber: ctx.roomNumber, language: ctx.language,
-        departments: ctx.departments,
+        departments: ctx.departments, branding: ctx.branding,
         greeting: `Hi! You're in Room ${ctx.roomNumber} at ${ctx.hotelName}. How can I help — anything you need, or a question about the hotel?`,
       });
     }

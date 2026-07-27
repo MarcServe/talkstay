@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import {
   Loader2, LogOut, Bell, Menu, X,
-  Inbox, BarChart3, QrCode, Building2, BookOpen, Users,
+  Inbox, BarChart3, QrCode, Building2, BookOpen, Users, Palette,
 } from "lucide-react";
 import { enablePush, pushSupported } from "@/talkstay/lib/push";
 import AuthPage from "@/talkstay/pages/AuthPage";
@@ -17,12 +17,14 @@ import RoomsPanel from "@/talkstay/components/RoomsPanel";
 import DepartmentsPanel from "@/talkstay/components/DepartmentsPanel";
 import KnowledgePanel from "@/talkstay/components/KnowledgePanel";
 import StaffPanel from "@/talkstay/components/StaffPanel";
+import BrandingPanel from "@/talkstay/components/BrandingPanel";
 import { createHotel, getMyHotel, type Hotel } from "@/talkstay/lib/hotels";
 
 const NAV = [
   { key: "operations", label: "Operations", icon: Inbox },
   { key: "insights", label: "Insights", icon: BarChart3 },
   { key: "rooms", label: "Rooms & QR", icon: QrCode },
+  { key: "branding", label: "Branding", icon: Palette },
   { key: "departments", label: "Departments", icon: Building2 },
   { key: "knowledge", label: "Knowledge", icon: BookOpen },
   { key: "staff", label: "Staff", icon: Users },
@@ -75,11 +77,12 @@ function CreateHotel({ onCreated }: { onCreated: (h: Hotel) => void }) {
   );
 }
 
-function Panel({ active, hotel }: { active: NavKey; hotel: Hotel }) {
+function Panel({ active, hotel, onHotel }: { active: NavKey; hotel: Hotel; onHotel: (h: Hotel) => void }) {
   switch (active) {
     case "operations": return <OperationsPanel hotel={hotel} />;
     case "insights": return <InsightsPanel hotel={hotel} />;
     case "rooms": return <RoomsPanel hotel={hotel} />;
+    case "branding": return <BrandingPanel hotel={hotel} onSaved={(b) => onHotel({ ...hotel, branding: b })} />;
     case "departments": return <DepartmentsPanel hotel={hotel} />;
     case "knowledge": return <KnowledgePanel hotel={hotel} />;
     case "staff": return <StaffPanel hotel={hotel} />;
@@ -187,7 +190,7 @@ export default function HotelApp() {
         </header>
         <main className="flex-1 p-4 md:p-8">
           <div className="mx-auto max-w-5xl">
-            <Panel active={active} hotel={hotel} />
+            <Panel active={active} hotel={hotel} onHotel={setHotel} />
           </div>
         </main>
       </div>

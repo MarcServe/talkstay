@@ -41,11 +41,13 @@ export function setNotifyChoice(sid: string, choice: string) {
   localStorage.setItem(notifyKey(sid), choice);
 }
 
+export interface GuestBranding { logo_url?: string | null; primary_color?: string | null; tagline?: string | null; }
+
 export async function fetchContext(hotelSlug: string, roomId: string, token: string) {
   const { data, error } = await fn({ action: "context", hotelSlug, roomId, token });
   if (error) throw error;
   if ((data as any)?.error) throw new Error((data as any).error);
-  return data as { hotelName: string; roomNumber: string; language: string; greeting: string; departments: string[] };
+  return data as { hotelName: string; roomNumber: string; language: string; greeting: string; departments: string[]; branding?: GuestBranding };
 }
 
 export async function sendMessage(args: {

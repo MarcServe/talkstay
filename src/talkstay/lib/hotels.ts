@@ -11,6 +11,12 @@ export const DEPARTMENTS: { key: string; display_name: string }[] = [
   { key: "duty_manager", display_name: "Duty Manager" },
 ];
 
+export interface HotelBranding {
+  logo_url?: string | null;
+  primary_color?: string | null;
+  tagline?: string | null;
+}
+
 export interface Hotel {
   id: string;
   user_id: string;
@@ -22,6 +28,7 @@ export interface Hotel {
   whatsapp_number: string | null;
   whatsapp_enabled: boolean;
   is_active: boolean;
+  branding?: HotelBranding | null;
 }
 
 export interface Room {
