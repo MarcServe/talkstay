@@ -9,12 +9,19 @@ import {
 import { toast } from "sonner";
 import { Loader2, Trash2, Plus, Upload } from "lucide-react";
 import { DEPARTMENTS, listRooms, type Hotel, type Room } from "@/talkstay/lib/hotels";
+import ContentPanel from "@/talkstay/components/ContentPanel";
 
-type Scope = "general" | "department" | "room";
+// "site" = the hotel's website & uploaded documents (TalkWeb Content section);
+// the other three are TalkStay's layered, access-controlled entries.
+type Scope = "site" | "general" | "department" | "room";
 interface Entry { id: string; title: string | null; content: string; scope: string; department_key: string | null; room_id: string | null; }
 
+const SCOPE_LABEL: Record<Scope, string> = {
+  site: "Website & docs", general: "General", department: "Department", room: "Room",
+};
+
 export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
-  const [scope, setScope] = useState<Scope>("general");
+  const [scope, setScope] = useState<Scope>("site");
   const [dept, setDept] = useState(DEPARTMENTS[0].key);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [roomId, setRoomId] = useState("");
@@ -104,11 +111,11 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
 
   return (
     <div className="space-y-5">
-      {/* Scope selector */}
+      {/* Scope selector — one place for ALL knowledge: website/docs + layered entries */}
       <div className="flex flex-wrap items-center gap-2">
-        {(["general", "department", "room"] as Scope[]).map((s) => (
-          <Button key={s} size="sm" variant={scope === s ? "default" : "outline"} className="capitalize" onClick={() => setScope(s)}>
-            {s}
+        {(["site", "general", "department", "room"] as Scope[]).map((s) => (
+          <Button key={s} size="sm" variant={scope === s ? "default" : "outline"} onClick={() => setScope(s)}>
+            {SCOPE_LABEL[s]}
           </Button>
         ))}
         {scope === "department" && (
@@ -124,6 +131,11 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
           </Select>
         )}
       </div>
+
+      {scope === "site" ? (
+        <ContentPanel hotel={hotel} />
+      ) : (
+      <>
       <p className="text-xs text-muted-foreground">
         {scope === "general" && "Hotel-wide info every guest can ask about (breakfast, wifi, checkout, policies)."}
         {scope === "department" && "Guest-facing info for a team (menus, spa treatments, opening hours)."}
@@ -162,6 +174,8 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
             </div>
           ))}
         </div>
+      )}
+      </>
       )}
     </div>
   );

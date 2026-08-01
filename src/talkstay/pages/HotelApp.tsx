@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import {
   Loader2, LogOut, Bell, Menu, X,
-  Inbox, BarChart3, QrCode, Building2, BookOpen, Users, Palette, Globe,
+  Inbox, BarChart3, QrCode, Building2, BookOpen, Users, Palette,
 } from "lucide-react";
 import { enablePush, pushSupported } from "@/talkstay/lib/push";
 import AuthPage from "@/talkstay/pages/AuthPage";
@@ -16,7 +16,6 @@ import InsightsPanel from "@/talkstay/components/InsightsPanel";
 import RoomsPanel from "@/talkstay/components/RoomsPanel";
 import DepartmentsPanel from "@/talkstay/components/DepartmentsPanel";
 import KnowledgePanel from "@/talkstay/components/KnowledgePanel";
-import ContentPanel from "@/talkstay/components/ContentPanel";
 import StaffPanel from "@/talkstay/components/StaffPanel";
 import BrandingPanel from "@/talkstay/components/BrandingPanel";
 import { createHotel, getMyHotel, ingestHotelWebsite, type Hotel } from "@/talkstay/lib/hotels";
@@ -27,7 +26,6 @@ const NAV = [
   { key: "rooms", label: "Rooms & QR", icon: QrCode },
   { key: "branding", label: "Branding", icon: Palette },
   { key: "departments", label: "Departments", icon: Building2 },
-  { key: "content", label: "Content", icon: Globe },
   { key: "knowledge", label: "Knowledge", icon: BookOpen },
   { key: "staff", label: "Staff", icon: Users },
 ] as const;
@@ -120,7 +118,6 @@ function Panel({ active, hotel, onHotel }: { active: NavKey; hotel: Hotel; onHot
     case "rooms": return <RoomsPanel hotel={hotel} />;
     case "branding": return <BrandingPanel hotel={hotel} onSaved={(b) => onHotel({ ...hotel, branding: b })} />;
     case "departments": return <DepartmentsPanel hotel={hotel} />;
-    case "content": return <ContentPanel hotel={hotel} />;
     case "knowledge": return <KnowledgePanel hotel={hotel} />;
     case "staff": return <StaffPanel hotel={hotel} />;
   }

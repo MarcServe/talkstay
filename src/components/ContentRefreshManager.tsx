@@ -48,7 +48,9 @@ export const ContentRefreshManager: React.FC<ContentRefreshManagerProps> = ({ as
   const [reindexProgress, setReindexProgress] = useState<{ current: number; total: number; status: string } | null>(null);
   const cancelRef = useRef(false);
   const { toast } = useToast();
-  const { subscription } = useSubscription();
+  // TalkStay: website content refresh is included for every hotel — no
+  // subscription gating (differs from TalkWeb, where this is a paid feature).
+  const subscription = { subscribed: true } as ReturnType<typeof useSubscription>["subscription"];
   const [showRefreshDialog, setShowRefreshDialog] = useState(false);
   const [showReindexDialog, setShowReindexDialog] = useState(false);
   const [showRecrawlDialog, setShowRecrawlDialog] = useState(false);

@@ -167,6 +167,10 @@ export class RealtimeChat {
   private isInitializing: boolean = true; // Part 4: Block premature responses
   private initializationTimeout: number | null = null;
   private bookingSilenceFix: boolean = false;
+  /** Override the edge function used to mint the ephemeral token (TalkStay). */
+  public tokenFunction: string = 'realtime-token';
+  /** Override the token request body (TalkStay sends the room QR token). */
+  public tokenBody: Record<string, unknown> | null = null;
 
   constructor(assistantId: string, callbacks: RealtimeChatCallbacks = {}, assistantVoice?: string, websiteUrl?: string, initialMuteState: boolean = false, bookingSilenceFix: boolean = false) {
     this.assistantId = assistantId;
@@ -292,8 +296,10 @@ export class RealtimeChat {
 
       console.log('Getting ephemeral token with voice:', this.assistantVoice);
       
-      const tokenPromise = supabase.functions.invoke('realtime-token', {
-        body: { 
+      // TalkStay may supply its own token minter (hotel-aware + sanitizes the
+      // OPENAI_API_KEY, which has a trailing newline that breaks realtime-token).
+      const tokenPromise = supabase.functions.invoke(this.tokenFunction, {
+        body: this.tokenBody ?? {
           assistantId: this.assistantId,
           voiceAccent: this.assistantVoice,
           websiteUrl: this.websiteUrl

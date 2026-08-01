@@ -117,6 +117,10 @@ export default function GuestApp() {
         onError: () => { /* keep session; transcript continues */ },
         onInactivityTimeout: () => stopVoice(),
       } as any);
+      // TalkStay's own token minter: verifies the room QR token server-side and
+      // returns a hotel-aware realtime session.
+      chat.tokenFunction = "talkstay-voice-token";
+      chat.tokenBody = { hotelSlug, roomId, token };
       chatRef.current = chat;
       await chat.init();
       setVoiceState("connected");
@@ -318,6 +322,8 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
 }) {
   const [reqs, setReqs] = useState<GuestRequest[] | null>(null);
   const [rated, setRated] = useState<Record<string, number>>({});
+  const [comments, setComments] = useState<Record<string, string>>({});
+  const [sent, setSent] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     fetchMyRequests(hotelSlug, roomId, token, sid).then(setReqs).catch(() => setReqs([]));
@@ -325,7 +331,24 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
 
   const rate = async (r: GuestRequest, n: number) => {
     setRated((p) => ({ ...p, [r.id]: n }));
-    try { await submitReview({ hotelSlug, roomId, token, sessionId: sid, requestId: r.id, rating: n }); } catch { /* ignore */ }
+    try {
+      await submitReview({
+        hotelSlug, roomId, token, sessionId: sid, requestId: r.id,
+        rating: n, comment: comments[r.id]?.trim() || undefined,
+      });
+    } catch { /* ignore */ }
+  };
+
+  const sendComment = async (r: GuestRequest) => {
+    const n = rated[r.id];
+    if (!n) return;
+    try {
+      await submitReview({
+        hotelSlug, roomId, token, sessionId: sid, requestId: r.id,
+        rating: n, comment: comments[r.id]?.trim() || undefined,
+      });
+      setSent((p) => ({ ...p, [r.id]: true }));
+    } catch { /* ignore */ }
   };
 
   return (
@@ -348,13 +371,32 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
                   <div className="text-sm font-medium">{r.summary}</div>
                   <div className="mt-1 text-xs text-muted-foreground">{STATUS_LABEL[r.status] ?? r.status}</div>
                   {done && (
-                    <div className="mt-3 flex items-center gap-1">
-                      <span className="mr-1 text-xs text-muted-foreground">Rate:</span>
-                      {[1, 2, 3, 4, 5].map((n) => (
-                        <button key={n} onClick={() => rate(r, n)} aria-label={`${n} stars`}>
-                          <Star className={`h-5 w-5 ${(rated[r.id] ?? 0) >= n ? "fill-yellow-400 text-yellow-400" : "text-muted-foreground"}`} />
-                        </button>
-                      ))}
+                    <div className="mt-3 space-y-2">
+                      <div className="flex items-center gap-1">
+                        <span className="mr-1 text-xs text-muted-foreground">Rate:</span>
+                        {[1, 2, 3, 4, 5].map((n) => (
+                          <button key={n} onClick={() => rate(r, n)} aria-label={`${n} stars`}>
+                            <Star className={`h-5 w-5 ${(rated[r.id] ?? 0) >= n ? "fill-yellow-400 text-yellow-400" : "text-muted-foreground"}`} />
+                          </button>
+                        ))}
+                      </div>
+                      {rated[r.id] ? (
+                        sent[r.id] ? (
+                          <p className="text-xs text-green-600">Thanks — your feedback has been sent.</p>
+                        ) : (
+                          <div className="space-y-1.5">
+                            <Input
+                              value={comments[r.id] ?? ""}
+                              onChange={(e) => setComments((p) => ({ ...p, [r.id]: e.target.value }))}
+                              placeholder={(rated[r.id] ?? 0) >= 4 ? "What went well? (optional)" : "What could we do better? (optional)"}
+                              className="h-9 text-sm"
+                            />
+                            <Button size="sm" variant="outline" onClick={() => sendComment(r)}>
+                              Send feedback
+                            </Button>
+                          </div>
+                        )
+                      ) : null}
                     </div>
                   )}
                 </div>

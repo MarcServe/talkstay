@@ -51,7 +51,7 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
   const [rows, setRows] = useState<Interaction[]>([]);
   const [reqs, setReqs] = useState<Req[]>([]);
   const [events, setEvents] = useState<Ev[]>([]);
-  const [ratings, setRatings] = useState<{ request_id: string; rating: number }[]>([]);
+  const [ratings, setRatings] = useState<{ request_id: string; rating: number; comment: string | null }[]>([]);
   const [loading, setLoading] = useState(true);
   const [drill, setDrill] = useState<Drill>("completed");
 
@@ -64,7 +64,7 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
         supabase.from("ts_service_requests")
           .select("id, room_id, department_key, summary, status, is_complaint, classification_method, created_at, updated_at, ts_rooms(room_number)")
           .eq("hotel_id", hotel.id).order("created_at", { ascending: false }).limit(500),
-        supabase.from("ts_request_reviews").select("request_id, rating").eq("hotel_id", hotel.id).limit(1000),
+        supabase.from("ts_request_reviews").select("request_id, rating, comment").eq("hotel_id", hotel.id).limit(1000),
       ]);
       const reqList = (rq as any as Req[]) ?? [];
       setRows((ix as Interaction[]) ?? []);
@@ -83,6 +83,7 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
   // Per-request audit model with timings.
   const audit = useMemo(() => {
     const ratingMap = new Map(ratings.map((r) => [r.request_id, r.rating]));
+    const commentMap = new Map(ratings.map((r) => [r.request_id, r.comment]));
     const firstEvent = (rid: string, statuses: string[]) =>
       events.find((e) => e.request_id === rid && statuses.includes(e.status));
     return reqs.map((r) => {
@@ -100,6 +101,7 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
         toAcceptMin: acc ? (new Date(acc.created_at).getTime() - created) / 60000 : null,
         toCompleteMin: doneAt ? (doneAt - created) / 60000 : null,
         rating: ratingMap.get(r.id) ?? null,
+        comment: commentMap.get(r.id) ?? null,
         isDone: ["completed", "guest_confirmed"].includes(r.status),
       };
     });
@@ -211,9 +213,16 @@ function ReviewsList({ audit }: { audit: any[] }) {
       <h3 className="mb-2 text-sm font-medium">Reviews ({audit.length})</h3>
       <div className="divide-y rounded-xl border">
         {audit.map((r) => (
-          <div key={r.id} className="flex items-center justify-between px-4 py-2.5 text-sm">
-            <span className="min-w-0 flex-1 truncate">Room {r.room} · {r.summary}</span>
-            <span className="ml-3 text-yellow-500">{"★".repeat(r.rating)}</span>
+          <div key={r.id} className="px-4 py-2.5 text-sm">
+            <div className="flex items-center justify-between">
+              <span className="min-w-0 flex-1 truncate">Room {r.room} · {r.summary}</span>
+              <span className="ml-3 whitespace-nowrap text-yellow-500">{"★".repeat(r.rating)}</span>
+            </div>
+            {r.comment && (
+              <p className="mt-1 border-l-2 border-muted pl-2 text-xs italic text-muted-foreground">
+                “{r.comment}”
+              </p>
+            )}
           </div>
         ))}
       </div>
