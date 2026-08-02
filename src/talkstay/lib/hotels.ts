@@ -38,6 +38,21 @@ export interface Room {
   floor: string | null;
   room_type: string | null;
   is_active: boolean;
+  occupancy_status?: "occupied" | "vacant";
+  last_guest_activity_at?: string | null;
+}
+
+/**
+ * Check a room in/out. The printed QR NEVER changes — access is gated on
+ * occupancy, so checking out instantly kills any saved link/bookmark and
+ * checking in revives the same QR for the next guest.
+ */
+export async function setRoomOccupancy(roomId: string, status: "occupied" | "vacant") {
+  const patch = status === "occupied"
+    ? { occupancy_status: status, checked_in_at: new Date().toISOString(), checked_out_at: null, last_guest_activity_at: null }
+    : { occupancy_status: status, checked_out_at: new Date().toISOString() };
+  const { error } = await supabase.from("ts_rooms").update(patch).eq("id", roomId);
+  if (error) throw error;
 }
 
 function slugify(name: string): string {

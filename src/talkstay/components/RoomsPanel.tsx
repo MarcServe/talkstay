@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { Trash2, QrCode, Loader2, ExternalLink } from "lucide-react";
-import { addRoom, deleteRoom, getRoomToken, listRooms, type Hotel, type Room } from "@/talkstay/lib/hotels";
+import { addRoom, deleteRoom, getRoomToken, listRooms, setRoomOccupancy, type Hotel, type Room } from "@/talkstay/lib/hotels";
 import { getPublicBaseUrl } from "@/config/environment";
 
 function guestUrl(hotel: Hotel, room: Room, token: string): string {
@@ -70,6 +70,20 @@ export default function RoomsPanel({ hotel }: { hotel: Hotel }) {
     }
   };
 
+  const toggleOccupancy = async (room: Room) => {
+    const next = room.occupancy_status === "vacant" ? "occupied" : "vacant";
+    if (next === "vacant" && !confirm(`Check out Room ${room.room_number}? Any link the guest saved will stop working immediately.`)) return;
+    try {
+      await setRoomOccupancy(room.id, next);
+      await refresh();
+      toast.success(next === "vacant"
+        ? `Room ${room.room_number} checked out — saved links disabled.`
+        : `Room ${room.room_number} checked in — its QR is live again.`);
+    } catch (e: any) {
+      toast.error(e?.message ?? "Failed to update room");
+    }
+  };
+
   const onDelete = async (room: Room) => {
     if (!confirm(`Delete room ${room.room_number}?`)) return;
     try {
@@ -108,6 +122,7 @@ export default function RoomsPanel({ hotel }: { hotel: Hotel }) {
               <tr>
                 <th className="px-4 py-2">Room</th>
                 <th className="px-4 py-2">Floor</th>
+                <th className="px-4 py-2">Stay</th>
                 <th className="px-4 py-2 text-right">QR</th>
               </tr>
             </thead>
@@ -116,6 +131,21 @@ export default function RoomsPanel({ hotel }: { hotel: Hotel }) {
                 <tr key={r.id} className="border-t">
                   <td className="px-4 py-2 font-medium">{r.room_number}</td>
                   <td className="px-4 py-2 text-muted-foreground">{r.floor || "—"}</td>
+                  <td className="px-4 py-2">
+                    <button
+                      onClick={() => toggleOccupancy(r)}
+                      title={r.occupancy_status === "vacant"
+                        ? "Vacant — the QR is disabled. Click to check a guest in."
+                        : "Occupied — click to check out (disables saved links)."}
+                      className={`rounded-full px-2 py-0.5 text-xs transition-colors ${
+                        r.occupancy_status === "vacant"
+                          ? "bg-muted text-muted-foreground hover:bg-muted/70"
+                          : "bg-green-500/15 text-green-600 hover:bg-green-500/25"
+                      }`}
+                    >
+                      {r.occupancy_status === "vacant" ? "Vacant · check in" : "Occupied · check out"}
+                    </button>
+                  </td>
                   <td className="px-4 py-2">
                     <div className="flex justify-end gap-1">
                       <Button size="sm" variant="ghost" onClick={() => preview(r)} title="Preview this room's assistant">

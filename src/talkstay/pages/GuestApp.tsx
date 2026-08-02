@@ -24,6 +24,7 @@ export default function GuestApp() {
 
   const [ctx, setCtx] = useState<Ctx | null>(null);
   const [invalid, setInvalid] = useState(false);
+  const [checkedOut, setCheckedOut] = useState(false);
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -48,7 +49,16 @@ export default function GuestApp() {
         const prev = loadHistory(sid) as Msg[];
         setMsgs(prev.length ? prev : [{ role: "assistant", content: c.greeting }]);
       })
-      .catch(() => setInvalid(true));
+      .catch((e) => {
+        if (String(e?.message ?? e).includes("checked_out")) {
+          // Stay has ended — clear this device's cached history for privacy.
+          try {
+            localStorage.removeItem(`talkstay:hist:${sid}`);
+            localStorage.removeItem(`talkstay:notify:${sid}`);
+          } catch { /* ignore */ }
+          setCheckedOut(true);
+        } else setInvalid(true);
+      });
     return () => { chatRef.current?.disconnect(); };
     // eslint-disable-next-line
   }, [hotelSlug, roomId, token]);
@@ -140,6 +150,17 @@ export default function GuestApp() {
 
   const toggleVoice = () => (voiceState === "idle" ? startVoice() : stopVoice());
 
+  if (checkedOut) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-2 p-8 text-center">
+        <h1 className="text-xl font-semibold">Your stay has ended</h1>
+        <p className="max-w-sm text-sm text-muted-foreground">
+          Thank you for staying with us. This room assistant is no longer active for this stay.
+          If you're checking in again, please scan the code in your room.
+        </p>
+      </div>
+    );
+  }
   if (invalid) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-2 p-8 text-center">

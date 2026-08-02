@@ -67,9 +67,11 @@ function classifyDeterministic(message: string, ctx: RoomCtx): { dept: string; s
   return best ? { dept: best.dept, source: "keyword" } : null;
 }
 
+// Returns the room context, null (bad token/room), or "checked_out" (valid room,
+// but the stay has ended — saved links must stop working).
 async function resolveRoom(
   admin: any, hotelSlug: string, roomId: string, token: string
-): Promise<RoomCtx | null> {
+): Promise<RoomCtx | null | "checked_out"> {
   // Token must be active AND belong to this room.
   const { data: tok } = await admin
     .from("ts_room_tokens")
@@ -84,8 +86,11 @@ async function resolveRoom(
   if (!hotel || hotel.slug !== hotelSlug) return null;
 
   const { data: room } = await admin
-    .from("ts_rooms").select("id, room_number").eq("id", roomId).maybeSingle();
+    .from("ts_rooms").select("id, room_number, occupancy_status").eq("id", roomId).maybeSingle();
   if (!room) return null;
+  // Checked out → every saved link/bookmark stops working immediately, anywhere.
+  // The printed QR is unchanged and revives when the next guest is checked in.
+  if (room.occupancy_status === "vacant") return "checked_out";
 
   const [{ data: depts }, { data: rules }] = await Promise.all([
     admin.from("ts_departments").select("key").eq("hotel_id", hotel.id).eq("is_active", true),
@@ -175,7 +180,12 @@ serve(async (req) => {
     if (!hotelSlug || !roomId || !token) return json({ error: "Missing hotel/room/token" }, 400);
 
     const ctx = await resolveRoom(admin, hotelSlug, roomId, token);
+    if (ctx === "checked_out") return json({ error: "checked_out" }, 403);
     if (!ctx) return json({ error: "invalid_token" }, 403);
+
+    // Track guest activity — powers auto-checkout after the hotel's inactivity window.
+    admin.from("ts_rooms").update({ last_guest_activity_at: new Date().toISOString() })
+      .eq("id", ctx.roomId).then(() => {}, () => {});
 
     // ---- context: greeting + room info ----
     if (action === "context") {

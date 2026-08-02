@@ -41,9 +41,11 @@ serve(async (req) => {
 
     const [{ data: hotel }, { data: room }] = await Promise.all([
       admin.from("ts_hotels").select("id, name, slug, assistant_id, default_language").eq("id", tok.hotel_id).maybeSingle(),
-      admin.from("ts_rooms").select("room_number").eq("id", roomId).maybeSingle(),
+      admin.from("ts_rooms").select("room_number, occupancy_status").eq("id", roomId).maybeSingle(),
     ]);
     if (!hotel || hotel.slug !== hotelSlug) return json({ error: "invalid_token" }, 403);
+    // Stay ended → no voice session from a saved link.
+    if (room?.occupancy_status === "vacant") return json({ error: "checked_out" }, 403);
 
     const roomNo = room?.room_number ?? "";
 
