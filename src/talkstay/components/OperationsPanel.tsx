@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Loader2, AlertTriangle, RefreshCw } from "lucide-react";
+import { Loader2, AlertTriangle, RefreshCw, Volume2, VolumeX } from "lucide-react";
 import { DEPARTMENTS, type Hotel } from "@/talkstay/lib/hotels";
+import { playChime, primeChime } from "@/talkstay/lib/chime";
 
 interface Req {
   id: string;
@@ -55,12 +56,23 @@ type Filter = "active" | "new" | "done" | "all";
 const OVERDUE_MIN = 5; // a 'new' request older than this is flagged overdue
 const minsSince = (iso: string) => (Date.now() - new Date(iso).getTime()) / 60000;
 
-export default function OperationsPanel({ hotel }: { hotel: Hotel }) {
+export default function OperationsPanel({ hotel, lockedDepartment = null }: {
+  hotel: Hotel; lockedDepartment?: string | null;
+}) {
   const [reqs, setReqs] = useState<Req[]>([]);
   const [ack, setAck] = useState<Record<string, { by: string; at: string }>>({});
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<Filter>("active");
-  const [dept, setDept] = useState<string>("all");
+  // Department staff are hard-scoped to their own team's queue.
+  const [dept, setDept] = useState<string>(lockedDepartment ?? "all");
+  const [sound, setSound] = useState(() => localStorage.getItem("ts:opsSound") !== "off");
+  const seenIds = useRef<Set<string> | null>(null);
+  const soundRef = useRef(sound);
+  soundRef.current = sound;
+  // The queue this operator actually watches (locked team, or the dropdown).
+  const watchedDept = lockedDepartment ?? dept;
+  const watchedRef = useRef(watchedDept);
+  watchedRef.current = watchedDept;
 
   const refresh = async () => {
     const { data, error } = await supabase
@@ -71,6 +83,26 @@ export default function OperationsPanel({ hotel }: { hotel: Hotel }) {
       .limit(200);
     if (error) toast.error(error.message);
     const list = (data as any as Req[]) ?? [];
+
+    // Chime + toast when a genuinely NEW request lands in the watched queue.
+    if (seenIds.current) {
+      const fresh = list.filter(
+        (r) => !seenIds.current!.has(r.id) && r.status === "new" &&
+          (watchedRef.current === "all" || r.department_key === watchedRef.current)
+      );
+      if (fresh.length) {
+        if (soundRef.current) playChime();
+        const r = fresh[0];
+        toast.message(
+          fresh.length === 1
+            ? `New request · Room ${r.ts_rooms?.room_number ?? "—"}`
+            : `${fresh.length} new requests`,
+          { description: fresh.length === 1 ? r.summary : undefined }
+        );
+      }
+    }
+    seenIds.current = new Set(list.map((r) => r.id));
+
     setReqs(list);
     setLoading(false);
 
@@ -167,11 +199,22 @@ export default function OperationsPanel({ hotel }: { hotel: Hotel }) {
           ))}
         </div>
         <div className="flex items-center gap-2">
-          <select className="rounded-md border bg-background px-2 py-1.5 text-sm"
-            value={dept} onChange={(e) => setDept(e.target.value)}>
-            <option value="all">All departments</option>
-            {DEPARTMENTS.map((d) => <option key={d.key} value={d.key}>{d.display_name}</option>)}
-          </select>
+          {lockedDepartment ? (
+            <Badge variant="secondary" className="px-2 py-1">{deptLabel(lockedDepartment)}</Badge>
+          ) : (
+            <select className="rounded-md border bg-background px-2 py-1.5 text-sm"
+              value={dept} onChange={(e) => setDept(e.target.value)}>
+              <option value="all">All departments</option>
+              {DEPARTMENTS.map((d) => <option key={d.key} value={d.key}>{d.display_name}</option>)}
+            </select>
+          )}
+          <Button
+            size="sm" variant="ghost"
+            title={sound ? "New-request sound on" : "New-request sound off"}
+            onClick={() => { const v = !sound; setSound(v); localStorage.setItem("ts:opsSound", v ? "on" : "off"); if (v) { primeChime(); playChime(); } }}
+          >
+            {sound ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4 text-muted-foreground" />}
+          </Button>
           <Button size="sm" variant="ghost" onClick={refresh}><RefreshCw className="h-4 w-4" /></Button>
         </div>
       </div>

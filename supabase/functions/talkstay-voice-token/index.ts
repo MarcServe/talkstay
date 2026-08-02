@@ -95,9 +95,16 @@ ${knowledge || "(No knowledge indexed yet — be helpful and offer to pass quest
             input: {
               format: { type: "audio/pcm", rate: 24000 },
               transcription: { model: "whisper-1" },
+              // Suppress background/room noise (TV, corridor chatter, AC). "near_field"
+              // is tuned for a phone held near the mouth, so it aggressively rejects
+              // sound that isn't the person speaking into the device.
+              noise_reduction: { type: "near_field" },
+              // Higher threshold = the guest's own voice must clearly exceed ambient
+              // noise before a turn starts, so a TV in the background won't trigger it.
+              // Longer silence prevents cutting the guest off between sentences.
               turn_detection: {
-                type: "server_vad", threshold: 0.6,
-                prefix_padding_ms: 300, silence_duration_ms: 900,
+                type: "server_vad", threshold: 0.8,
+                prefix_padding_ms: 300, silence_duration_ms: 1100,
                 interrupt_response: true, create_response: true,
               },
             },

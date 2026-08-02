@@ -18,16 +18,17 @@ import DepartmentsPanel from "@/talkstay/components/DepartmentsPanel";
 import KnowledgePanel from "@/talkstay/components/KnowledgePanel";
 import StaffPanel from "@/talkstay/components/StaffPanel";
 import BrandingPanel from "@/talkstay/components/BrandingPanel";
-import { createHotel, getMyHotel, ingestHotelWebsite, type Hotel } from "@/talkstay/lib/hotels";
+import { createHotel, getMyAccess, ingestHotelWebsite, DEPARTMENTS, type Hotel, type HotelAccess } from "@/talkstay/lib/hotels";
 
 const NAV = [
-  { key: "operations", label: "Operations", icon: Inbox },
-  { key: "insights", label: "Insights", icon: BarChart3 },
-  { key: "rooms", label: "Rooms & QR", icon: QrCode },
-  { key: "branding", label: "Branding", icon: Palette },
-  { key: "departments", label: "Departments", icon: Building2 },
-  { key: "knowledge", label: "Knowledge", icon: BookOpen },
-  { key: "staff", label: "Staff", icon: Users },
+  // `admin: true` = owner/manager only. Department staff see just Operations.
+  { key: "operations", label: "Operations", icon: Inbox, admin: false },
+  { key: "insights", label: "Insights", icon: BarChart3, admin: true },
+  { key: "rooms", label: "Rooms & QR", icon: QrCode, admin: true },
+  { key: "branding", label: "Branding", icon: Palette, admin: true },
+  { key: "departments", label: "Departments", icon: Building2, admin: true },
+  { key: "knowledge", label: "Knowledge", icon: BookOpen, admin: true },
+  { key: "staff", label: "Staff", icon: Users, admin: true },
 ] as const;
 type NavKey = (typeof NAV)[number]["key"];
 
@@ -111,9 +112,24 @@ function CreateHotel({ onCreated }: { onCreated: (h: Hotel) => void }) {
   );
 }
 
-function Panel({ active, hotel, onHotel }: { active: NavKey; hotel: Hotel; onHotel: (h: Hotel) => void }) {
+function NoAccess() {
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center gap-3 px-6 text-center">
+      <h1 className="text-xl font-semibold">You're signed in, but not on a hotel team yet</h1>
+      <p className="max-w-sm text-sm text-muted-foreground">
+        Ask your hotel manager to add your email under <strong>Staff</strong>. Once they do,
+        refresh this page and your department's queue will appear here.
+      </p>
+      <Button variant="outline" onClick={() => supabase.auth.signOut()}>Sign out</Button>
+    </div>
+  );
+}
+
+function Panel({ active, hotel, onHotel, departmentKey }: {
+  active: NavKey; hotel: Hotel; onHotel: (h: Hotel) => void; departmentKey?: string | null;
+}) {
   switch (active) {
-    case "operations": return <OperationsPanel hotel={hotel} />;
+    case "operations": return <OperationsPanel hotel={hotel} lockedDepartment={departmentKey ?? null} />;
     case "insights": return <InsightsPanel hotel={hotel} />;
     case "rooms": return <RoomsPanel hotel={hotel} />;
     case "branding": return <BrandingPanel hotel={hotel} onSaved={(b) => onHotel({ ...hotel, branding: b })} />;
@@ -126,6 +142,7 @@ function Panel({ active, hotel, onHotel }: { active: NavKey; hotel: Hotel; onHot
 export default function HotelApp() {
   const { user, loading } = useAuth();
   const [hotel, setHotel] = useState<Hotel | null>(null);
+  const [access, setAccess] = useState<HotelAccess | null>(null);
   const [loadingHotel, setLoadingHotel] = useState(true);
   const [active, setActive] = useState<NavKey>("operations");
   const [navOpen, setNavOpen] = useState(false);
@@ -133,7 +150,8 @@ export default function HotelApp() {
   useEffect(() => {
     if (!user) { setLoadingHotel(false); return; }
     setLoadingHotel(true);
-    getMyHotel()
+    getMyAccess()
+      .then((a) => { setAccess(a); return a.hotel; })
       .then(setHotel)
       .catch((e) => toast.error(e?.message ?? "Failed to load hotel"))
       .finally(() => setLoadingHotel(false));
@@ -147,9 +165,23 @@ export default function HotelApp() {
     );
   }
   if (!user) return <AuthPage />;
-  if (!hotel) return <CreateHotel onCreated={setHotel} />;
+  // Only OWNERS get the create-hotel screen. A signed-in staff member with no
+  // hotel membership is shown a clear "ask your manager" message instead.
+  if (!hotel) {
+    if (access && !access.isOwner) return <NoAccess />;
+    return <CreateHotel onCreated={setHotel} />;
+  }
 
-  const activeLabel = NAV.find((n) => n.key === active)?.label ?? "";
+  const isAdmin = access?.isOwner || access?.role === "manager" || access?.role === "owner";
+  const visibleNav = NAV.filter((n) => isAdmin || !n.admin);
+  const lockedDepartment = isAdmin ? null : access?.departmentKey ?? null;
+  const roleLabel = isAdmin
+    ? (access?.isOwner ? "Owner" : "Manager")
+    : (lockedDepartment ? `${DEPARTMENTS.find((d) => d.key === lockedDepartment)?.display_name ?? lockedDepartment} team` : "Staff");
+
+  // A department member should never sit on an admin tab (e.g. after a refresh).
+  const effectiveActive: NavKey = visibleNav.some((n) => n.key === active) ? active : "operations";
+  const activeLabel = NAV.find((n) => n.key === effectiveActive)?.label ?? "";
   const go = (k: NavKey) => { setActive(k); setNavOpen(false); };
 
   const SidebarBody = (
@@ -158,18 +190,19 @@ export default function HotelApp() {
         <div className="min-w-0">
           <div className="font-semibold tracking-tight">TalkStay</div>
           <div className="truncate text-xs text-muted-foreground">{hotel.name}</div>
+          <div className="mt-0.5 inline-block rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">{roleLabel}</div>
         </div>
         <button className="md:hidden" onClick={() => setNavOpen(false)} aria-label="Close menu">
           <X className="h-5 w-5 text-muted-foreground" />
         </button>
       </div>
       <nav className="flex-1 space-y-1 px-3">
-        {NAV.map(({ key, label, icon: Icon }) => (
+        {visibleNav.map(({ key, label, icon: Icon }) => (
           <button
             key={key}
             onClick={() => go(key)}
             className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-              active === key ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+              effectiveActive === key ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"
             }`}
           >
             <Icon className="h-4 w-4 shrink-0" />
@@ -224,7 +257,7 @@ export default function HotelApp() {
         </header>
         <main className="flex-1 p-4 md:p-8">
           <div className="mx-auto max-w-5xl">
-            <Panel active={active} hotel={hotel} onHotel={setHotel} />
+            <Panel active={effectiveActive} hotel={hotel} onHotel={setHotel} departmentKey={lockedDepartment} />
           </div>
         </main>
       </div>

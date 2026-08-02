@@ -65,19 +65,62 @@ function slugify(name: string): string {
   return `${base}-${suffix}`;
 }
 
-/** The hotel owned by the current user (MVP: one hotel per owner). */
-export async function getMyHotel(): Promise<Hotel | null> {
+export interface HotelAccess {
+  hotel: Hotel | null;
+  isOwner: boolean;
+  role: "owner" | "manager" | "staff" | null;
+  /** null = all departments; otherwise this member only works one team. */
+  departmentKey: string | null;
+  name: string | null;
+}
+
+/**
+ * Resolve the current user's hotel AND what they may see.
+ * Owners get their own hotel; DEPARTMENT STAFF resolve theirs via ts_staff
+ * membership (previously they saw the "create your hotel" screen and were
+ * locked out entirely).
+ */
+export async function getMyAccess(): Promise<HotelAccess> {
+  const none: HotelAccess = { hotel: null, isOwner: false, role: null, departmentKey: null, name: null };
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-  const { data, error } = await supabase
-    .from("ts_hotels")
-    .select("*")
-    .eq("user_id", user.id)
-    .order("created_at", { ascending: true })
-    .limit(1)
-    .maybeSingle();
-  if (error) throw error;
-  return (data as Hotel) ?? null;
+  if (!user) return none;
+
+  // 1. Owner?
+  const { data: owned } = await supabase
+    .from("ts_hotels").select("*").eq("user_id", user.id)
+    .order("created_at", { ascending: true }).limit(1).maybeSingle();
+  if (owned) return { hotel: owned as Hotel, isOwner: true, role: "owner", departmentKey: null, name: null };
+
+  // 2. Staff member? (managers see everything; staff are scoped to their team)
+  const { data: memberships } = await supabase
+    .from("ts_staff")
+    .select("hotel_id, role, department_key, name, status")
+    .eq("user_id", user.id).eq("status", "active");
+  const rows = (memberships ?? []) as any[];
+  if (rows.length === 0) return none;
+
+  const manager = rows.find((r) => r.role === "manager" || r.role === "owner");
+  const chosen = manager ?? rows[0];
+  const { data: hotel } = await supabase
+    .from("ts_hotels").select("*").eq("id", chosen.hotel_id).maybeSingle();
+  if (!hotel) return none;
+
+  // A member listed under several departments works across them → treat as all.
+  const depts = rows.filter((r) => r.hotel_id === chosen.hotel_id).map((r) => r.department_key);
+  const departmentKey = manager || depts.length !== 1 ? null : depts[0];
+
+  return {
+    hotel: hotel as Hotel,
+    isOwner: false,
+    role: (chosen.role as any) ?? "staff",
+    departmentKey,
+    name: chosen.name ?? null,
+  };
+}
+
+/** Back-compat helper: just the hotel (owner or staff). */
+export async function getMyHotel(): Promise<Hotel | null> {
+  return (await getMyAccess()).hotel;
 }
 
 function normalizeUrl(raw?: string): string | null {
