@@ -199,6 +199,22 @@ serve(async (req) => {
       return json({ requests: data ?? [] });
     }
 
+    // ---- set_contact: where this device wants updates (email / whatsapp) ----
+    if (action === "set_contact") {
+      const { channel, contact } = body;
+      if (!sessionId || !channel) return json({ error: "sessionId and channel required" }, 400);
+      const isEmail = String(channel) === "email";
+      const clean = String(contact ?? "").trim().slice(0, 200);
+      const { error } = await admin.from("ts_guest_sessions").upsert({
+        hotel_id: ctx.hotelId, room_id: ctx.roomId, session_id: sessionId,
+        language: ctx.language, notify_channel: String(channel),
+        contact_email: isEmail ? clean.toLowerCase() : null,
+        contact_phone: isEmail ? null : (clean || null),
+      }, { onConflict: "hotel_id,session_id" });
+      if (error) return json({ error: error.message }, 400);
+      return json({ ok: true });
+    }
+
     // ---- review: rate a completed request from this session ----
     if (action === "review") {
       const { requestId, rating, comment } = body;

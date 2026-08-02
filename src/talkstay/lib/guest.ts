@@ -69,6 +69,17 @@ export async function fetchMyRequests(hotelSlug: string, roomId: string, token: 
   return ((data as any)?.requests ?? []) as GuestRequest[];
 }
 
+/** Store where this guest device wants updates (email/whatsapp) for their stay. */
+export async function saveGuestContact(args: {
+  hotelSlug: string; roomId: string; token: string; sessionId: string;
+  channel: string; contact: string;
+}) {
+  const { data, error } = await fn({ action: "set_contact", ...args });
+  if (error) throw error;
+  if ((data as any)?.error) throw new Error((data as any).error);
+  return true;
+}
+
 export async function submitReview(args: {
   hotelSlug: string; roomId: string; token: string; sessionId: string;
   requestId: string; rating: number; comment?: string;

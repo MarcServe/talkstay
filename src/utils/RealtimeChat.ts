@@ -387,7 +387,11 @@ export class RealtimeChat {
 
       // Connect to OpenAI's Realtime API (GA endpoint — Beta /v1/realtime was disabled)
       const baseUrl = "https://api.openai.com/v1/realtime/calls";
-      const model = "gpt-4o-realtime-preview-2024-12-17";
+      // The ephemeral key is bound to the model its session was created with, so the
+      // SDP handshake MUST request that same model. Token minters that report a
+      // `model` (TalkStay's talkstay-voice-token → gpt-realtime) win; otherwise keep
+      // the historical default.
+      const model = (data as any)?.model || "gpt-4o-realtime-preview-2024-12-17";
       
       // Add timeout to SDP exchange for faster failure
       const controller = new AbortController();

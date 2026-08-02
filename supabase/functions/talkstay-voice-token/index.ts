@@ -26,6 +26,10 @@ serve(async (req) => {
     const OPENAI_API_KEY = (Deno.env.get("OPENAI_API_KEY") || "").replace(/[^\x21-\x7E]/g, "");
     if (!OPENAI_API_KEY) return json({ error: "OpenAI key not configured" }, 500);
 
+    // Single source of truth for the realtime model: the ephemeral key is bound to
+    // it, and the client's SDP handshake must request the exact same model.
+    const MODEL = "gpt-realtime";
+
     const { hotelSlug, roomId, token } = await req.json();
     if (!hotelSlug || !roomId || !token) return json({ error: "Missing hotel/room/token" }, 400);
 
@@ -83,7 +87,7 @@ ${knowledge || "(No knowledge indexed yet — be helpful and offer to pass quest
       body: JSON.stringify({
         session: {
           type: "realtime",
-          model: "gpt-realtime",
+          model: MODEL,
           instructions,
           audio: {
             input: {
@@ -109,8 +113,14 @@ ${knowledge || "(No knowledge indexed yet — be helpful and offer to pass quest
     const value = data?.value ?? data?.client_secret?.value ?? data?.client_secret;
     if (!value) return json({ error: "No ephemeral key returned" }, 502);
 
-    // Same envelope RealtimeChat expects.
-    return json({ ...data, client_secret: { value, expires_at: data?.expires_at } });
+    // Same envelope RealtimeChat expects. `model` is returned explicitly so the
+    // client's WebRTC/SDP handshake always uses the SAME model this ephemeral key
+    // was minted for — a mismatch makes the SDP exchange fail ("voice can't start").
+    return json({
+      ...data,
+      model: MODEL,
+      client_secret: { value, expires_at: data?.expires_at },
+    });
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : String(e) }, 500);
   }

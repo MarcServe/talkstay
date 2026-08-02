@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Loader2, Send, ClipboardList, Star, X, Mic, Globe, Check } from "lucide-react";
 import { RealtimeChat } from "@/utils/RealtimeChat";
 import {
-  fetchContext, sendMessage, fetchMyRequests, submitReview,
+  fetchContext, sendMessage, fetchMyRequests, submitReview, saveGuestContact,
   getSessionId, loadHistory, saveHistory, getNotifyChoice, setNotifyChoice,
   STATUS_LABEL, type ChatMsg, type GuestRequest, type GuestBranding,
 } from "@/talkstay/lib/guest";
@@ -280,7 +280,14 @@ export default function GuestApp() {
 
       {notifyOpen && (
         <NotifySheet
-          onChoose={(c) => { setNotifyChoice(sid, c); setNotifyOpen(false); }}
+          onChoose={(c, contact) => {
+            setNotifyChoice(sid, c);
+            setNotifyOpen(false);
+            if (contact) {
+              saveGuestContact({ hotelSlug, roomId, token, sessionId: sid, channel: c, contact })
+                .catch(() => { /* non-blocking */ });
+            }
+          }}
           onClose={() => setNotifyOpen(false)}
         />
       )}
@@ -294,24 +301,49 @@ export default function GuestApp() {
   );
 }
 
-function NotifySheet({ onChoose, onClose }: { onChoose: (c: string) => void; onClose: () => void }) {
-  const opts = [
-    { key: "whatsapp", label: "WhatsApp" },
-    { key: "device", label: "Notify this device" },
-    { key: "none", label: "No updates" },
-  ];
+function NotifySheet({ onChoose, onClose }: {
+  onChoose: (c: string, contact?: string) => void; onClose: () => void;
+}) {
+  const [mode, setMode] = useState<null | "email" | "whatsapp">(null);
+  const [contact, setContact] = useState("");
+  const valid = mode === "email"
+    ? /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(contact.trim())
+    : contact.trim().replace(/\D/g, "").length >= 7;
+
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40" onClick={onClose}>
       <div className="w-full max-w-md rounded-t-2xl bg-card p-5" onClick={(e) => e.stopPropagation()}>
         <p className="mb-1 font-medium">Your request has been sent.</p>
         <p className="mb-4 text-sm text-muted-foreground">Where would you like updates?</p>
-        <div className="grid gap-2">
-          {opts.map((o) => (
-            <Button key={o.key} variant="outline" className="justify-start" onClick={() => onChoose(o.key)}>
-              {o.label}
-            </Button>
-          ))}
-        </div>
+
+        {mode ? (
+          <div className="space-y-2">
+            <Input
+              autoFocus
+              type={mode === "email" ? "email" : "tel"}
+              inputMode={mode === "email" ? "email" : "tel"}
+              value={contact}
+              onChange={(e) => setContact(e.target.value)}
+              placeholder={mode === "email" ? "you@example.com" : "+44 7…"}
+            />
+            <div className="flex gap-2">
+              <Button className="flex-1" disabled={!valid} onClick={() => onChoose(mode, contact.trim())}>
+                Send me updates
+              </Button>
+              <Button variant="ghost" onClick={() => { setMode(null); setContact(""); }}>Back</Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Only used to update you about this stay.
+            </p>
+          </div>
+        ) : (
+          <div className="grid gap-2">
+            <Button variant="outline" className="justify-start" onClick={() => setMode("email")}>Email</Button>
+            <Button variant="outline" className="justify-start" onClick={() => setMode("whatsapp")}>WhatsApp</Button>
+            <Button variant="outline" className="justify-start" onClick={() => onChoose("device")}>Notify this device</Button>
+            <Button variant="outline" className="justify-start" onClick={() => onChoose("none")}>No updates</Button>
+          </div>
+        )}
       </div>
     </div>
   );
