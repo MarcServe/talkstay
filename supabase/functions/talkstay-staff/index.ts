@@ -28,7 +28,7 @@ serve(async (req) => {
     if (userErr || !userData?.user) return json({ error: "Unauthorized" }, 401);
     const caller = userData.user;
 
-    const { action, hotelId, email, departmentKey, role, staffId } = await req.json();
+    const { action, hotelId, email, name, departmentKey, role, staffId } = await req.json();
     if (!hotelId) return json({ error: "hotelId required" }, 400);
 
     // Authorize: caller must own the hotel.
@@ -58,7 +58,7 @@ serve(async (req) => {
     if (action === "invite") {
       if (!email) return json({ error: "email required" }, 400);
       const cleanEmail = String(email).trim().toLowerCase();
-      const staffName = (body.name ? String(body.name).trim() : "") || null;
+      const staffName = (name ? String(name).trim() : "") || null;
 
       // Find existing user by email (paginate a little).
       let userId: string | null = null;
