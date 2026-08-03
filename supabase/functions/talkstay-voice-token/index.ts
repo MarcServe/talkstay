@@ -30,7 +30,7 @@ serve(async (req) => {
     // it, and the client's SDP handshake must request the exact same model.
     const MODEL = "gpt-realtime";
 
-    const { hotelSlug, roomId, token, deviceId } = await req.json();
+    const { hotelSlug, roomId, token, deviceId, code } = await req.json();
     if (!hotelSlug || !roomId || !token) return json({ error: "Missing hotel/room/token" }, 400);
 
     // Verify the room QR token.
@@ -47,9 +47,12 @@ serve(async (req) => {
     // Stay ended → no voice session from a saved link.
     if (room?.occupancy_status === "vacant") return json({ error: "checked_out" }, 403);
     // Same stay+device gate as the chat path (rejects a previous guest's device).
-    const { data: claim } = await admin.rpc("ts_claim_device", { p_room: roomId, p_device: deviceId ?? null });
+    // By the time voice starts, the device is normally enrolled via the chat
+    // context call, so this returns 'ok'; the code branches are here for safety.
+    const { data: claim } = await admin.rpc("ts_claim_device", { p_room: roomId, p_device: deviceId ?? null, p_code: code ?? null });
     if (claim === "ended") return json({ error: "checked_out" }, 403);
     if (claim === "full") return json({ error: "room_full" }, 403);
+    if (claim === "need_code" || claim === "bad_code") return json({ error: claim }, 403);
 
     const roomNo = room?.room_number ?? "";
 

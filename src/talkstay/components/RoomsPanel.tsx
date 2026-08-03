@@ -3,8 +3,8 @@ import { QRCodeCanvas } from "qrcode.react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { Trash2, QrCode, Loader2, ExternalLink } from "lucide-react";
-import { addRoom, deleteRoom, getRoomToken, listRooms, setRoomOccupancy, type Hotel, type Room } from "@/talkstay/lib/hotels";
+import { Trash2, QrCode, Loader2, ExternalLink, RefreshCw } from "lucide-react";
+import { addRoom, deleteRoom, getRoomToken, listRooms, setRoomOccupancy, setRequireCheckinCode, regenerateCheckinCode, type Hotel, type Room } from "@/talkstay/lib/hotels";
 import { getPublicBaseUrl } from "@/config/environment";
 
 function guestUrl(hotel: Hotel, room: Room, token: string): string {
@@ -13,13 +13,44 @@ function guestUrl(hotel: Hotel, room: Room, token: string): string {
   return `${getPublicBaseUrl()}/h/${hotel.slug}/r/${room.id}?token=${token}`;
 }
 
-export default function RoomsPanel({ hotel }: { hotel: Hotel }) {
+export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?: (h: Hotel) => void }) {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [loading, setLoading] = useState(true);
   const [num, setNum] = useState("");
   const [floor, setFloor] = useState("");
   const [busy, setBusy] = useState(false);
   const [qr, setQr] = useState<{ room: Room; url: string } | null>(null);
+  const [requireCode, setRequireCode] = useState(!!hotel.require_checkin_code);
+  const [savingToggle, setSavingToggle] = useState(false);
+
+  const toggleRequireCode = async () => {
+    const next = !requireCode;
+    setSavingToggle(true);
+    setRequireCode(next);
+    try {
+      await setRequireCheckinCode(hotel.id, next);
+      onHotel?.({ ...hotel, require_checkin_code: next });
+      await refresh(); // codes may have been backfilled onto occupied rooms
+      toast.success(next
+        ? "Check-in code now required for new devices."
+        : "Check-in code turned off.");
+    } catch (e: any) {
+      setRequireCode(!next);
+      toast.error(e?.message ?? "Couldn't update setting");
+    } finally {
+      setSavingToggle(false);
+    }
+  };
+
+  const regenCode = async (room: Room) => {
+    try {
+      const code = await regenerateCheckinCode(room.id);
+      setRooms((rs) => rs.map((r) => r.id === room.id ? { ...r, checkin_code: code } : r));
+      toast.success(`New code for Room ${room.room_number}: ${code}`);
+    } catch (e: any) {
+      toast.error(e?.message ?? "Couldn't regenerate code");
+    }
+  };
 
   const refresh = async () => {
     setLoading(true);
@@ -111,18 +142,40 @@ export default function RoomsPanel({ hotel }: { hotel: Hotel }) {
         <Button type="submit" disabled={busy}>{busy ? "Adding…" : "Add room"}</Button>
       </form>
 
+      <div className="flex items-start justify-between gap-4 rounded-xl border bg-muted/30 p-4">
+        <div className="min-w-0">
+          <div className="text-sm font-medium">Require a check-in code</div>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Extra anti-sharing security. A new device must enter the room's current code
+            (read it out at check-in or print it on the key-card sleeve) before it can connect.
+            Devices already connected this stay aren't affected.
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={requireCode}
+          disabled={savingToggle}
+          onClick={toggleRequireCode}
+          className={`relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition-colors ${requireCode ? "bg-primary" : "bg-muted-foreground/30"}`}
+        >
+          <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${requireCode ? "left-[22px]" : "left-0.5"}`} />
+        </button>
+      </div>
+
       {loading ? (
         <div className="flex items-center gap-2 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading rooms…</div>
       ) : rooms.length === 0 ? (
         <p className="text-sm text-muted-foreground">No rooms yet. Add your first room above — a secure QR code is generated automatically.</p>
       ) : (
-        <div className="overflow-hidden rounded-xl border">
-          <table className="w-full text-sm">
+        <div className="overflow-x-auto rounded-xl border">
+          <table className="w-full min-w-[560px] text-sm">
             <thead className="bg-muted/50 text-left text-xs text-muted-foreground">
               <tr>
                 <th className="px-4 py-2">Room</th>
                 <th className="px-4 py-2">Floor</th>
                 <th className="px-4 py-2">Stay</th>
+                {requireCode && <th className="px-4 py-2">Check-in code</th>}
                 <th className="px-4 py-2 text-right">QR</th>
               </tr>
             </thead>
@@ -146,6 +199,20 @@ export default function RoomsPanel({ hotel }: { hotel: Hotel }) {
                       {r.occupancy_status === "vacant" ? "Vacant · check in" : "Occupied · check out"}
                     </button>
                   </td>
+                  {requireCode && (
+                    <td className="px-4 py-2">
+                      {r.occupancy_status === "occupied" && r.checkin_code ? (
+                        <div className="flex items-center gap-2">
+                          <span className="rounded bg-muted px-2 py-0.5 font-mono text-sm tracking-widest">{r.checkin_code}</span>
+                          <button onClick={() => regenCode(r)} title="Generate a new code" className="text-muted-foreground hover:text-foreground">
+                            <RefreshCw className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      )}
+                    </td>
+                  )}
                   <td className="px-4 py-2">
                     <div className="flex justify-end gap-1">
                       <Button size="sm" variant="ghost" onClick={() => preview(r)} title="Preview this room's assistant">
@@ -179,6 +246,12 @@ export default function RoomsPanel({ hotel }: { hotel: Hotel }) {
               />
             </div>
             <p className="mt-3 break-all text-[10px] text-muted-foreground">{qr.url}</p>
+            {requireCode && qr.room.occupancy_status === "occupied" && qr.room.checkin_code && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                Check-in code: <span className="font-mono tracking-widest text-foreground">{qr.room.checkin_code}</span>
+                <br /><span className="text-[10px]">Give this to the guest — don't print it on the QR.</span>
+              </p>
+            )}
             <Button className="mt-4 w-full" variant="outline" onClick={() => setQr(null)}>Close</Button>
           </div>
         </div>

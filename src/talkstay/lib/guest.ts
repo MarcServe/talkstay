@@ -26,6 +26,18 @@ export function getDeviceId(): string {
 const fn = (body: Record<string, unknown>) =>
   supabase.functions.invoke("talkstay-guest-chat", { body: { deviceId: getDeviceId(), ...body } });
 
+/** supabase.functions.invoke() returns a GENERIC message on a non-2xx response
+ *  ("Edge Function returned a non-2xx status code") — the real machine code
+ *  (checked_out / room_full / need_code / bad_code / invalid_token) is in the
+ *  response body. Pull it out so callers can branch on it. */
+async function realError(error: any): Promise<Error> {
+  try {
+    const body = await error?.context?.json?.();
+    if (body?.error) return new Error(body.error);
+  } catch { /* not JSON */ }
+  return error instanceof Error ? error : new Error(String(error));
+}
+
 /** Stable per-room session id kept in localStorage (device history). */
 export function getSessionId(hotelSlug: string, roomId: string): string {
   const key = `talkstay:sid:${hotelSlug}:${roomId}`;
@@ -55,9 +67,9 @@ export function setNotifyChoice(sid: string, choice: string) {
 
 export interface GuestBranding { logo_url?: string | null; primary_color?: string | null; tagline?: string | null; }
 
-export async function fetchContext(hotelSlug: string, roomId: string, token: string) {
-  const { data, error } = await fn({ action: "context", hotelSlug, roomId, token });
-  if (error) throw error;
+export async function fetchContext(hotelSlug: string, roomId: string, token: string, code?: string) {
+  const { data, error } = await fn({ action: "context", hotelSlug, roomId, token, code });
+  if (error) throw await realError(error);
   if ((data as any)?.error) throw new Error((data as any).error);
   return data as {
     hotelName: string; roomNumber: string; language: string; greeting: string;
@@ -70,7 +82,7 @@ export async function sendMessage(args: {
   message: string; history: ChatMsg[];
 }) {
   const { data, error } = await fn({ action: "message", ...args });
-  if (error) throw error;
+  if (error) throw await realError(error);
   if ((data as any)?.error) throw new Error((data as any).error);
   return data as { reply: string; requests: GuestRequest[]; language: string };
 }

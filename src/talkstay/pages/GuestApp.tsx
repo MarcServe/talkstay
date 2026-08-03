@@ -26,6 +26,9 @@ export default function GuestApp() {
   const [invalid, setInvalid] = useState(false);
   const [checkedOut, setCheckedOut] = useState(false);
   const [roomFull, setRoomFull] = useState(false);
+  const [needCode, setNeedCode] = useState(false);
+  const [codeError, setCodeError] = useState<string | null>(null);
+  const [codeInput, setCodeInput] = useState("");
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -42,10 +45,11 @@ export default function GuestApp() {
   const sid = hotelSlug && roomId ? getSessionId(hotelSlug, roomId) : "";
   const scroller = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
+  const loadContext = (code?: string) => {
     if (!hotelSlug || !roomId || !token) { setInvalid(true); return; }
-    fetchContext(hotelSlug, roomId, token)
+    fetchContext(hotelSlug, roomId, token, code)
       .then((c) => {
+        setNeedCode(false); setCodeError(null);
         setCtx(c);
         const prev = loadHistory(sid) as Msg[];
         setMsgs(prev.length ? prev : [{ role: "assistant", content: c.greeting }]);
@@ -61,8 +65,16 @@ export default function GuestApp() {
           setCheckedOut(true);
         } else if (msg.includes("room_full")) {
           setRoomFull(true);
+        } else if (msg.includes("need_code")) {
+          setNeedCode(true); setCodeError(null);
+        } else if (msg.includes("bad_code")) {
+          setNeedCode(true); setCodeError("That code didn't match. Please check with reception.");
         } else setInvalid(true);
       });
+  };
+
+  useEffect(() => {
+    loadContext();
     return () => { chatRef.current?.disconnect(); };
     // eslint-disable-next-line
   }, [hotelSlug, roomId, token]);
@@ -173,6 +185,39 @@ export default function GuestApp() {
           This room already has the maximum number of connected devices for this stay.
           Please use a device that's already connected, or ask reception for help.
         </p>
+      </div>
+    );
+  }
+  if (needCode) {
+    const submit = (e: React.FormEvent) => {
+      e.preventDefault();
+      const v = codeInput.trim();
+      if (!v) return;
+      setCodeError(null);
+      loadContext(v);
+    };
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 p-8 text-center">
+        <div className="text-4xl">🔑</div>
+        <h1 className="text-xl font-semibold">Enter your check-in code</h1>
+        <p className="max-w-sm text-sm text-muted-foreground">
+          For your security, reception gave you a short code at check-in (it may be on your
+          key-card sleeve). Enter it once to connect this device.
+        </p>
+        <form onSubmit={submit} className="flex w-full max-w-xs flex-col gap-3">
+          <input
+            value={codeInput}
+            onChange={(e) => setCodeInput(e.target.value.toUpperCase())}
+            placeholder="e.g. 7F3K9P"
+            autoFocus
+            autoCapitalize="characters"
+            className="w-full rounded-xl border px-4 py-3 text-center text-lg tracking-[0.3em] outline-none focus:ring-2 focus:ring-primary"
+          />
+          {codeError && <p className="text-sm text-red-600">{codeError}</p>}
+          <button type="submit" className="w-full rounded-xl bg-primary py-3 font-medium text-primary-foreground">
+            Connect
+          </button>
+        </form>
       </div>
     );
   }

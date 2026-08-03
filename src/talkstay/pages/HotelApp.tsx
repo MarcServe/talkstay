@@ -131,7 +131,7 @@ function Panel({ active, hotel, onHotel, departmentKey }: {
   switch (active) {
     case "operations": return <OperationsPanel hotel={hotel} lockedDepartment={departmentKey ?? null} />;
     case "insights": return <InsightsPanel hotel={hotel} />;
-    case "rooms": return <RoomsPanel hotel={hotel} />;
+    case "rooms": return <RoomsPanel hotel={hotel} onHotel={onHotel} />;
     case "branding": return <BrandingPanel hotel={hotel} onSaved={(b) => onHotel({ ...hotel, branding: b })} />;
     case "departments": return <DepartmentsPanel hotel={hotel} />;
     case "knowledge": return <KnowledgePanel hotel={hotel} />;

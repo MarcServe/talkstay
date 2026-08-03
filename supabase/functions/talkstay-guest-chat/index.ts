@@ -176,7 +176,7 @@ serve(async (req) => {
     const OPENAI_API_KEY = (Deno.env.get("OPENAI_API_KEY") || "").trim();
 
     const body = await req.json();
-    const { action = "message", hotelSlug, roomId, token, message, sessionId, history = [], deviceId } = body;
+    const { action = "message", hotelSlug, roomId, token, message, sessionId, history = [], deviceId, code } = body;
     if (!hotelSlug || !roomId || !token) return json({ error: "Missing hotel/room/token" }, 400);
 
     const ctx = await resolveRoom(admin, hotelSlug, roomId, token);
@@ -185,10 +185,13 @@ serve(async (req) => {
 
     // Bind this device to the current stay. A device from a previous stay (the
     // ex-guest refreshing a saved link after the room was re-let) is rejected;
-    // brand-new devices enrol up to the hotel's per-room cap.
-    const { data: claim } = await admin.rpc("ts_claim_device", { p_room: ctx.roomId, p_device: deviceId ?? null });
+    // brand-new devices enrol up to the hotel's per-room cap. When the hotel
+    // requires a check-in code, a new device must supply the current stay's code.
+    const { data: claim } = await admin.rpc("ts_claim_device", { p_room: ctx.roomId, p_device: deviceId ?? null, p_code: code ?? null });
     if (claim === "ended") return json({ error: "checked_out" }, 403);
     if (claim === "full") return json({ error: "room_full" }, 403);
+    if (claim === "need_code") return json({ error: "need_code" }, 403);
+    if (claim === "bad_code") return json({ error: "bad_code" }, 403);
 
     // Track guest activity — powers auto-checkout after the hotel's inactivity window.
     admin.from("ts_rooms").update({ last_guest_activity_at: new Date().toISOString() })

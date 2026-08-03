@@ -29,6 +29,8 @@ export interface Hotel {
   whatsapp_enabled: boolean;
   is_active: boolean;
   branding?: HotelBranding | null;
+  require_checkin_code?: boolean;
+  max_devices_per_room?: number;
 }
 
 export interface Room {
@@ -40,6 +42,18 @@ export interface Room {
   is_active: boolean;
   occupancy_status?: "occupied" | "vacant";
   last_guest_activity_at?: string | null;
+  checkin_code?: string | null;
+}
+
+/** Short, human-readable stay code (no ambiguous chars). Read out / printed at
+ *  check-in when a hotel requires a code. */
+export function genCheckinCode(): string {
+  const alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // no 0/O/1/I/L
+  let s = "";
+  const buf = new Uint32Array(6);
+  crypto.getRandomValues(buf);
+  for (let i = 0; i < 6; i++) s += alphabet[buf[i] % alphabet.length];
+  return s;
 }
 
 /**
@@ -49,12 +63,37 @@ export interface Room {
  */
 export async function setRoomOccupancy(roomId: string, status: "occupied" | "vacant") {
   const patch = status === "occupied"
-    // A fresh stay id on every check-in invalidates the previous guest's device
-    // bindings, so their saved link can't be reused once the room is re-let.
-    ? { occupancy_status: status, checked_in_at: new Date().toISOString(), checked_out_at: null, last_guest_activity_at: null, current_stay_id: crypto.randomUUID() }
+    // A fresh stay id + code on every check-in invalidates the previous guest's
+    // device bindings, so their saved link can't be reused once the room is re-let.
+    ? { occupancy_status: status, checked_in_at: new Date().toISOString(), checked_out_at: null, last_guest_activity_at: null, current_stay_id: crypto.randomUUID(), checkin_code: genCheckinCode() }
     : { occupancy_status: status, checked_out_at: new Date().toISOString() };
   const { error } = await supabase.from("ts_rooms").update(patch).eq("id", roomId);
   if (error) throw error;
+}
+
+/** Toggle the optional check-in-code requirement. When switching it ON, backfill a
+ *  code for any already-occupied room that doesn't have one, so current guests
+ *  aren't locked out. */
+export async function setRequireCheckinCode(hotelId: string, enabled: boolean): Promise<void> {
+  const { error } = await supabase.from("ts_hotels").update({ require_checkin_code: enabled }).eq("id", hotelId);
+  if (error) throw error;
+  if (enabled) {
+    const { data: rooms } = await supabase
+      .from("ts_rooms").select("id, checkin_code, occupancy_status")
+      .eq("hotel_id", hotelId).eq("occupancy_status", "occupied");
+    const missing = (rooms ?? []).filter((r: any) => !r.checkin_code);
+    for (const r of missing) {
+      await supabase.from("ts_rooms").update({ checkin_code: genCheckinCode() }).eq("id", (r as any).id);
+    }
+  }
+}
+
+/** Regenerate a single room's check-in code (e.g. staff wants a fresh one). */
+export async function regenerateCheckinCode(roomId: string): Promise<string> {
+  const code = genCheckinCode();
+  const { error } = await supabase.from("ts_rooms").update({ checkin_code: code }).eq("id", roomId);
+  if (error) throw error;
+  return code;
 }
 
 function slugify(name: string): string {
