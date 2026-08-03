@@ -6,7 +6,7 @@ import { Loader2, Send, ClipboardList, Star, X, Mic, Globe, Check } from "lucide
 import { RealtimeChat } from "@/utils/RealtimeChat";
 import {
   fetchContext, sendMessage, fetchMyRequests, submitReview, saveGuestContact,
-  getSessionId, loadHistory, saveHistory, getNotifyChoice, setNotifyChoice,
+  getSessionId, getDeviceId, loadHistory, saveHistory, getNotifyChoice, setNotifyChoice,
   STATUS_LABEL, type ChatMsg, type GuestRequest, type GuestBranding,
 } from "@/talkstay/lib/guest";
 
@@ -25,6 +25,7 @@ export default function GuestApp() {
   const [ctx, setCtx] = useState<Ctx | null>(null);
   const [invalid, setInvalid] = useState(false);
   const [checkedOut, setCheckedOut] = useState(false);
+  const [roomFull, setRoomFull] = useState(false);
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -50,13 +51,16 @@ export default function GuestApp() {
         setMsgs(prev.length ? prev : [{ role: "assistant", content: c.greeting }]);
       })
       .catch((e) => {
-        if (String(e?.message ?? e).includes("checked_out")) {
+        const msg = String(e?.message ?? e);
+        if (msg.includes("checked_out")) {
           // Stay has ended — clear this device's cached history for privacy.
           try {
             localStorage.removeItem(`talkstay:hist:${sid}`);
             localStorage.removeItem(`talkstay:notify:${sid}`);
           } catch { /* ignore */ }
           setCheckedOut(true);
+        } else if (msg.includes("room_full")) {
+          setRoomFull(true);
         } else setInvalid(true);
       });
     return () => { chatRef.current?.disconnect(); };
@@ -130,7 +134,7 @@ export default function GuestApp() {
       // TalkStay's own token minter: verifies the room QR token server-side and
       // returns a hotel-aware realtime session.
       chat.tokenFunction = "talkstay-voice-token";
-      chat.tokenBody = { hotelSlug, roomId, token };
+      chat.tokenBody = { hotelSlug, roomId, token, deviceId: getDeviceId() };
       chatRef.current = chat;
       await chat.init();
       setVoiceState("connected");
@@ -157,6 +161,17 @@ export default function GuestApp() {
         <p className="max-w-sm text-sm text-muted-foreground">
           Thank you for staying with us. This room assistant is no longer active for this stay.
           If you're checking in again, please scan the code in your room.
+        </p>
+      </div>
+    );
+  }
+  if (roomFull) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-2 p-8 text-center">
+        <h1 className="text-xl font-semibold">Too many devices on this room</h1>
+        <p className="max-w-sm text-sm text-muted-foreground">
+          This room already has the maximum number of connected devices for this stay.
+          Please use a device that's already connected, or ask reception for help.
         </p>
       </div>
     );

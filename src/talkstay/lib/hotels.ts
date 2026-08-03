@@ -49,7 +49,9 @@ export interface Room {
  */
 export async function setRoomOccupancy(roomId: string, status: "occupied" | "vacant") {
   const patch = status === "occupied"
-    ? { occupancy_status: status, checked_in_at: new Date().toISOString(), checked_out_at: null, last_guest_activity_at: null }
+    // A fresh stay id on every check-in invalidates the previous guest's device
+    // bindings, so their saved link can't be reused once the room is re-let.
+    ? { occupancy_status: status, checked_in_at: new Date().toISOString(), checked_out_at: null, last_guest_activity_at: null, current_stay_id: crypto.randomUUID() }
     : { occupancy_status: status, checked_out_at: new Date().toISOString() };
   const { error } = await supabase.from("ts_rooms").update(patch).eq("id", roomId);
   if (error) throw error;

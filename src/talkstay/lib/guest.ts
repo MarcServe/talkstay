@@ -11,8 +11,20 @@ export interface GuestRequest {
 
 export interface ChatMsg { role: "user" | "assistant"; content: string; }
 
+/** Stable per-BROWSER device id — used to bind a device to the current stay so a
+ *  previous guest's saved link can't be reused after the room is re-let. */
+export function getDeviceId(): string {
+  const key = "talkstay:device";
+  let id = localStorage.getItem(key);
+  if (!id) {
+    id = (crypto?.randomUUID?.() ?? `dev_${Date.now()}_${Math.random().toString(36).slice(2, 12)}`);
+    localStorage.setItem(key, id);
+  }
+  return id;
+}
+
 const fn = (body: Record<string, unknown>) =>
-  supabase.functions.invoke("talkstay-guest-chat", { body });
+  supabase.functions.invoke("talkstay-guest-chat", { body: { deviceId: getDeviceId(), ...body } });
 
 /** Stable per-room session id kept in localStorage (device history). */
 export function getSessionId(hotelSlug: string, roomId: string): string {

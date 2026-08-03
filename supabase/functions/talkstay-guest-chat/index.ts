@@ -176,12 +176,19 @@ serve(async (req) => {
     const OPENAI_API_KEY = (Deno.env.get("OPENAI_API_KEY") || "").trim();
 
     const body = await req.json();
-    const { action = "message", hotelSlug, roomId, token, message, sessionId, history = [] } = body;
+    const { action = "message", hotelSlug, roomId, token, message, sessionId, history = [], deviceId } = body;
     if (!hotelSlug || !roomId || !token) return json({ error: "Missing hotel/room/token" }, 400);
 
     const ctx = await resolveRoom(admin, hotelSlug, roomId, token);
     if (ctx === "checked_out") return json({ error: "checked_out" }, 403);
     if (!ctx) return json({ error: "invalid_token" }, 403);
+
+    // Bind this device to the current stay. A device from a previous stay (the
+    // ex-guest refreshing a saved link after the room was re-let) is rejected;
+    // brand-new devices enrol up to the hotel's per-room cap.
+    const { data: claim } = await admin.rpc("ts_claim_device", { p_room: ctx.roomId, p_device: deviceId ?? null });
+    if (claim === "ended") return json({ error: "checked_out" }, 403);
+    if (claim === "full") return json({ error: "room_full" }, 403);
 
     // Track guest activity — powers auto-checkout after the hotel's inactivity window.
     admin.from("ts_rooms").update({ last_guest_activity_at: new Date().toISOString() })

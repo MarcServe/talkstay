@@ -74,12 +74,41 @@ export default function StaffPanel({ hotel }: { hotel: Hotel }) {
   const remove = async (row: StaffRow) => {
     if (!confirm(`Remove ${row.email}?`)) return;
     const { error } = await call({ action: "remove", staffId: row.id });
-    if (error) { toast.error(error.message); return; }
+    const res = error as any;
+    if (res) { toast.error(res.message); return; }
     await load();
   };
 
-  const deptLabel = (k: string | null) =>
-    !k ? "All departments" : DEPARTMENTS.find((d) => d.key === k)?.display_name ?? k;
+  // Inline edits (name draft per row) + a saving indicator.
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [savingId, setSavingId] = useState<string | null>(null);
+
+  const update = async (row: StaffRow, patch: { name?: string; role?: string; departmentKey?: string | null }) => {
+    setSavingId(row.id);
+    try {
+      const { data, error } = await call({ action: "update", staffId: row.id, ...patch });
+      if (error) throw error;
+      if ((data as any)?.error) throw new Error((data as any).error);
+      // Update the row locally so the UI is instant.
+      setStaff((prev) => prev.map((s) => s.id === row.id ? {
+        ...s,
+        ...(patch.name !== undefined ? { name: patch.name || null } : {}),
+        ...(patch.role !== undefined ? { role: patch.role } : {}),
+        ...(patch.departmentKey !== undefined ? { department_key: patch.departmentKey } : {}),
+      } : s));
+    } catch (e: any) {
+      toast.error(e?.message ?? "Couldn't save");
+      await load(); // resync on failure
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  const saveName = (row: StaffRow) => {
+    const next = (drafts[row.id] ?? row.name ?? "").trim();
+    if (next === (row.name ?? "")) return;
+    update(row, { name: next });
+  };
 
   return (
     <div className="space-y-6">
@@ -123,29 +152,80 @@ export default function StaffPanel({ hotel }: { hotel: Hotel }) {
       ) : staff.length === 0 ? (
         <p className="text-sm text-muted-foreground">No staff yet. Add someone above — if they don't have an account, one is created and a temporary password is shown once.</p>
       ) : (
-        <div className="overflow-hidden rounded-xl border">
-          <table className="w-full text-sm">
+        <div className="overflow-x-auto rounded-xl border">
+          <table className="w-full min-w-[640px] text-sm">
             <thead className="bg-muted/50 text-left text-xs text-muted-foreground">
               <tr><th className="px-4 py-2">Name</th><th className="px-4 py-2">Email</th><th className="px-4 py-2">Department</th><th className="px-4 py-2">Role</th><th className="px-4 py-2"></th></tr>
             </thead>
             <tbody>
-              {staff.map((s) => (
-                <tr key={s.id} className="border-t">
-                  <td className="px-4 py-2 font-medium">{s.name || "—"}</td>
+              {staff.map((s) => {
+                const isOwner = s.role === "owner";
+                return (
+                <tr key={s.id} className="border-t align-middle">
+                  <td className="px-4 py-2">
+                    <Input
+                      className="h-8 w-36"
+                      value={drafts[s.id] ?? s.name ?? ""}
+                      placeholder="Add name"
+                      disabled={isOwner || savingId === s.id}
+                      onChange={(e) => setDrafts((d) => ({ ...d, [s.id]: e.target.value }))}
+                      onBlur={() => saveName(s)}
+                      onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                    />
+                  </td>
                   <td className="px-4 py-2 text-muted-foreground">{s.email}</td>
-                  <td className="px-4 py-2 text-muted-foreground">{deptLabel(s.department_key)}</td>
-                  <td className="px-4 py-2 capitalize">{s.role}</td>
+                  <td className="px-4 py-2">
+                    <Select
+                      value={s.department_key ?? ALL_DEPTS}
+                      disabled={isOwner || s.role === "manager" || savingId === s.id}
+                      onValueChange={(v) => update(s, { departmentKey: v === ALL_DEPTS ? null : v })}
+                    >
+                      <SelectTrigger className="h-8 w-44"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={ALL_DEPTS}>All departments</SelectItem>
+                        {DEPARTMENTS.map((d) => <SelectItem key={d.key} value={d.key}>{d.display_name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </td>
+                  <td className="px-4 py-2">
+                    {isOwner ? (
+                      <span className="capitalize text-muted-foreground">Owner</span>
+                    ) : (
+                      <Select value={s.role} disabled={savingId === s.id} onValueChange={(v) => update(s, { role: v })}>
+                        <SelectTrigger className="h-8 w-32"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="staff">Staff</SelectItem>
+                          <SelectItem value="manager">Manager</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </td>
                   <td className="px-4 py-2 text-right">
-                    <Button size="sm" variant="ghost" onClick={() => remove(s)}>
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
+                    {savingId === s.id ? (
+                      <Loader2 className="ml-auto h-4 w-4 animate-spin text-muted-foreground" />
+                    ) : isOwner ? null : (
+                      <Button size="sm" variant="ghost" onClick={() => remove(s)}>
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    )}
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
       )}
+
+      <div className="rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">
+        <p><strong className="text-foreground">Staff</strong> see only their department's live queue.</p>
+        <p className="mt-1">
+          <strong className="text-foreground">Manager</strong> is your sub-manager: full access to every
+          department's queue and Insights, so they can coordinate the floor while you're away and you can
+          check in whenever you like. Promote anyone (e.g. front desk) by switching their role to Manager —
+          it takes effect the next time they open the app.
+        </p>
+      </div>
     </div>
   );
 }

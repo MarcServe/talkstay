@@ -31,10 +31,34 @@ serve(async (req) => {
     const { action, hotelId, email, name, departmentKey, role, staffId } = await req.json();
     if (!hotelId) return json({ error: "hotelId required" }, 400);
 
-    // Authorize: caller must own the hotel.
+    // Authorize: OWNER or an active MANAGER of this hotel may manage staff.
+    // (Managers are the "sub-manager" access the owner grants so someone can
+    // coordinate while the owner is away.)
     const { data: hotel } = await admin
       .from("ts_hotels").select("id, user_id").eq("id", hotelId).maybeSingle();
-    if (!hotel || hotel.user_id !== caller.id) return json({ error: "Forbidden" }, 403);
+    if (!hotel) return json({ error: "Not found" }, 404);
+    const isOwner = hotel.user_id === caller.id;
+    let isManager = false;
+    if (!isOwner) {
+      const { data: me } = await admin
+        .from("ts_staff").select("role, status")
+        .eq("hotel_id", hotelId).eq("user_id", caller.id).eq("status", "active").maybeSingle();
+      isManager = me?.role === "manager" || me?.role === "owner";
+    }
+    if (!isOwner && !isManager) return json({ error: "Forbidden" }, 403);
+
+    // Helper: is a given staff row the hotel OWNER's own membership?
+    const isOwnerRow = async (sid: string) => {
+      const { data } = await admin.from("ts_staff").select("user_id").eq("id", sid).eq("hotel_id", hotelId).maybeSingle();
+      return !!data && data.user_id === hotel.user_id;
+    };
+    // Only owner/manager may exist as roles a non-owner can assign; nobody but the
+    // owner can mint another owner.
+    const normalizeRole = (r: unknown) => {
+      const v = String(r ?? "staff");
+      if (v === "owner" && !isOwner) return "manager";
+      return ["owner", "manager", "staff"].includes(v) ? v : "staff";
+    };
 
     // ------- list -------
     if (action === "list") {
@@ -89,7 +113,7 @@ serve(async (req) => {
           hotel_id: hotelId,
           user_id: userId,
           department_key: departmentKey || null,
-          role: role || "staff",
+          role: normalizeRole(role),
           status: "active",
           name: staffName,
         },
@@ -100,9 +124,26 @@ serve(async (req) => {
       return json({ ok: true, created: !!tempPassword, tempPassword, email: cleanEmail });
     }
 
+    // ------- update (edit name / role / department) -------
+    if (action === "update") {
+      if (!staffId) return json({ error: "staffId required" }, 400);
+      // The owner's own membership can only be edited by the owner.
+      if (!isOwner && (await isOwnerRow(staffId))) return json({ error: "Only the owner can edit the owner." }, 403);
+      const patch: Record<string, unknown> = {};
+      if (name !== undefined) patch.name = (String(name).trim() || null);
+      if (role !== undefined) patch.role = normalizeRole(role);
+      if (departmentKey !== undefined) patch.department_key = departmentKey || null;
+      if (Object.keys(patch).length === 0) return json({ error: "Nothing to update" }, 400);
+      const { error } = await admin.from("ts_staff").update(patch).eq("id", staffId).eq("hotel_id", hotelId);
+      if (error) return json({ error: error.message }, 400);
+      return json({ ok: true });
+    }
+
     // ------- remove -------
     if (action === "remove") {
       if (!staffId) return json({ error: "staffId required" }, 400);
+      // Nobody can remove the owner's membership; managers can't be removed by managers.
+      if (await isOwnerRow(staffId)) return json({ error: "The owner can't be removed." }, 403);
       const { error } = await admin.from("ts_staff").delete().eq("id", staffId).eq("hotel_id", hotelId);
       if (error) return json({ error: error.message }, 400);
       return json({ ok: true });
