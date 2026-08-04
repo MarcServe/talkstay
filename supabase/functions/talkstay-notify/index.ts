@@ -32,14 +32,18 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-    const { requestId } = await req.json();
+    const { requestId, event } = await req.json();
     if (!requestId) return json({ error: "requestId required" }, 400);
+    // event === "reopened" → the guest said the completed work wasn't done.
+    const reopened = event === "reopened";
 
     const { data: r } = await admin
       .from("ts_service_requests")
-      .select("id, hotel_id, room_id, department_key, summary, priority, is_complaint")
+      .select("id, hotel_id, room_id, department_key, summary, summary_staff, priority, is_complaint")
       .eq("id", requestId).maybeSingle();
     if (!r) return json({ error: "request not found" }, 404);
+    // Staff read in the hotel's language when available (B4).
+    const staffSummary = r.summary_staff || r.summary;
 
     const [{ data: hotel }, { data: room }, { data: dept }] = await Promise.all([
       admin.from("ts_hotels").select("name, user_id").eq("id", r.hotel_id).maybeSingle(),
@@ -57,14 +61,19 @@ serve(async (req) => {
     const deptEmail = dept?.notify_email || null;
     const roomNo = room?.room_number ?? "—";
     const label = DEPT_LABEL[r.department_key] ?? r.department_key;
-    const urgent = r.priority === "urgent" || r.is_complaint;
+    // A reopen means the guest wasn't satisfied — treat it as urgent so it copies
+    // the owner and pushes with priority, same as a complaint.
+    const urgent = reopened || r.priority === "urgent" || r.is_complaint;
 
-    const subject = `${urgent ? "🔴 URGENT · " : ""}New ${label} request — Room ${roomNo}`;
+    const subject = reopened
+      ? `🔴 Reopened by guest · ${label} — Room ${roomNo}`
+      : `${urgent ? "🔴 URGENT · " : ""}New ${label} request — Room ${roomNo}`;
     const html = `
       <div style="font-family:system-ui,sans-serif">
-        <h2 style="margin:0 0 8px">${urgent ? "Urgent " : ""}${label} request</h2>
+        <h2 style="margin:0 0 8px">${reopened ? `Reopened — ${label}` : `${urgent ? "Urgent " : ""}${label} request`}</h2>
+        ${reopened ? '<p style="margin:0 0 8px;color:#b91c1c"><strong>The guest said this wasn\'t done yet. Please pick it back up.</strong></p>' : ""}
         <p style="margin:0 0 4px"><strong>Room:</strong> ${roomNo}</p>
-        <p style="margin:0 0 4px"><strong>Request:</strong> ${r.summary}</p>
+        <p style="margin:0 0 4px"><strong>Request:</strong> ${staffSummary}</p>
         ${r.is_complaint ? '<p style="margin:0 0 4px;color:#b91c1c"><strong>This is a complaint — please handle promptly.</strong></p>' : ""}
         <p style="margin:12px 0 0"><a href="https://talkstay.talkweb.io/app">Open the TalkStay Operations dashboard →</a></p>
         <p style="margin:12px 0 0;color:#6b7280;font-size:12px">${hotel?.name ?? "TalkStay"}</p>
@@ -105,7 +114,7 @@ serve(async (req) => {
           try {
             await webpush.sendNotification(
               { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
-              JSON.stringify({ title: subject, body: `Room ${roomNo}: ${r.summary}`, url: "https://talkstay.talkweb.io/app", urgent, tag: r.id })
+              JSON.stringify({ title: subject, body: `Room ${roomNo}: ${staffSummary}`, url: "https://talkstay.talkweb.io/app", urgent, tag: r.id })
             );
             pushed++;
           } catch (err: any) {

@@ -167,6 +167,41 @@ async function searchKnowledge(
 
 const OPENAI = "https://api.openai.com/v1/chat/completions";
 
+const isEnglish = (lang?: string) => {
+  const l = (lang || "").trim().toLowerCase();
+  return l === "" || l === "english" || l === "en" || l.startsWith("en-");
+};
+
+/** Translate the English staff summary into the hotel's language (B4) so staff
+ *  read requests in their own language. Best-effort: returns null on any failure
+ *  (missing key, timeout, error) and the caller falls back to the English summary. */
+async function translateForStaff(apiKey: string, text: string, targetLang: string): Promise<string | null> {
+  if (!apiKey || isEnglish(targetLang) || !text.trim()) return null;
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 4000);
+    const resp = await fetch(OPENAI, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      signal: ctrl.signal,
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        temperature: 0,
+        max_tokens: 200,
+        messages: [
+          { role: "system", content: `Translate the hotel staff task below into ${targetLang}. Keep it short and literal. Reply with ONLY the translation — no quotes, no notes.` },
+          { role: "user", content: text },
+        ],
+      }),
+    });
+    clearTimeout(timer);
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    const out = String(data?.choices?.[0]?.message?.content ?? "").trim();
+    return out || null;
+  } catch { return null; }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
@@ -251,6 +286,40 @@ serve(async (req) => {
       );
       if (error) return json({ error: error.message }, 400);
       return json({ ok: true });
+    }
+
+    // ---- confirm / reopen: guest closes the loop on a completed request ----
+    // Staff marking "completed" is a claim, not proof. The guest gets the final
+    // say: "Yes, all good" → guest_confirmed (then they can rate); "Not yet" →
+    // reopened, and the team is alerted to pick it back up.
+    if (action === "confirm" || action === "reopen") {
+      const { requestId } = body;
+      if (!requestId) return json({ error: "requestId required" }, 400);
+      const { data: reqRow } = await admin
+        .from("ts_service_requests")
+        .select("id, session_id, status")
+        .eq("id", requestId).eq("hotel_id", ctx.hotelId).maybeSingle();
+      if (!reqRow || (sessionId && reqRow.session_id && reqRow.session_id !== sessionId))
+        return json({ error: "not_found" }, 404);
+      // Only a completed request can be confirmed or reopened by the guest.
+      if (reqRow.status !== "completed")
+        return json({ error: "not_completed", status: reqRow.status }, 409);
+
+      const next = action === "confirm" ? "guest_confirmed" : "reopened";
+      const { error } = await admin.from("ts_service_requests")
+        .update({ status: next }).eq("id", requestId);
+      if (error) return json({ error: error.message }, 400);
+      await admin.from("ts_request_events").insert({
+        request_id: requestId, status: next, actor_type: "guest",
+      });
+
+      // On reopen, alert the department (email + push) so someone picks it up.
+      if (action === "reopen") {
+        admin.functions.invoke("talkstay-notify", {
+          body: { requestId, event: "reopened" },
+        }).then(() => {}, () => {});
+      }
+      return json({ ok: true, status: next });
     }
 
     // ---- message: the AI brain ----
@@ -339,15 +408,18 @@ Keep replies to 1–3 short sentences.`;
     ) => {
       const dept = ctx.departments.includes(dept0) ? dept0 : (DEPARTMENTS.includes(dept0) ? dept0 : "front_desk");
       const isComplaint = o.isComplaint ?? (dept === "duty_manager");
+      const enSummary = summary.slice(0, 500);
+      // B4: give staff the request in the hotel's language (falls back to English).
+      const summaryStaff = await translateForStaff(OPENAI_API_KEY, enSummary, ctx.language);
       const { data: reqRow } = await admin.from("ts_service_requests").insert({
         hotel_id: ctx.hotelId, room_id: ctx.roomId, department_key: dept,
-        intent: message.slice(0, 200), summary: summary.slice(0, 500),
+        intent: message.slice(0, 200), summary: enSummary, summary_staff: summaryStaff,
         priority: isComplaint ? "urgent" : (o.priority || "normal"),
         is_complaint: isComplaint, is_chargeable: !!o.isChargeable,
         guest_language: ctx.language, session_id: sessionId || null,
         classification_method: o.method, needs_triage: !!o.needsTriage,
         conversation: [...history.slice(-6), { role: "user", content: message }],
-      }).select("id, department_key, summary, status, is_complaint").single();
+      }).select("id, department_key, summary, summary_staff, status, is_complaint").single();
       if (reqRow) {
         await admin.from("ts_request_events").insert({ request_id: reqRow.id, status: "new", actor_type: "guest" });
         admin.functions.invoke("talkstay-notify", { body: { requestId: reqRow.id } }).catch(() => {});

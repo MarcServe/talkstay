@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Loader2, Send, ClipboardList, Star, X, Mic, Globe, Check } from "lucide-react";
+import { Loader2, Send, ClipboardList, Star, X, Mic, MicOff, Globe, Check } from "lucide-react";
 import { RealtimeChat } from "@/utils/RealtimeChat";
 import {
   fetchContext, sendMessage, fetchMyRequests, submitReview, saveGuestContact,
+  confirmRequest, reopenRequest,
   getSessionId, getDeviceId, loadHistory, saveHistory, getNotifyChoice, setNotifyChoice,
   STATUS_LABEL, type ChatMsg, type GuestRequest, type GuestBranding,
 } from "@/talkstay/lib/guest";
@@ -15,7 +16,7 @@ type Ctx = {
   branding?: GuestBranding; assistantId?: string | null;
 };
 
-type Msg = ChatMsg | { role: "request"; content: string };
+type Msg = ChatMsg | { role: "request"; content: string } | { role: "notice"; content: string };
 
 export default function GuestApp() {
   const { hotelSlug = "", roomId = "" } = useParams();
@@ -80,7 +81,7 @@ export default function GuestApp() {
   }, [hotelSlug, roomId, token]);
 
   useEffect(() => {
-    if (sid && msgs.length) saveHistory(sid, msgs.filter((m) => m.role !== "request") as ChatMsg[]);
+    if (sid && msgs.length) saveHistory(sid, msgs.filter((m) => m.role === "user" || m.role === "assistant") as ChatMsg[]);
     scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: "smooth" });
   }, [msgs, sid]);
 
@@ -90,7 +91,7 @@ export default function GuestApp() {
   // creates request(s), show confirmation chips + the notification choice sheet.
   const routeThroughHotelBrain = async (text: string, surfaceReply: boolean) => {
     try {
-      const history = msgs.filter((m) => m.role !== "request") as ChatMsg[];
+      const history = msgs.filter((m) => m.role === "user" || m.role === "assistant") as ChatMsg[];
       const res = await sendMessage({ hotelSlug, roomId, token, sessionId: sid, message: text, history });
       if (res.requests?.length) {
         for (const r of res.requests) {
@@ -141,7 +142,7 @@ export default function GuestApp() {
         onAssistantAudioStart: () => setIsSpeaking(true),
         onAssistantAudioEnd: () => setIsSpeaking(false),
         onError: () => { /* keep session; transcript continues */ },
-        onInactivityTimeout: () => stopVoice(),
+        onInactivityTimeout: () => stopVoice(true),
       } as any);
       // TalkStay's own token minter: verifies the room QR token server-side and
       // returns a hotel-aware realtime session.
@@ -156,12 +157,15 @@ export default function GuestApp() {
     }
   };
 
-  const stopVoice = () => {
+  // `auto` = the 30s idle timer fired (guest stopped talking / walked away).
+  // Tell them why the mic went quiet so it doesn't feel like a glitch.
+  const stopVoice = (auto = false) => {
     chatRef.current?.disconnect();
     chatRef.current = null;
     setVoiceState("idle");
     setIsListening(false);
     setIsSpeaking(false);
+    if (auto) append({ role: "notice", content: "Voice paused after a quiet moment — tap the mic to carry on." });
   };
 
   const toggleVoice = () => (voiceState === "idle" ? startVoice() : stopVoice());
@@ -260,10 +264,13 @@ export default function GuestApp() {
         </div>
       </header>
 
+      {/* Conversation — the hero orb stays pinned at the top while the transcript
+          scrolls behind it (frosted so scrolled messages read softly underneath). */}
+      <div ref={scroller} className="relative flex-1 overflow-y-auto">
       {/* Voice orb — copied from TalkWeb's SimplifiedVoiceInterface */}
       <div
-        className="flex flex-col items-center gap-3 py-6"
-        style={{ background: `linear-gradient(180deg, ${brand}0d, transparent)` }}
+        className="sticky top-0 z-20 flex flex-col items-center gap-3 border-b py-6 bg-background/80 backdrop-blur-md"
+        style={{ backgroundImage: `linear-gradient(180deg, ${brand}14, transparent)` }}
       >
         <div className="relative">
           {isSpeaking && (
@@ -311,18 +318,24 @@ export default function GuestApp() {
             </p>
           )}
           {voiceState === "connected" && (
-            <button onClick={stopVoice} className="mt-0.5 text-xs text-muted-foreground underline">End voice</button>
+            <button onClick={() => stopVoice()} className="mt-0.5 text-xs text-muted-foreground underline">End voice</button>
           )}
         </div>
       </div>
 
-      {/* Transcript */}
-      <div ref={scroller} className="flex-1 space-y-3 overflow-y-auto px-4 pb-4">
+      {/* Transcript scrolls underneath the pinned orb */}
+      <div className="space-y-3 px-4 pb-4 pt-4">
         {msgs.map((m, i) =>
           m.role === "request" ? (
             <div key={i} className="flex justify-center">
               <span className="inline-flex items-center gap-1.5 rounded-full border bg-muted/60 px-3 py-1 text-xs text-muted-foreground">
                 <Check className="h-3.5 w-3.5 text-green-600" /> Sent to the team — {m.content}
+              </span>
+            </div>
+          ) : m.role === "notice" ? (
+            <div key={i} className="flex justify-center">
+              <span className="inline-flex items-center gap-1.5 rounded-full border bg-muted/40 px-3 py-1 text-xs text-muted-foreground">
+                <MicOff className="h-3.5 w-3.5" /> {m.content}
               </span>
             </div>
           ) : (
@@ -341,6 +354,7 @@ export default function GuestApp() {
             <div className="rounded-2xl bg-muted px-4 py-2 text-sm text-muted-foreground">…</div>
           </div>
         )}
+      </div>
       </div>
 
       {/* Typed input — TalkWeb style */}
@@ -437,10 +451,30 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
   const [rated, setRated] = useState<Record<string, number>>({});
   const [comments, setComments] = useState<Record<string, string>>({});
   const [sent, setSent] = useState<Record<string, boolean>>({});
+  // Optimistic guest close-out: id → "confirmed" | "reopened" (before refetch).
+  const [resolved, setResolved] = useState<Record<string, "confirmed" | "reopened">>({});
 
   useEffect(() => {
     fetchMyRequests(hotelSlug, roomId, token, sid).then(setReqs).catch(() => setReqs([]));
   }, [hotelSlug, roomId, token, sid]);
+
+  const confirmDone = async (r: GuestRequest) => {
+    setResolved((p) => ({ ...p, [r.id]: "confirmed" }));
+    try {
+      await confirmRequest({ hotelSlug, roomId, token, sessionId: sid, requestId: r.id });
+    } catch {
+      setResolved((p) => { const n = { ...p }; delete n[r.id]; return n; });
+    }
+  };
+
+  const reopen = async (r: GuestRequest) => {
+    setResolved((p) => ({ ...p, [r.id]: "reopened" }));
+    try {
+      await reopenRequest({ hotelSlug, roomId, token, sessionId: sid, requestId: r.id });
+    } catch {
+      setResolved((p) => { const n = { ...p }; delete n[r.id]; return n; });
+    }
+  };
 
   const rate = async (r: GuestRequest, n: number) => {
     setRated((p) => ({ ...p, [r.id]: n }));
@@ -478,12 +512,35 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
         ) : (
           <div className="space-y-3">
             {reqs.map((r) => {
-              const done = r.status === "completed" || r.status === "guest_confirmed";
+              // Fold the guest's optimistic close-out over the fetched status.
+              const effStatus =
+                resolved[r.id] === "confirmed" ? "guest_confirmed"
+                : resolved[r.id] === "reopened" ? "reopened"
+                : r.status;
+              const awaitingConfirm = effStatus === "completed";
+              const confirmed = effStatus === "guest_confirmed";
+              const wasReopened = effStatus === "reopened";
               return (
                 <div key={r.id} className="rounded-xl border p-4">
                   <div className="text-sm font-medium">{r.summary}</div>
-                  <div className="mt-1 text-xs text-muted-foreground">{STATUS_LABEL[r.status] ?? r.status}</div>
-                  {done && (
+                  <div className="mt-1 text-xs text-muted-foreground">{STATUS_LABEL[effStatus] ?? effStatus}</div>
+
+                  {/* Staff marked it done — the guest gets the final say. */}
+                  {awaitingConfirm && (
+                    <div className="mt-3 space-y-2">
+                      <p className="text-sm">Did you receive everything?</p>
+                      <div className="flex gap-2">
+                        <Button size="sm" onClick={() => confirmDone(r)}>Yes, all good</Button>
+                        <Button size="sm" variant="outline" onClick={() => reopen(r)}>Not yet</Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {wasReopened && (
+                    <p className="mt-3 text-xs text-amber-600">Thanks — we've let the team know. They're back on it.</p>
+                  )}
+
+                  {confirmed && (
                     <div className="mt-3 space-y-2">
                       <div className="flex items-center gap-1">
                         <span className="mr-1 text-xs text-muted-foreground">Rate:</span>

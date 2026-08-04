@@ -114,6 +114,25 @@ export async function submitReview(args: {
   return true;
 }
 
+/** Guest closes the loop on a completed request: confirm it was done, or reopen it. */
+export async function confirmRequest(args: {
+  hotelSlug: string; roomId: string; token: string; sessionId: string; requestId: string;
+}) {
+  const { data, error } = await fn({ action: "confirm", ...args });
+  if (error) throw await realError(error);
+  if ((data as any)?.error) throw new Error((data as any).error);
+  return true;
+}
+
+export async function reopenRequest(args: {
+  hotelSlug: string; roomId: string; token: string; sessionId: string; requestId: string;
+}) {
+  const { data, error } = await fn({ action: "reopen", ...args });
+  if (error) throw await realError(error);
+  if ((data as any)?.error) throw new Error((data as any).error);
+  return true;
+}
+
 export const STATUS_LABEL: Record<string, string> = {
   new: "Request received",
   accepted: "Being prepared",

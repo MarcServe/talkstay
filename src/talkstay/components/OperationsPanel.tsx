@@ -12,6 +12,7 @@ interface Req {
   room_id: string | null;
   department_key: string;
   summary: string;
+  summary_staff: string | null;
   status: string;
   priority: string;
   is_complaint: boolean;
@@ -29,6 +30,8 @@ const NEXT: Record<string, { to: string; label: string } | null> = {
   on_the_way: { to: "completed", label: "Complete" },
   completed: null,
   guest_confirmed: null,
+  // Guest said the completed work wasn't done — let staff pick it back up.
+  reopened: { to: "on_the_way", label: "Pick back up" },
 };
 
 const STATUS_STYLE: Record<string, string> = {
@@ -38,6 +41,7 @@ const STATUS_STYLE: Record<string, string> = {
   on_the_way: "bg-violet-500/15 text-violet-600",
   completed: "bg-green-500/15 text-green-600",
   guest_confirmed: "bg-green-600/20 text-green-700",
+  reopened: "bg-orange-500/15 text-orange-600",
   escalated: "bg-red-500/15 text-red-600",
   cancelled: "bg-muted text-muted-foreground",
 };
@@ -77,7 +81,7 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
   const refresh = async () => {
     const { data, error } = await supabase
       .from("ts_service_requests")
-      .select("id, room_id, department_key, summary, status, priority, is_complaint, needs_triage, guest_language, created_at, ts_rooms(room_number)")
+      .select("id, room_id, department_key, summary, summary_staff, status, priority, is_complaint, needs_triage, guest_language, created_at, ts_rooms(room_number)")
       .eq("hotel_id", hotel.id)
       .order("created_at", { ascending: false })
       .limit(200);
@@ -97,7 +101,7 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
           fresh.length === 1
             ? `New request · Room ${r.ts_rooms?.room_number ?? "—"}`
             : `${fresh.length} new requests`,
-          { description: fresh.length === 1 ? r.summary : undefined }
+          { description: fresh.length === 1 ? (r.summary_staff || r.summary) : undefined }
         );
       }
     }
@@ -244,7 +248,10 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
                       {overdue && <Badge className="bg-red-500/15 text-red-600">Overdue</Badge>}
                       {r.needs_triage && <Badge className="bg-amber-500/15 text-amber-600">Check routing</Badge>}
                     </div>
-                    <p className="mt-1 text-sm">{r.summary}</p>
+                    <p className="mt-1 text-sm">{r.summary_staff || r.summary}</p>
+                    {r.summary_staff && r.summary_staff !== r.summary && (
+                      <p className="mt-0.5 text-xs text-muted-foreground italic">{r.summary}</p>
+                    )}
                     <p className="mt-1 text-xs text-muted-foreground">
                       {timeAgo(r.created_at)}{r.guest_language ? ` · ${r.guest_language}` : ""}
                     </p>
