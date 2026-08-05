@@ -2,11 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Loader2, Send, ClipboardList, Star, X, Mic, MicOff, Globe, Check } from "lucide-react";
+import { Loader2, Send, ClipboardList, Star, X, Mic, MicOff, Globe, Check, MessageCircle } from "lucide-react";
+import { toast } from "sonner";
 import { RealtimeChat } from "@/utils/RealtimeChat";
 import {
   fetchContext, sendMessage, fetchMyRequests, submitReview, saveGuestContact,
-  confirmRequest, reopenRequest,
+  confirmRequest, reopenRequest, fetchStaffMessages,
   getSessionId, getDeviceId, loadHistory, saveHistory, getNotifyChoice, setNotifyChoice,
   STATUS_LABEL, type ChatMsg, type GuestRequest, type GuestBranding,
 } from "@/talkstay/lib/guest";
@@ -16,7 +17,7 @@ type Ctx = {
   branding?: GuestBranding; assistantId?: string | null;
 };
 
-type Msg = ChatMsg | { role: "request"; content: string } | { role: "notice"; content: string };
+type Msg = ChatMsg | { role: "request"; content: string } | { role: "notice"; content: string } | { role: "staff"; content: string; label?: string };
 
 export default function GuestApp() {
   const { hotelSlug = "", roomId = "" } = useParams();
@@ -86,6 +87,30 @@ export default function GuestApp() {
   }, [msgs, sid]);
 
   const append = (m: Msg) => setMsgs((prev) => [...prev, m]);
+
+  // Human staff replies: poll while the guest is here so a reply ("no red wine
+  // tonight, but we have a lovely white") appears in the chat within seconds.
+  const staffSeen = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!sid || !ctx) return;
+    let active = true;
+    const poll = async () => {
+      const msgs = await fetchStaffMessages({ hotelSlug, roomId, token, sessionId: sid });
+      if (!active) return;
+      const fresh = msgs.filter((m) => !staffSeen.current.has(m.id));
+      if (!fresh.length) return;
+      fresh.forEach((m) => staffSeen.current.add(m.id));
+      setMsgs((prev) => [...prev, ...fresh.map((m) => ({ role: "staff" as const, content: m.content, label: m.staff_label ?? undefined }))]);
+      const last = fresh[fresh.length - 1];
+      // Only announce replies that land while the guest is watching (not the
+      // initial backfill of messages they've likely already read by email).
+      if (staffSeen.current.size > fresh.length) toast.message(last.staff_label ?? "Message from the team", { description: last.content });
+    };
+    poll();
+    const iv = setInterval(poll, 7000);
+    return () => { active = false; clearInterval(iv); };
+    // eslint-disable-next-line
+  }, [sid, ctx, hotelSlug, roomId, token]);
 
   // Hotel layer: forward a final utterance to the TalkStay routing brain. If it
   // creates request(s), show confirmation chips + the notification choice sheet.
@@ -337,6 +362,15 @@ export default function GuestApp() {
               <span className="inline-flex items-center gap-1.5 rounded-full border bg-muted/40 px-3 py-1 text-xs text-muted-foreground">
                 <MicOff className="h-3.5 w-3.5" /> {m.content}
               </span>
+            </div>
+          ) : m.role === "staff" ? (
+            <div key={i} className="flex justify-start">
+              <div className="max-w-[85%] rounded-2xl border px-4 py-2 text-sm" style={{ borderColor: `${brand}66`, background: `${brand}12` }}>
+                <div className="mb-0.5 flex items-center gap-1 text-xs font-semibold" style={{ color: brand }}>
+                  <MessageCircle className="h-3.5 w-3.5" /> {m.label ?? "The team"}
+                </div>
+                {m.content}
+              </div>
             </div>
           ) : (
             <div key={i} className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>

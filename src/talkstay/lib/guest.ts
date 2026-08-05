@@ -87,6 +87,17 @@ export async function sendMessage(args: {
   return data as { reply: string; requests: GuestRequest[]; language: string };
 }
 
+export interface StaffMessage { id: string; request_id: string; staff_label: string | null; content: string; created_at: string; }
+
+/** Human staff replies to this session's requests, optionally only newer than `since`. */
+export async function fetchStaffMessages(args: {
+  hotelSlug: string; roomId: string; token: string; sessionId: string; since?: string;
+}): Promise<StaffMessage[]> {
+  const { data, error } = await fn({ action: "staff_messages", ...args });
+  if (error) return [];
+  return ((data as any)?.messages ?? []) as StaffMessage[];
+}
+
 export async function fetchMyRequests(hotelSlug: string, roomId: string, token: string, sessionId: string) {
   const { data, error } = await fn({ action: "my_requests", hotelSlug, roomId, token, sessionId });
   if (error) throw error;

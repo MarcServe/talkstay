@@ -254,6 +254,29 @@ serve(async (req) => {
       return json({ requests: data ?? [] });
     }
 
+    // ---- staff_messages: human replies from staff for this session's requests ----
+    if (action === "staff_messages") {
+      if (!sessionId) return json({ messages: [] });
+      const since = typeof body.since === "string" ? body.since : null;
+      // Only this session's own requests, so a device can't read another room's thread.
+      const { data: myReqs } = await admin
+        .from("ts_service_requests").select("id")
+        .eq("hotel_id", ctx.hotelId).eq("session_id", sessionId).limit(100);
+      const ids = (myReqs ?? []).map((r: any) => r.id);
+      if (!ids.length) return json({ messages: [] });
+      let q = admin.from("ts_request_messages")
+        .select("id, request_id, staff_label, body, body_guest, created_at")
+        .in("request_id", ids).eq("sender", "staff")
+        .order("created_at", { ascending: true }).limit(100);
+      if (since) q = q.gt("created_at", since);
+      const { data } = await q;
+      const messages = (data ?? []).map((m: any) => ({
+        id: m.id, request_id: m.request_id, staff_label: m.staff_label,
+        content: m.body_guest || m.body, created_at: m.created_at,
+      }));
+      return json({ messages });
+    }
+
     // ---- set_contact: where this device wants updates (email / whatsapp) ----
     if (action === "set_contact") {
       const { channel, contact } = body;

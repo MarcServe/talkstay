@@ -2,8 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { Loader2, AlertTriangle, RefreshCw, Volume2, VolumeX } from "lucide-react";
+import { Loader2, AlertTriangle, RefreshCw, Volume2, VolumeX, MessageCircle, Send } from "lucide-react";
 import { DEPARTMENTS, type Hotel } from "@/talkstay/lib/hotels";
 import { playChime, primeChime } from "@/talkstay/lib/chime";
 
@@ -70,6 +71,10 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
   // Department staff are hard-scoped to their own team's queue.
   const [dept, setDept] = useState<string>(lockedDepartment ?? "all");
   const [sound, setSound] = useState(() => localStorage.getItem("ts:opsSound") !== "off");
+  // Per-request "reply to guest" composer state.
+  const [replyOpen, setReplyOpen] = useState<Record<string, boolean>>({});
+  const [replyText, setReplyText] = useState<Record<string, string>>({});
+  const [replyBusy, setReplyBusy] = useState<Record<string, boolean>>({});
   const seenIds = useRef<Set<string> | null>(null);
   const soundRef = useRef(sound);
   soundRef.current = sound;
@@ -179,6 +184,19 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
     refresh();
   };
 
+  // Send a human reply into the guest's chat (translated to their language server-side).
+  const sendReply = async (r: Req) => {
+    const text = (replyText[r.id] ?? "").trim();
+    if (!text) return;
+    setReplyBusy((p) => ({ ...p, [r.id]: true }));
+    const { data, error } = await supabase.functions.invoke("talkstay-reply", { body: { requestId: r.id, body: text } });
+    setReplyBusy((p) => ({ ...p, [r.id]: false }));
+    if (error || (data as any)?.error) { toast.error((data as any)?.error ?? error?.message ?? "Couldn't send"); return; }
+    setReplyText((p) => ({ ...p, [r.id]: "" }));
+    setReplyOpen((p) => ({ ...p, [r.id]: false }));
+    toast.success("Reply sent to the guest.");
+  };
+
   const filtered = useMemo(() => {
     return reqs.filter((r) => {
       if (dept !== "all" && r.department_key !== dept) return false;
@@ -263,7 +281,10 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
                     {r.status.replace(/_/g, " ")}
                   </span>
                 </div>
-                <div className="mt-3 flex justify-end gap-2">
+                <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+                  <Button size="sm" variant="ghost" onClick={() => setReplyOpen((p) => ({ ...p, [r.id]: !p[r.id] }))}>
+                    <MessageCircle className="mr-1 h-4 w-4" /> Reply
+                  </Button>
                   {overdue && r.priority !== "urgent" && (
                     <Button size="sm" variant="outline" className="text-red-600" onClick={() => escalate(r)}>Escalate</Button>
                   )}
@@ -272,6 +293,21 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
                   )}
                   {next && <Button size="sm" onClick={() => advance(r, next.to)}>{next.label}</Button>}
                 </div>
+                {replyOpen[r.id] && (
+                  <div className="mt-2 flex items-center gap-2">
+                    <Input
+                      autoFocus
+                      value={replyText[r.id] ?? ""}
+                      onChange={(e) => setReplyText((p) => ({ ...p, [r.id]: e.target.value }))}
+                      onKeyDown={(e) => { if (e.key === "Enter") sendReply(r); }}
+                      placeholder="Message the guest — e.g. “No red wine tonight, but we have a lovely white.”"
+                      className="h-9"
+                    />
+                    <Button size="sm" disabled={replyBusy[r.id] || !(replyText[r.id] ?? "").trim()} onClick={() => sendReply(r)}>
+                      {replyBusy[r.id] ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                    </Button>
+                  </div>
+                )}
               </div>
             );
           })}

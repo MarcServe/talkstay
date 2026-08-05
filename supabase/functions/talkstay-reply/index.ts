@@ -1,0 +1,122 @@
+import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+
+// A member of staff replies directly to a guest. The reply is translated into
+// the guest's language, stored, and (if the guest opted in) emailed to them.
+// The guest sees it in their in-room assistant chat.
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+const json = (b: unknown, s = 200) =>
+  new Response(JSON.stringify(b), { status: s, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+const DEPT_LABEL: Record<string, string> = {
+  housekeeping: "Housekeeping", laundry: "Laundry", kitchen: "Kitchen", bar: "Bar",
+  maintenance: "Maintenance", concierge: "Concierge", front_desk: "Front Desk", duty_manager: "Duty Manager",
+};
+
+const OPENAI = "https://api.openai.com/v1/chat/completions";
+const isEnglish = (l?: string) => {
+  const s = (l || "").trim().toLowerCase();
+  return s === "" || s === "english" || s === "en" || s.startsWith("en-");
+};
+
+async function translate(apiKey: string, text: string, targetLang: string): Promise<string | null> {
+  if (!apiKey || isEnglish(targetLang) || !text.trim()) return null;
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 4000);
+    const resp = await fetch(OPENAI, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      signal: ctrl.signal,
+      body: JSON.stringify({
+        model: "gpt-4o-mini", temperature: 0, max_tokens: 300,
+        messages: [
+          { role: "system", content: `Translate the hotel staff message below into ${targetLang}. Keep the tone warm and natural. Reply with ONLY the translation.` },
+          { role: "user", content: text },
+        ],
+      }),
+    });
+    clearTimeout(timer);
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    return String(data?.choices?.[0]?.message?.content ?? "").trim() || null;
+  } catch { return null; }
+}
+
+serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  try {
+    const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    const OPENAI_API_KEY = (Deno.env.get("OPENAI_API_KEY") || "").trim();
+
+    // Identify the caller from their JWT.
+    const jwt = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+    const { data: userData, error: userErr } = await admin.auth.getUser(jwt);
+    if (userErr || !userData?.user) return json({ error: "Unauthorized" }, 401);
+    const caller = userData.user;
+
+    const { requestId, body } = await req.json();
+    if (!requestId || !String(body ?? "").trim()) return json({ error: "requestId and body required" }, 400);
+
+    const { data: r } = await admin
+      .from("ts_service_requests")
+      .select("id, hotel_id, department_key, session_id, guest_language")
+      .eq("id", requestId).maybeSingle();
+    if (!r) return json({ error: "request not found" }, 404);
+
+    // Authorize: hotel owner OR an active staff member of this hotel.
+    const { data: hotel } = await admin.from("ts_hotels").select("id, user_id, name").eq("id", r.hotel_id).maybeSingle();
+    if (!hotel) return json({ error: "not found" }, 404);
+    const isOwner = hotel.user_id === caller.id;
+    const { data: me } = await admin.from("ts_staff")
+      .select("name, department_key, role, status")
+      .eq("hotel_id", r.hotel_id).eq("user_id", caller.id).eq("status", "active").maybeSingle();
+    if (!isOwner && !me) return json({ error: "Forbidden" }, 403);
+
+    // "Front Desk · Jane" — a friendly attribution for the guest.
+    const deptName = DEPT_LABEL[me?.department_key ?? r.department_key] ?? "Reception";
+    const who = me?.name || (isOwner ? "Manager" : caller.email?.split("@")[0]) || "Team";
+    const staffLabel = `${deptName} · ${who}`;
+
+    const text = String(body).slice(0, 1000);
+    const bodyGuest = await translate(OPENAI_API_KEY, text, r.guest_language || "");
+
+    const { data: inserted, error: insErr } = await admin.from("ts_request_messages").insert({
+      request_id: r.id, hotel_id: r.hotel_id, sender: "staff",
+      staff_label: staffLabel, body: text, body_guest: bodyGuest,
+    }).select("id, staff_label, body, body_guest, created_at").single();
+    if (insErr) return json({ error: insErr.message }, 400);
+
+    // Email the guest if they opted in for updates on this stay (best-effort).
+    if (r.session_id) {
+      const { data: sess } = await admin.from("ts_guest_sessions")
+        .select("notify_channel, contact_email").eq("hotel_id", r.hotel_id).eq("session_id", r.session_id).maybeSingle();
+      const email = sess?.contact_email;
+      const key = (Deno.env.get("RESEND_API_KEY") || "").trim();
+      if (email && sess?.notify_channel !== "none" && key) {
+        const shown = bodyGuest || text;
+        const html = `
+          <div style="font-family:system-ui,sans-serif;max-width:520px">
+            <h2 style="margin:0 0 10px">${hotel.name ?? "Your hotel"}</h2>
+            <p style="margin:0 0 6px">A message from <strong>${staffLabel}</strong>:</p>
+            <p style="margin:0 0 14px;color:#374151">“${shown}”</p>
+            <p style="margin:16px 0 0;color:#6b7280;font-size:12px">Scan the QR code in your room to reply.</p>
+          </div>`;
+        fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ from: "TalkStay <notifications@talkweb.io>", to: email, subject: `${hotel.name ?? "Your hotel"}: a message from the team`, html }),
+        }).catch(() => {});
+      }
+    }
+
+    return json({ ok: true, message: inserted });
+  } catch (e) {
+    return json({ error: e instanceof Error ? e.message : String(e) }, 500);
+  }
+});
