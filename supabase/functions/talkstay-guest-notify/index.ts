@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { renderEmail, quoteBlock, escapeHtml } from "../_shared/email.ts";
 
 // Tells the GUEST their request moved on (accepted / on the way / completed).
 // Email first — lowest friction, no approvals, no per-message cost.
@@ -38,7 +39,7 @@ serve(async (req) => {
       admin.from("ts_guest_sessions")
         .select("notify_channel, contact_email")
         .eq("hotel_id", r.hotel_id).eq("session_id", r.session_id).maybeSingle(),
-      admin.from("ts_hotels").select("name").eq("id", r.hotel_id).maybeSingle(),
+      admin.from("ts_hotels").select("name, branding").eq("id", r.hotel_id).maybeSingle(),
       r.room_id ? admin.from("ts_rooms").select("room_number").eq("id", r.room_id).maybeSingle()
                 : Promise.resolve({ data: null }),
     ]);
@@ -53,18 +54,19 @@ serve(async (req) => {
     const roomNo = room?.room_number ?? "";
     // Privacy: keep the subject generic — details live behind the guest's own link.
     const subject = `${hotelName}: your request ${LINE[status]}`;
-    const html = `
-      <div style="font-family:system-ui,sans-serif;max-width:520px">
-        <h2 style="margin:0 0 10px">${hotelName}</h2>
-        <p style="margin:0 0 6px">Your request${roomNo ? ` for Room ${roomNo}` : ""} <strong>${LINE[status]}</strong>.</p>
-        <p style="margin:0 0 14px;color:#374151">“${r.summary}”</p>
+    const html = renderEmail({
+      hotelName,
+      logoUrl: hotel?.branding?.logo_url,
+      accentColor: hotel?.branding?.primary_color,
+      heading: `Your request ${LINE[status]}`,
+      bodyHtml: `
+        <p style="margin:0 0 10px;">${roomNo ? `Room ${escapeHtml(roomNo)} — ` : ""}here's the latest on what you asked for:</p>
+        ${quoteBlock(r.summary)}
         ${status === "completed"
-          ? `<p style="margin:0 0 14px">If everything arrived, you can rate it from the assistant in your room.</p>`
-          : ""}
-        <p style="margin:16px 0 0;color:#6b7280;font-size:12px">
-          You asked for updates about this stay. Scan the QR code in your room to see your requests.
-        </p>
-      </div>`;
+          ? `<p style="margin:14px 0 0;">If everything arrived, you can rate it from the assistant in your room.</p>`
+          : ""}`,
+      footerNote: "You asked for updates about this stay. Scan the QR code in your room to see your requests.",
+    });
 
     const resp = await fetch("https://api.resend.com/emails", {
       method: "POST",

@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { renderEmail, quoteBlock, escapeHtml } from "../_shared/email.ts";
 
 // A member of staff replies directly to a guest. The reply is translated into
 // the guest's language, stored, and (if the guest opted in) emailed to them.
@@ -70,7 +71,7 @@ serve(async (req) => {
     if (!r) return json({ error: "request not found" }, 404);
 
     // Authorize: hotel owner OR an active staff member of this hotel.
-    const { data: hotel } = await admin.from("ts_hotels").select("id, user_id, name").eq("id", r.hotel_id).maybeSingle();
+    const { data: hotel } = await admin.from("ts_hotels").select("id, user_id, name, branding").eq("id", r.hotel_id).maybeSingle();
     if (!hotel) return json({ error: "not found" }, 404);
     const isOwner = hotel.user_id === caller.id;
     const { data: me } = await admin.from("ts_staff")
@@ -100,13 +101,14 @@ serve(async (req) => {
       const key = (Deno.env.get("RESEND_API_KEY") || "").trim();
       if (email && sess?.notify_channel !== "none" && key) {
         const shown = bodyGuest || text;
-        const html = `
-          <div style="font-family:system-ui,sans-serif;max-width:520px">
-            <h2 style="margin:0 0 10px">${hotel.name ?? "Your hotel"}</h2>
-            <p style="margin:0 0 6px">A message from <strong>${staffLabel}</strong>:</p>
-            <p style="margin:0 0 14px;color:#374151">“${shown}”</p>
-            <p style="margin:16px 0 0;color:#6b7280;font-size:12px">Scan the QR code in your room to reply.</p>
-          </div>`;
+        const html = renderEmail({
+          hotelName: hotel.name ?? "Your hotel",
+          logoUrl: hotel.branding?.logo_url,
+          accentColor: hotel.branding?.primary_color,
+          heading: "A message from the team",
+          bodyHtml: `<p style="margin:0 0 10px;">From <strong>${escapeHtml(staffLabel)}</strong>:</p>${quoteBlock(shown)}`,
+          footerNote: "Scan the QR code in your room to reply.",
+        });
         fetch("https://api.resend.com/emails", {
           method: "POST",
           headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },

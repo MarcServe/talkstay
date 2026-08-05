@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import webpush from "npm:web-push@3.6.7";
+import { renderEmail, quoteBlock, escapeHtml } from "../_shared/email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -46,7 +47,7 @@ serve(async (req) => {
     const staffSummary = r.summary_staff || r.summary;
 
     const [{ data: hotel }, { data: room }, { data: dept }] = await Promise.all([
-      admin.from("ts_hotels").select("name, user_id").eq("id", r.hotel_id).maybeSingle(),
+      admin.from("ts_hotels").select("name, user_id, branding").eq("id", r.hotel_id).maybeSingle(),
       r.room_id ? admin.from("ts_rooms").select("room_number").eq("id", r.room_id).maybeSingle() : Promise.resolve({ data: null }),
       admin.from("ts_departments").select("notify_email").eq("hotel_id", r.hotel_id).eq("key", r.department_key).maybeSingle(),
     ]);
@@ -68,16 +69,18 @@ serve(async (req) => {
     const subject = reopened
       ? `🔴 Reopened by guest · ${label} — Room ${roomNo}`
       : `${urgent ? "🔴 URGENT · " : ""}New ${label} request — Room ${roomNo}`;
-    const html = `
-      <div style="font-family:system-ui,sans-serif">
-        <h2 style="margin:0 0 8px">${reopened ? `Reopened — ${label}` : `${urgent ? "Urgent " : ""}${label} request`}</h2>
-        ${reopened ? '<p style="margin:0 0 8px;color:#b91c1c"><strong>The guest said this wasn\'t done yet. Please pick it back up.</strong></p>' : ""}
-        <p style="margin:0 0 4px"><strong>Room:</strong> ${roomNo}</p>
-        <p style="margin:0 0 4px"><strong>Request:</strong> ${staffSummary}</p>
-        ${r.is_complaint ? '<p style="margin:0 0 4px;color:#b91c1c"><strong>This is a complaint — please handle promptly.</strong></p>' : ""}
-        <p style="margin:12px 0 0"><a href="https://talkstay.talkweb.io/app">Open the TalkStay Operations dashboard →</a></p>
-        <p style="margin:12px 0 0;color:#6b7280;font-size:12px">${hotel?.name ?? "TalkStay"}</p>
-      </div>`;
+    const html = renderEmail({
+      hotelName: hotel?.name ?? "TalkStay",
+      logoUrl: hotel?.branding?.logo_url,
+      accentColor: hotel?.branding?.primary_color,
+      heading: reopened ? `Reopened — ${label}` : `${urgent ? "Urgent " : ""}${label} request`,
+      bodyHtml: `
+        ${reopened ? `<p style="margin:0 0 12px;color:#b91c1c;font-weight:600;">The guest said this wasn't done yet. Please pick it back up.</p>` : ""}
+        <p style="margin:0 0 10px;"><strong>Room:</strong> ${escapeHtml(roomNo)}</p>
+        ${quoteBlock(staffSummary)}
+        ${r.is_complaint ? `<p style="margin:14px 0 0;color:#b91c1c;font-weight:600;">This is a complaint — please handle promptly.</p>` : ""}`,
+      cta: { label: "Open Operations dashboard", url: "https://talkstay.talkweb.io/app" },
+    });
 
     const recipients = new Set<string>();
     if (deptEmail) recipients.add(deptEmail);
