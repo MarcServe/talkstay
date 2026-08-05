@@ -15,7 +15,40 @@ export interface HotelBranding {
   logo_url?: string | null;
   primary_color?: string | null;
   tagline?: string | null;
+  poster?: PosterConfig | null;
 }
+
+/** In-room printable QR poster. Every text field is editable; sensible defaults
+ *  replicate the standard TalkStay poster layout. Stored inside branding jsonb. */
+export interface PosterConfig {
+  bg_color?: string;            // solid background colour
+  bg_image_url?: string | null; // optional background photo (over the colour)
+  bg_overlay?: number;          // 0..1 dark overlay for text legibility over a photo
+  text_color?: string;          // primary text colour
+  eyebrow?: string;             // small line under the logo
+  headline?: string;            // the big prompt
+  subheadline?: string;         // supporting line
+  features?: string[];          // four "what you can do" labels (icons are fixed slots)
+  qr_caption?: string;          // line beside the phone icon; {hotel} → hotel name
+  badges?: string[];            // three trust badges (icons are fixed slots)
+  footer_left?: string;         // footer band, left line
+  footer_right?: string;        // footer band, right line
+}
+
+export const POSTER_DEFAULTS: Required<Omit<PosterConfig, "bg_image_url">> & { bg_image_url: string | null } = {
+  bg_color: "#2e1065",
+  bg_image_url: null,
+  bg_overlay: 0.55,
+  text_color: "#ffffff",
+  eyebrow: "Rest easy. We're here for you.",
+  headline: "Need something?",
+  subheadline: "Just speak. We're here to help.",
+  features: ["Order Food & Drinks", "Request Housekeeping", "Report an Issue", "Get Hotel Information"],
+  qr_caption: "Speak with our team instantly for {hotel}.",
+  badges: ["Private & Secure", "Fast Response", "Available in Your Language"],
+  footer_left: "We're here to make your stay more comfortable.",
+  footer_right: "Thank you for staying with us.",
+};
 
 export interface Hotel {
   id: string;
