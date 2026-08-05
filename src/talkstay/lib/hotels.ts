@@ -150,6 +150,17 @@ export async function regenerateCheckinCode(roomId: string): Promise<string> {
   return code;
 }
 
+/** Email a room's current check-in code + a direct link to its assistant,
+ *  with instructions — for busy guests who'd rather not wait to be told the
+ *  code at check-in. Staff-triggered (front desk types the guest's email). */
+export async function sendCheckinCodeEmail(roomId: string, email: string): Promise<void> {
+  const { data, error } = await supabase.functions.invoke("talkstay-send-checkin-code", {
+    body: { roomId, email },
+  });
+  if (error) throw error;
+  if ((data as any)?.error) throw new Error((data as any).error);
+}
+
 function slugify(name: string): string {
   const base = name
     .toLowerCase()

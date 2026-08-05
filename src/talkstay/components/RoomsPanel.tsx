@@ -3,8 +3,11 @@ import { QRCodeCanvas } from "qrcode.react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { Trash2, QrCode, Loader2, ExternalLink, RefreshCw } from "lucide-react";
-import { addRoom, deleteRoom, getRoomToken, listRooms, setRoomOccupancy, setRequireCheckinCode, regenerateCheckinCode, type Hotel, type Room } from "@/talkstay/lib/hotels";
+import { Trash2, QrCode, Loader2, ExternalLink, RefreshCw, Copy, Mail } from "lucide-react";
+import {
+  addRoom, deleteRoom, getRoomToken, listRooms, setRoomOccupancy, setRequireCheckinCode,
+  regenerateCheckinCode, sendCheckinCodeEmail, type Hotel, type Room,
+} from "@/talkstay/lib/hotels";
 import { getPublicBaseUrl } from "@/config/environment";
 
 function guestUrl(hotel: Hotel, room: Room, token: string): string {
@@ -22,6 +25,9 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
   const [qr, setQr] = useState<{ room: Room; url: string } | null>(null);
   const [requireCode, setRequireCode] = useState(!!hotel.require_checkin_code);
   const [savingToggle, setSavingToggle] = useState(false);
+  const [emailFor, setEmailFor] = useState<Room | null>(null);
+  const [emailInput, setEmailInput] = useState("");
+  const [emailSending, setEmailSending] = useState(false);
 
   const toggleRequireCode = async () => {
     const next = !requireCode;
@@ -49,6 +55,16 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
       toast.success(`New code for Room ${room.room_number}: ${code}`);
     } catch (e: any) {
       toast.error(e?.message ?? "Couldn't regenerate code");
+    }
+  };
+
+  const copyCode = async (room: Room) => {
+    if (!room.checkin_code) return;
+    try {
+      await navigator.clipboard.writeText(room.checkin_code);
+      toast.success(`Code ${room.checkin_code} copied`);
+    } catch {
+      toast.error("Couldn't copy — try selecting it manually");
     }
   };
 
@@ -122,6 +138,25 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
       await refresh();
     } catch (e: any) {
       toast.error(e?.message ?? "Failed to delete");
+    }
+  };
+
+  // For busy guests: staff types the guest's email (from the booking) and this
+  // sends the code + a direct link to the room's assistant, with instructions —
+  // no need to read the code out loud or wait for the guest to ask again.
+  const sendCodeEmail = async () => {
+    if (!emailFor) return;
+    const email = emailInput.trim();
+    if (!email || !email.includes("@")) { toast.error("Enter a valid email address"); return; }
+    setEmailSending(true);
+    try {
+      await sendCheckinCodeEmail(emailFor.id, email);
+      toast.success(`Code emailed to ${email}`);
+      setEmailFor(null);
+    } catch (e: any) {
+      toast.error(e?.message ?? "Couldn't send email");
+    } finally {
+      setEmailSending(false);
     }
   };
 
@@ -202,11 +237,17 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
                   {requireCode && (
                     <td className="px-4 py-2">
                       {r.occupancy_status === "occupied" && r.checkin_code ? (
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1">
                           <span className="rounded bg-muted px-2 py-0.5 font-mono text-sm tracking-widest">{r.checkin_code}</span>
-                          <button onClick={() => regenCode(r)} title="Generate a new code" className="text-muted-foreground hover:text-foreground">
+                          <Button size="icon" variant="ghost" className="h-9 w-9" onClick={() => copyCode(r)} title="Copy code">
+                            <Copy className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button size="icon" variant="ghost" className="h-9 w-9" onClick={() => regenCode(r)} title="Generate a new code">
                             <RefreshCw className="h-3.5 w-3.5" />
-                          </button>
+                          </Button>
+                          <Button size="icon" variant="ghost" className="h-9 w-9" onClick={() => { setEmailFor(r); setEmailInput(""); }} title="Email code to guest">
+                            <Mail className="h-3.5 w-3.5" />
+                          </Button>
                         </div>
                       ) : (
                         <span className="text-xs text-muted-foreground">—</span>
@@ -214,14 +255,18 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
                     </td>
                   )}
                   <td className="px-4 py-2">
-                    <div className="flex justify-end gap-1">
-                      <Button size="sm" variant="ghost" onClick={() => preview(r)} title="Preview this room's assistant">
+                    {/* Explicit h-10 w-10 (not the default size=icon's h-9 w-9) — comfortably
+                        above the ~44px touch-target guideline once padding/gap are counted;
+                        these were previously size="sm" (32px) with only 4px gap, which was
+                        too small/cramped to tap reliably on phones and iPads. */}
+                    <div className="flex justify-end gap-2">
+                      <Button size="icon" variant="ghost" className="h-10 w-10" onClick={() => preview(r)} title="Preview this room's assistant">
                         <ExternalLink className="h-4 w-4" />
                       </Button>
-                      <Button size="sm" variant="outline" onClick={() => showQr(r)} title="Show QR code">
+                      <Button size="icon" variant="outline" className="h-10 w-10" onClick={() => showQr(r)} title="Show QR code">
                         <QrCode className="h-4 w-4" />
                       </Button>
-                      <Button size="sm" variant="ghost" onClick={() => onDelete(r)} title="Delete room">
+                      <Button size="icon" variant="ghost" className="h-10 w-10" onClick={() => onDelete(r)} title="Delete room">
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
                     </div>
@@ -253,6 +298,32 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
               </p>
             )}
             <Button className="mt-4 w-full" variant="outline" onClick={() => setQr(null)}>Close</Button>
+          </div>
+        </div>
+      )}
+
+      {emailFor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setEmailFor(null)}>
+          <div className="w-full max-w-xs rounded-2xl bg-card p-6" onClick={(e) => e.stopPropagation()}>
+            <h3 className="mb-1 font-semibold">Email the code — Room {emailFor.room_number}</h3>
+            <p className="mb-4 text-xs text-muted-foreground">
+              Sends the check-in code, a direct link to open the room's assistant, and short instructions — handy for a busy guest who'd rather not wait.
+            </p>
+            <label className="mb-1 block text-xs text-muted-foreground">Guest's email</label>
+            <Input
+              autoFocus
+              type="email"
+              value={emailInput}
+              onChange={(e) => setEmailInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") sendCodeEmail(); }}
+              placeholder="guest@example.com"
+            />
+            <div className="mt-4 flex gap-2">
+              <Button variant="outline" className="flex-1" onClick={() => setEmailFor(null)}>Cancel</Button>
+              <Button className="flex-1" disabled={emailSending} onClick={sendCodeEmail}>
+                {emailSending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null} Send
+              </Button>
+            </div>
           </div>
         </div>
       )}
