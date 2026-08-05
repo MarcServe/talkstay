@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import {
   Loader2, LogOut, Bell, Menu, X,
-  Inbox, BarChart3, QrCode, Building2, BookOpen, Users, Palette, Printer,
+  Inbox, BarChart3, QrCode, Building2, BookOpen, Users, Palette,
 } from "lucide-react";
 import { enablePush, pushSupported } from "@/talkstay/lib/push";
 import AuthPage from "@/talkstay/pages/AuthPage";
@@ -18,7 +18,6 @@ import DepartmentsPanel from "@/talkstay/components/DepartmentsPanel";
 import KnowledgePanel from "@/talkstay/components/KnowledgePanel";
 import StaffPanel from "@/talkstay/components/StaffPanel";
 import BrandingPanel from "@/talkstay/components/BrandingPanel";
-import PosterPanel from "@/talkstay/components/PosterPanel";
 import { createHotel, getMyAccess, ingestHotelWebsite, DEPARTMENTS, type Hotel, type HotelAccess } from "@/talkstay/lib/hotels";
 
 const NAV = [
@@ -26,7 +25,6 @@ const NAV = [
   { key: "operations", label: "Operations", icon: Inbox, admin: false },
   { key: "insights", label: "Insights", icon: BarChart3, admin: true },
   { key: "rooms", label: "Rooms & QR", icon: QrCode, admin: true },
-  { key: "poster", label: "Poster", icon: Printer, admin: true },
   { key: "branding", label: "Branding", icon: Palette, admin: true },
   { key: "departments", label: "Departments", icon: Building2, admin: true },
   { key: "knowledge", label: "Knowledge", icon: BookOpen, admin: true },
@@ -134,7 +132,6 @@ function Panel({ active, hotel, onHotel, departmentKey }: {
     case "operations": return <OperationsPanel hotel={hotel} lockedDepartment={departmentKey ?? null} />;
     case "insights": return <InsightsPanel hotel={hotel} />;
     case "rooms": return <RoomsPanel hotel={hotel} onHotel={onHotel} />;
-    case "poster": return <PosterPanel hotel={hotel} onSaved={(b) => onHotel({ ...hotel, branding: b })} />;
     case "branding": return <BrandingPanel hotel={hotel} onSaved={(b) => onHotel({ ...hotel, branding: b })} />;
     case "departments": return <DepartmentsPanel hotel={hotel} />;
     case "knowledge": return <KnowledgePanel hotel={hotel} />;

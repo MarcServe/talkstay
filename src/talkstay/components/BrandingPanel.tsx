@@ -1,26 +1,43 @@
 import { useRef, useState } from "react";
-import { QRCodeCanvas } from "qrcode.react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { Loader2, Upload, Mic } from "lucide-react";
-import { getPublicBaseUrl } from "@/config/environment";
+import { Loader2, Upload, Mic, Palette, Printer } from "lucide-react";
 import type { Hotel, HotelBranding } from "@/talkstay/lib/hotels";
+import PosterPanel from "@/talkstay/components/PosterPanel";
 
 const DEFAULT_COLOR = "#7c3aed";
 
+/** Identity (logo/colour/tagline — used everywhere) and Poster (the printable
+ *  in-room QR poster) share one brand colour + logo, so they live under one
+ *  "Branding" tab instead of two disconnected nav items. */
 export default function BrandingPanel({ hotel, onSaved }: { hotel: Hotel; onSaved?: (b: HotelBranding) => void }) {
+  return (
+    <Tabs defaultValue="identity" className="space-y-6">
+      <TabsList>
+        <TabsTrigger value="identity"><Palette className="mr-1.5 h-4 w-4" /> Identity</TabsTrigger>
+        <TabsTrigger value="poster"><Printer className="mr-1.5 h-4 w-4" /> Poster</TabsTrigger>
+      </TabsList>
+      <TabsContent value="identity">
+        <IdentityTab hotel={hotel} onSaved={onSaved} />
+      </TabsContent>
+      <TabsContent value="poster">
+        <PosterPanel hotel={hotel} onSaved={onSaved} />
+      </TabsContent>
+    </Tabs>
+  );
+}
+
+function IdentityTab({ hotel, onSaved }: { hotel: Hotel; onSaved?: (b: HotelBranding) => void }) {
   const [logo, setLogo] = useState(hotel.branding?.logo_url ?? "");
   const [color, setColor] = useState(hotel.branding?.primary_color ?? DEFAULT_COLOR);
   const [tagline, setTagline] = useState(hotel.branding?.tagline ?? "Scan. Speak. Consider it done.");
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
-
-  // Sample QR (uses the hotel slug + a placeholder room to preview the look).
-  const sampleUrl = `${getPublicBaseUrl()}/h/${hotel.slug}/r/preview?token=preview`;
 
   const uploadLogo = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -43,7 +60,11 @@ export default function BrandingPanel({ hotel, onSaved }: { hotel: Hotel; onSave
 
   const save = async () => {
     setSaving(true);
+    // Preserve whatever's already in branding (e.g. the Poster tab's config) —
+    // this used to be a full overwrite, which silently wiped the saved poster
+    // every time Identity was saved.
     const branding: HotelBranding = {
+      ...(hotel.branding ?? {}),
       logo_url: logo.trim() || null,
       primary_color: color || DEFAULT_COLOR,
       tagline: tagline.trim() || null,
@@ -60,7 +81,7 @@ export default function BrandingPanel({ hotel, onSaved }: { hotel: Hotel; onSave
       {/* Controls */}
       <div className="space-y-6">
         <p className="text-sm text-muted-foreground">
-          Make the guest experience and printed QR codes your own — your logo, brand colour and tagline appear on every room's assistant.
+          Your logo, brand colour and tagline appear on every room's assistant — and set the accent used on the printable Poster.
         </p>
 
         <div className="space-y-2">
@@ -111,20 +132,6 @@ export default function BrandingPanel({ hotel, onSaved }: { hotel: Hotel; onSave
             <Mic className="h-8 w-8" />
           </div>
           <div className="text-sm font-medium">Tap to talk</div>
-        </div>
-
-        <div className="rounded-2xl border bg-card p-5 text-center">
-          <div className="mb-2 text-xs font-medium text-muted-foreground">Room QR preview</div>
-          <div className="flex justify-center rounded-xl bg-white p-3">
-            <QRCodeCanvas
-              value={sampleUrl}
-              size={160}
-              fgColor={color}
-              level="H"
-              includeMargin
-              imageSettings={logo ? { src: logo, height: 34, width: 34, excavate: true } : undefined}
-            />
-          </div>
         </div>
       </div>
     </div>
