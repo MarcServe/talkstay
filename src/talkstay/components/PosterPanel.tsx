@@ -297,37 +297,42 @@ function escapeAccent(text: string, hotelName: string, accent: string): string {
 
 const POSTER_CSS = `
 .ts-poster-wrap { container-type: inline-size; width: 100%; }
-.ts-poster { position: relative; width: 100%; aspect-ratio: 1024 / 1536; overflow: hidden; border-radius: 2.2cqw;
+/* Height is intentionally NOT fixed via aspect-ratio: with a fixed height +
+   overflow:hidden, longer editable text (or the QR block) silently clipped
+   the bottom of the poster. Instead the box grows to fit its content — sized
+   defaults below target ~one A4 page, and custom text just makes it taller
+   instead of losing the footer. */
+.ts-poster { position: relative; width: 100%; overflow: hidden; border-radius: 2.2cqw;
   font-family: system-ui, -apple-system, sans-serif; color: var(--txt, #fff); }
 .ts-poster-bg { position: absolute; inset: 0; background-size: cover; background-position: center; }
 .ts-poster-overlay { position: absolute; inset: 0; }
 .ts-poster-body { position: relative; display: flex; flex-direction: column; align-items: center; text-align: center;
-  padding: 8cqw 7cqw 4cqw; gap: 2cqw; }
+  padding: 6cqw 7cqw 3cqw; gap: 1.6cqw; }
 .ts-poster-logo { height: 12cqw; max-width: 60cqw; object-fit: contain; margin-bottom: 1cqw; }
 .ts-poster-name { font-size: 6cqw; font-weight: 800; letter-spacing: -0.02em; }
 .ts-poster-eyebrow { font-size: 2.6cqw; font-weight: 600; opacity: 0.95; }
-.ts-poster-headline { font-size: 10cqw; font-weight: 800; line-height: 1.02; letter-spacing: -0.02em; margin: 1cqw 0 0; }
-.ts-poster-sub { font-size: 4.2cqw; font-weight: 600; margin: 0 0 1cqw; }
-.ts-poster-features { display: flex; align-items: flex-start; justify-content: center; gap: 2cqw; width: 100%; margin: 1.5cqw 0; }
-.ts-poster-feat { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 1.4cqw; font-size: 2.5cqw;
+.ts-poster-headline { font-size: 9cqw; font-weight: 800; line-height: 1.05; letter-spacing: -0.02em; margin: 1cqw 0 0; }
+.ts-poster-sub { font-size: 4cqw; font-weight: 600; margin: 0 0 1cqw; }
+.ts-poster-features { display: flex; align-items: flex-start; justify-content: center; gap: 2cqw; width: 100%; margin: 1.2cqw 0; }
+.ts-poster-feat { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 1.2cqw; font-size: 2.4cqw;
   font-weight: 600; line-height: 1.15; padding: 0 1cqw; }
 .ts-poster-feat + .ts-poster-feat { border-left: 0.2cqw solid rgba(255,255,255,0.18); }
-.ts-poster-feat-icon { width: 7cqw; height: 7cqw; }
-.ts-poster-qrcard { width: 100%; border: 0.35cqw solid; border-radius: 4cqw; padding: 4cqw; margin: 1.5cqw 0;
+.ts-poster-feat-icon { width: 6cqw; height: 6cqw; }
+.ts-poster-qrcard { width: 100%; border: 0.35cqw solid; border-radius: 4cqw; padding: 3cqw; margin: 1.2cqw 0;
   background: rgba(255,255,255,0.06); backdrop-filter: blur(2px); }
-.ts-poster-qr { position: relative; width: 62cqw; margin: 0 auto 3cqw; background: #fff; border-radius: 3cqw; padding: 3cqw; }
+.ts-poster-qr { position: relative; width: 44cqw; margin: 0 auto 2cqw; background: #fff; border-radius: 2.6cqw; padding: 2.5cqw; }
 .ts-poster-qr canvas { width: 100% !important; height: auto !important; display: block; }
 .ts-poster-qr-badge { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-  width: 11cqw; height: 11cqw; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
-.ts-poster-qr-badge-icon { width: 6cqw; height: 6cqw; color: #fff; }
-.ts-poster-caption { display: flex; align-items: center; justify-content: center; gap: 2cqw; font-size: 3.6cqw; font-weight: 600; }
-.ts-poster-caption-icon { width: 5cqw; height: 5cqw; opacity: 0.9; }
-.ts-poster-badges { display: flex; align-items: center; justify-content: center; gap: 3cqw; width: 100%; margin-top: 1cqw; }
-.ts-poster-badge { display: flex; align-items: center; gap: 1.4cqw; font-size: 2.6cqw; font-weight: 600; }
-.ts-poster-badge + .ts-poster-badge { border-left: 0.2cqw solid rgba(255,255,255,0.18); padding-left: 3cqw; }
-.ts-poster-badge-icon { width: 5cqw; height: 5cqw; }
+  width: 8cqw; height: 8cqw; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+.ts-poster-qr-badge-icon { width: 4.4cqw; height: 4.4cqw; color: #fff; }
+.ts-poster-caption { display: flex; align-items: center; justify-content: center; gap: 1.6cqw; font-size: 3.2cqw; font-weight: 600; }
+.ts-poster-caption-icon { width: 4.4cqw; height: 4.4cqw; opacity: 0.9; flex-shrink: 0; }
+.ts-poster-badges { display: flex; align-items: center; justify-content: center; gap: 2.4cqw; width: 100%; margin-top: 0.8cqw; }
+.ts-poster-badge { display: flex; align-items: center; gap: 1.2cqw; font-size: 2.4cqw; font-weight: 600; }
+.ts-poster-badge + .ts-poster-badge { border-left: 0.2cqw solid rgba(255,255,255,0.18); padding-left: 2.4cqw; }
+.ts-poster-badge-icon { width: 4cqw; height: 4cqw; }
 .ts-poster-footer { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 3cqw;
-  background: rgba(255,255,255,0.86); color: #3b0764; padding: 3.5cqw 7cqw; font-size: 2.7cqw; font-weight: 600; }
+  background: rgba(255,255,255,0.86); color: #3b0764; padding: 3cqw 7cqw; font-size: 2.5cqw; font-weight: 600; }
 .ts-poster-footer-right { display: flex; flex-direction: column; align-items: flex-end; gap: 0.6cqw; }
 .ts-poster-powered { font-style: normal; font-size: 2.3cqw; opacity: 0.7; }
 
