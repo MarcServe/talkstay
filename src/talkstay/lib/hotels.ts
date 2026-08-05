@@ -25,6 +25,8 @@ export interface PosterConfig {
   bg_image_url?: string | null; // optional background photo (over the colour)
   bg_overlay?: number;          // 0..1 dark overlay for text legibility over a photo
   text_color?: string;          // primary text colour
+  business_name?: string;       // shown in place of the logo when none is set
+                                 // (e.g. an apartment/host with no uploaded logo)
   eyebrow?: string;             // small line under the logo
   headline?: string;            // the big prompt
   subheadline?: string;         // supporting line
@@ -40,6 +42,9 @@ export const POSTER_DEFAULTS: Required<Omit<PosterConfig, "bg_image_url">> & { b
   bg_image_url: null,
   bg_overlay: 0.55,
   text_color: "#ffffff",
+  // "" = fall back to the hotel's own name at render/merge time, not a fixed
+  // static string (there's no sensible generic default for a business name).
+  business_name: "",
   eyebrow: "Rest easy. We're here for you.",
   headline: "Need something?",
   subheadline: "Just speak. We're here to help.",
@@ -76,6 +81,22 @@ export interface Room {
   occupancy_status?: "occupied" | "vacant";
   last_guest_activity_at?: string | null;
   checkin_code?: string | null;
+}
+
+/** For display only: turn an uploaded image's storage URL into something
+ *  readable instead of the full Supabase URL. Our own uploads store the
+ *  original filename after a "{timestamp}-" (or "poster-{timestamp}-")
+ *  prefix in the path, so this recovers it; anything else falls back
+ *  gracefully rather than showing a raw link. */
+export function friendlyImageName(url: string): string {
+  if (!url.trim()) return "";
+  try {
+    const last = decodeURIComponent(url.split("/").pop()?.split("?")[0] || "");
+    const stripped = last.replace(/^(poster-)?\d+-/, "");
+    return stripped || "Uploaded image";
+  } catch {
+    return "Custom image URL";
+  }
 }
 
 /** Short, human-readable stay code (no ambiguous chars). Read out / printed at

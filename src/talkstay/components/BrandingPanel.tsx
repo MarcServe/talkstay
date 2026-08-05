@@ -5,8 +5,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { Loader2, Upload, Mic, Palette, Printer } from "lucide-react";
-import type { Hotel, HotelBranding } from "@/talkstay/lib/hotels";
+import { Loader2, Upload, Mic, Palette, Printer, ImageIcon, X } from "lucide-react";
+import { friendlyImageName, type Hotel, type HotelBranding } from "@/talkstay/lib/hotels";
 import PosterPanel from "@/talkstay/components/PosterPanel";
 
 const DEFAULT_COLOR = "#7c3aed";
@@ -37,7 +37,14 @@ function IdentityTab({ hotel, onSaved }: { hotel: Hotel; onSaved?: (b: HotelBran
   const [tagline, setTagline] = useState(hotel.branding?.tagline ?? "Scan. Speak. Consider it done.");
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  // Separate from `logo` — a write-only field for pasting a URL manually, so
+  // the current logo shows its filename (not the full Supabase link) instead.
+  const [logoUrlDraft, setLogoUrlDraft] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
+  const applyLogoDraft = () => {
+    const v = logoUrlDraft.trim();
+    if (v) { setLogo(v); setLogoUrlDraft(""); }
+  };
 
   const uploadLogo = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -97,7 +104,22 @@ function IdentityTab({ hotel, onSaved }: { hotel: Hotel; onSaved?: (b: HotelBran
               {uploading ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Upload className="mr-1 h-4 w-4" />} Upload
             </Button>
           </div>
-          <Input value={logo} onChange={(e) => setLogo(e.target.value)} placeholder="…or paste a logo URL" />
+          {logo && (
+            <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-2.5 py-1.5 text-xs text-muted-foreground">
+              <ImageIcon className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">{friendlyImageName(logo)}</span>
+              <button type="button" onClick={() => setLogo("")} className="ml-auto shrink-0 text-muted-foreground hover:text-foreground" aria-label="Remove logo">
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
+          <Input
+            value={logoUrlDraft}
+            onChange={(e) => setLogoUrlDraft(e.target.value)}
+            onBlur={applyLogoDraft}
+            onKeyDown={(e) => { if (e.key === "Enter") applyLogoDraft(); }}
+            placeholder="…or paste a logo URL"
+          />
         </div>
 
         <div className="space-y-2">

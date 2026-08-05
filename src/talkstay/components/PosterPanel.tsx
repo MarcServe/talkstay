@@ -7,12 +7,12 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import {
-  Loader2, Upload, Printer, Trash2,
+  Loader2, Upload, Printer, Trash2, ImageIcon,
   UtensilsCrossed, BedDouble, Wrench, Info,
   ShieldCheck, Zap, Globe, Building2, Smartphone,
 } from "lucide-react";
 import { getPublicBaseUrl } from "@/config/environment";
-import { listRooms, getRoomToken, POSTER_DEFAULTS, type Hotel, type HotelBranding, type PosterConfig, type Room } from "@/talkstay/lib/hotels";
+import { listRooms, getRoomToken, friendlyImageName, POSTER_DEFAULTS, type Hotel, type HotelBranding, type PosterConfig, type Room } from "@/talkstay/lib/hotels";
 
 const FEATURE_ICONS = [UtensilsCrossed, BedDouble, Wrench, Info];
 const BADGE_ICONS = [ShieldCheck, Zap, Globe];
@@ -23,7 +23,11 @@ const BADGE_ICONS = [ShieldCheck, Zap, Globe];
 function PosterView({ p, hotelName, logo, qrUrl, accent }: {
   p: Required<PosterConfig>; hotelName: string; logo?: string; qrUrl: string; accent: string;
 }) {
-  const caption = p.qr_caption.replace(/\{hotel\}/gi, hotelName);
+  // Business name is only editable for the "no logo" case — an apartment/host
+  // without a logo can still show a proper name instead of the raw hotel record
+  // name. Falls back to the hotel's own name when left blank.
+  const displayName = p.business_name.trim() || hotelName;
+  const caption = p.qr_caption.replace(/\{hotel\}/gi, displayName);
   return (
     <div className="ts-poster-wrap" id="ts-poster-print">
       <div className="ts-poster" style={{ ["--txt" as any]: p.text_color, background: p.bg_color }}>
@@ -32,7 +36,7 @@ function PosterView({ p, hotelName, logo, qrUrl, accent }: {
         <div className="ts-poster-body">
           {logo
             ? <img src={logo} alt="" className="ts-poster-logo" />
-            : <div className="ts-poster-name">{hotelName}</div>}
+            : <div className="ts-poster-name">{displayName}</div>}
           {p.eyebrow && <div className="ts-poster-eyebrow" style={{ color: accent }}>{p.eyebrow}</div>}
 
           <h1 className="ts-poster-headline">{p.headline}</h1>
@@ -89,7 +93,9 @@ function PosterView({ p, hotelName, logo, qrUrl, accent }: {
 }
 
 export default function PosterPanel({ hotel, onSaved }: { hotel: Hotel; onSaved?: (b: HotelBranding) => void }) {
-  const merged = { ...POSTER_DEFAULTS, ...(hotel.branding?.poster ?? {}) } as Required<PosterConfig>;
+  // Seed business_name from the hotel's own name so it's a sensible starting
+  // point in the field; an explicitly saved value (even "") overrides it.
+  const merged = { ...POSTER_DEFAULTS, business_name: hotel.name, ...(hotel.branding?.poster ?? {}) } as Required<PosterConfig>;
   const accent = hotel.branding?.primary_color || "#a78bfa";
   const logo = hotel.branding?.logo_url || undefined;
 
@@ -99,7 +105,14 @@ export default function PosterPanel({ hotel, onSaved }: { hotel: Hotel; onSaved?
   const [qrUrl, setQrUrl] = useState<string>(`${getPublicBaseUrl()}/h/${hotel.slug}/r/preview?token=preview`);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  // Separate from cfg.bg_image_url — a write-only field for pasting a URL
+  // manually, so the current image shows its filename, not the full link.
+  const [bgUrlDraft, setBgUrlDraft] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
+  const applyBgDraft = () => {
+    const v = bgUrlDraft.trim();
+    if (v) { set("bg_image_url", v); setBgUrlDraft(""); }
+  };
 
   useEffect(() => {
     listRooms(hotel.id).then((rs) => {
@@ -187,13 +200,23 @@ export default function PosterPanel({ hotel, onSaved }: { hotel: Hotel; onSaved?
             <Button size="sm" variant="outline" disabled={uploading} onClick={() => fileRef.current?.click()}>
               {uploading ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Upload className="mr-1 h-4 w-4" />} Upload
             </Button>
-            {cfg.bg_image_url && (
-              <Button size="sm" variant="ghost" onClick={() => set("bg_image_url", null)}>
-                <Trash2 className="mr-1 h-4 w-4" /> Remove
-              </Button>
-            )}
           </div>
-          <Input value={cfg.bg_image_url ?? ""} onChange={(e) => set("bg_image_url", e.target.value || null)} placeholder="…or paste an image URL" />
+          {cfg.bg_image_url && (
+            <div className="flex items-center gap-2 rounded-md border bg-muted/40 px-2.5 py-1.5 text-xs text-muted-foreground">
+              <ImageIcon className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">{friendlyImageName(cfg.bg_image_url)}</span>
+              <button type="button" onClick={() => set("bg_image_url", null)} className="ml-auto shrink-0 text-muted-foreground hover:text-foreground">
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
+          <Input
+            value={bgUrlDraft}
+            onChange={(e) => setBgUrlDraft(e.target.value)}
+            onBlur={applyBgDraft}
+            onKeyDown={(e) => { if (e.key === "Enter") applyBgDraft(); }}
+            placeholder="…or paste an image URL"
+          />
           {cfg.bg_image_url && (
             <div className="space-y-1 pt-1">
               <Label className="text-xs text-muted-foreground">Image darkness (keeps text readable): {Math.round(cfg.bg_overlay * 100)}%</Label>
@@ -201,6 +224,16 @@ export default function PosterPanel({ hotel, onSaved }: { hotel: Hotel; onSaved?
             </div>
           )}
         </div>
+
+        <Field
+          label="Business name"
+          value={cfg.business_name}
+          onChange={(v) => set("business_name", v)}
+          placeholder={hotel.name}
+        />
+        <p className="-mt-4 text-xs text-muted-foreground">
+          Shown on the poster when there's no logo (set a logo in the Identity tab) — useful for apartments or hosts without a business logo.
+        </p>
 
         <Field label="Eyebrow line" value={cfg.eyebrow} onChange={(v) => set("eyebrow", v)} placeholder={POSTER_DEFAULTS.eyebrow} />
         <Field label="Headline" value={cfg.headline} onChange={(v) => set("headline", v)} placeholder={POSTER_DEFAULTS.headline} />
@@ -235,7 +268,7 @@ export default function PosterPanel({ hotel, onSaved }: { hotel: Hotel; onSaved?
           <Button onClick={save} disabled={saving}>
             {saving ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null} Save poster
           </Button>
-          <Button variant="outline" onClick={() => setCfg({ ...POSTER_DEFAULTS })}>Reset to default</Button>
+          <Button variant="outline" onClick={() => setCfg({ ...POSTER_DEFAULTS, business_name: hotel.name })}>Reset to default</Button>
         </div>
       </div>
 
