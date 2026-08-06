@@ -7,7 +7,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Loader2, Trash2, Plus, Upload } from "lucide-react";
+import { Loader2, Trash2, Plus, Upload, Search, Pencil, X } from "lucide-react";
 import { DEPARTMENTS, listRooms, type Hotel, type Room } from "@/talkstay/lib/hotels";
 import ContentPanel from "@/talkstay/components/ContentPanel";
 
@@ -30,6 +30,11 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [busy, setBusy] = useState(false);
+  const [search, setSearch] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editContent, setEditContent] = useState("");
+  const [editBusy, setEditBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { listRooms(hotel.id).then((r) => { setRooms(r); if (r[0]) setRoomId(r[0].id); }); }, [hotel.id]);
@@ -53,6 +58,12 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
     if (scope === "room") return e.room_id === roomId;
     return true;
   }), [entries, scope, dept, roomId]);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return visible;
+    return visible.filter((e) => (e.title ?? "").toLowerCase().includes(q) || e.content.toLowerCase().includes(q));
+  }, [visible, search]);
 
   const targetPayload = () => ({
     hotelId: hotel.id, scope,
@@ -109,6 +120,27 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
     load();
   };
 
+  const startEdit = (e: Entry) => {
+    setEditingId(e.id); setEditTitle(e.title ?? ""); setEditContent(e.content);
+  };
+  const cancelEdit = () => setEditingId(null);
+
+  const saveEdit = async () => {
+    if (!editingId || !editContent.trim()) return;
+    setEditBusy(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("talkstay-knowledge", {
+        body: { action: "update", id: editingId, title: editTitle.trim() || null, content: editContent.trim() },
+      });
+      if (error) throw error;
+      if ((data as any)?.error) throw new Error((data as any).error);
+      setEditingId(null);
+      await load();
+      toast.success("Updated & re-indexed.");
+    } catch (e: any) { toast.error(e?.message ?? "Failed to update"); }
+    finally { setEditBusy(false); }
+  };
+
   return (
     <div className="space-y-5">
       {/* Scope selector — one place for ALL knowledge: website/docs + layered entries */}
@@ -163,17 +195,56 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
       ) : visible.length === 0 ? (
         <p className="text-sm text-muted-foreground">No entries in this scope yet.</p>
       ) : (
-        <div className="divide-y rounded-xl border">
-          {visible.map((e) => (
-            <div key={e.id} className="flex items-start gap-3 px-4 py-3">
-              <div className="min-w-0 flex-1">
-                {e.title && <div className="text-sm font-medium">{e.title}</div>}
-                <div className="truncate text-sm text-muted-foreground">{e.content}</div>
-              </div>
-              <Button size="sm" variant="ghost" onClick={() => del(e.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+        <>
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={(ev) => setSearch(ev.target.value)}
+              placeholder={`Search ${visible.length} ${visible.length === 1 ? "entry" : "entries"}…`}
+              className="pl-9"
+            />
+          </div>
+          {filtered.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No entries match "{search}".</p>
+          ) : (
+            <div className="divide-y rounded-xl border">
+              {filtered.map((e) => (
+                <div key={e.id} className="px-4 py-3">
+                  {editingId === e.id ? (
+                    <div className="space-y-2">
+                      <Input value={editTitle} onChange={(ev) => setEditTitle(ev.target.value)} placeholder="Title (optional)" />
+                      <Textarea value={editContent} onChange={(ev) => setEditContent(ev.target.value)} rows={4} />
+                      <div className="flex justify-end gap-2">
+                        <Button size="sm" variant="ghost" disabled={editBusy} onClick={cancelEdit}>
+                          <X className="mr-1 h-4 w-4" /> Cancel
+                        </Button>
+                        <Button size="sm" disabled={editBusy || !editContent.trim()} onClick={saveEdit}>
+                          {editBusy ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null} Save
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-start gap-3">
+                      <button className="min-w-0 flex-1 text-left" onClick={() => startEdit(e)} title="Click to edit">
+                        {e.title && <div className="text-sm font-medium">{e.title}</div>}
+                        <div className="line-clamp-2 text-sm text-muted-foreground">{e.content}</div>
+                      </button>
+                      <div className="flex shrink-0 gap-1">
+                        <Button size="icon" variant="ghost" className="h-9 w-9" onClick={() => startEdit(e)} title="Edit">
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button size="icon" variant="ghost" className="h-9 w-9" onClick={() => del(e.id)} title="Delete">
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          )}
+        </>
       )}
       </>
       )}

@@ -58,6 +58,44 @@ serve(async (req) => {
       return json({ ok: true });
     }
 
+    // -------- update (edit an existing entry) --------
+    if (action === "update") {
+      const { id, title, content } = body;
+      if (!id || !content) return json({ error: "id and content required" }, 400);
+      const { data: row } = await admin.from("ts_knowledge")
+        .select("hotel_id, scope, department_key, room_id").eq("id", id).maybeSingle();
+      if (!row) return json({ error: "not found" }, 404);
+      const { data: can } = await admin.rpc("ts_kb_can_write", {
+        _hotel_id: row.hotel_id, _scope: row.scope, _department_key: row.department_key, _user_id: uid,
+      });
+      if (!can) return json({ error: "Forbidden" }, 403);
+      if (!OPENAI_API_KEY) return json({ error: "AI not configured" }, 500);
+
+      const chunks = chunk(String(content));
+      const vecs = await embed(chunks, OPENAI_API_KEY);
+
+      if (chunks.length === 1) {
+        // Fits in one entry — edit this row in place, id stays stable.
+        const { error } = await admin.from("ts_knowledge").update({
+          title: title?.trim() || null, content: chunks[0], embedding: `[${vecs[0].join(",")}]`,
+        }).eq("id", id);
+        if (error) return json({ error: error.message }, 400);
+        return json({ ok: true, updated: 1 });
+      }
+
+      // Grew past one chunk — replace the single row with the new set,
+      // same numbered-title convention as a fresh multi-chunk upload.
+      const rows = chunks.map((c, i) => ({
+        hotel_id: row.hotel_id, scope: row.scope, department_key: row.department_key, room_id: row.room_id,
+        title: `${title?.trim() || "Entry"} (${i + 1}/${chunks.length})`,
+        content: c, embedding: `[${vecs[i].join(",")}]`, created_by: uid,
+      }));
+      const { error: insErr } = await admin.from("ts_knowledge").insert(rows);
+      if (insErr) return json({ error: insErr.message }, 400);
+      await admin.from("ts_knowledge").delete().eq("id", id);
+      return json({ ok: true, updated: rows.length });
+    }
+
     // -------- upsert (create one or more rows) --------
     if (action === "upsert") {
       const { hotelId, scope, departmentKey = null, roomId = null, title, content } = body;
