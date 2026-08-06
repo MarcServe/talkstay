@@ -65,7 +65,14 @@ export function setNotifyChoice(sid: string, choice: string) {
   localStorage.setItem(notifyKey(sid), choice);
 }
 
-export interface GuestBranding { logo_url?: string | null; primary_color?: string | null; tagline?: string | null; }
+export interface GuestBranding {
+  logo_url?: string | null;
+  primary_color?: string | null;
+  tagline?: string | null;
+  // Full jsonb already flows through from the server — poster.bg_image_url
+  // doubles as a faint background photo for the chat screen when set.
+  poster?: { bg_image_url?: string | null } | null;
+}
 
 export async function fetchContext(hotelSlug: string, roomId: string, token: string, code?: string) {
   const { data, error } = await fn({ action: "context", hotelSlug, roomId, token, code });

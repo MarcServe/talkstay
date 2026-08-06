@@ -264,6 +264,10 @@ export default function GuestApp() {
 
   const brand = ctx.branding?.primary_color || "#7c3aed";
   const logo = ctx.branding?.logo_url || undefined;
+  // Prefer the poster's own background photo (the owner picked it on purpose);
+  // fall back to the logo as a faint watermark. A near-opaque wash over the
+  // image keeps it subtle so message bubbles stay fully legible on top.
+  const bgPhoto = ctx.branding?.poster?.bg_image_url || logo || undefined;
   const voiceAvailable = !!ctx.assistantId;
 
   const orbLabel =
@@ -273,7 +277,10 @@ export default function GuestApp() {
     : "Tap to Talk";
 
   return (
-    <div className="mx-auto flex h-[100dvh] max-w-md flex-col bg-background">
+    <div
+      className="mx-auto flex h-[100dvh] max-w-md flex-col bg-background bg-cover bg-center"
+      style={bgPhoto ? { backgroundImage: `linear-gradient(rgba(255,255,255,.93), rgba(255,255,255,.93)), url(${bgPhoto})` } : undefined}
+    >
       {/* Header — TalkWeb widget style */}
       <header className="border-b px-4 pb-3 pt-4 text-center">
         <div className="mb-1 flex items-start justify-end">
