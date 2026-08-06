@@ -108,11 +108,19 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
   };
 
   const preview = async (room: Room) => {
+    // Open the tab SYNCHRONOUSLY (still inside the click gesture) and fill in
+    // its URL once the token resolves — iOS/iPadOS Safari silently blocks
+    // window.open() called after an `await`, since by then it's no longer
+    // considered part of the user gesture that triggered it.
+    const win = window.open("", "_blank", "noopener");
     try {
       const token = await getRoomToken(room.id);
-      if (!token) { toast.error("No active token for this room"); return; }
-      window.open(guestUrl(hotel, room, token), "_blank", "noopener");
+      if (!token) { win?.close(); toast.error("No active token for this room"); return; }
+      const url = guestUrl(hotel, room, token);
+      if (win) win.location.href = url;
+      else window.open(url, "_blank", "noopener"); // pre-open itself was blocked — last resort
     } catch (e: any) {
+      win?.close();
       toast.error(e?.message ?? "Failed to open preview");
     }
   };
@@ -283,14 +291,18 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
           <div className="w-full max-w-xs rounded-2xl bg-card p-6 text-center" onClick={(e) => e.stopPropagation()}>
             <h3 className="mb-1 font-semibold">Room {qr.room.room_number}</h3>
             <p className="mb-4 text-xs text-muted-foreground">Print this and place it in the room.</p>
-            <div className="flex justify-center rounded-xl bg-white p-4">
+            {/* Real <a> links (not window.open()) — a single tap opens them
+                directly on mobile, no long-press-to-select needed. */}
+            <a href={qr.url} target="_blank" rel="noopener noreferrer" className="flex justify-center rounded-xl bg-white p-4" title="Open this room's assistant">
               <QRCodeCanvas
                 value={qr.url} size={200} includeMargin level="H"
                 fgColor={brandColor}
                 imageSettings={brandLogo ? { src: brandLogo, height: 40, width: 40, excavate: true } : undefined}
               />
-            </div>
-            <p className="mt-3 break-all text-[10px] text-muted-foreground">{qr.url}</p>
+            </a>
+            <a href={qr.url} target="_blank" rel="noopener noreferrer" className="mt-3 block break-all text-[10px] text-primary underline">
+              {qr.url}
+            </a>
             {requireCode && qr.room.occupancy_status === "occupied" && qr.room.checkin_code && (
               <p className="mt-2 text-xs text-muted-foreground">
                 Check-in code: <span className="font-mono tracking-widest text-foreground">{qr.room.checkin_code}</span>
