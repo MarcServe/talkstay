@@ -35,8 +35,15 @@ serve(async (req) => {
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
     const { requestId, event } = await req.json();
     if (!requestId) return json({ error: "requestId required" }, 400);
-    // event === "reopened" → the guest said the completed work wasn't done.
-    const reopened = event === "reopened";
+    // "reopened" = the guest said completed work wasn't done.
+    // "escalated" = the guest followed up mid-conversation (impatient / overdue)
+    // on a request that's still open — surfaced by talkstay-guest-chat.
+    const EVENT_BANNER: Record<string, string> = {
+      reopened: "The guest said this wasn't done yet. Please pick it back up.",
+      escalated: "The guest is following up on this — please check on it now.",
+    };
+    const EVENT_LABEL: Record<string, string> = { reopened: "Reopened", escalated: "Follow-up" };
+    const banner = EVENT_BANNER[event] ?? null;
 
     const { data: r } = await admin
       .from("ts_service_requests")
@@ -62,20 +69,20 @@ serve(async (req) => {
     const deptEmail = dept?.notify_email || null;
     const roomNo = room?.room_number ?? "—";
     const label = DEPT_LABEL[r.department_key] ?? r.department_key;
-    // A reopen means the guest wasn't satisfied — treat it as urgent so it copies
-    // the owner and pushes with priority, same as a complaint.
-    const urgent = reopened || r.priority === "urgent" || r.is_complaint;
+    // A reopen or an escalation both mean the guest wasn't satisfied — treat as
+    // urgent so it copies the owner and pushes with priority, like a complaint.
+    const urgent = !!banner || r.priority === "urgent" || r.is_complaint;
 
-    const subject = reopened
-      ? `🔴 Reopened by guest · ${label} — Room ${roomNo}`
+    const subject = banner
+      ? `🔴 ${EVENT_LABEL[event]} by guest · ${label} — Room ${roomNo}`
       : `${urgent ? "🔴 URGENT · " : ""}New ${label} request — Room ${roomNo}`;
     const html = renderEmail({
       hotelName: hotel?.name ?? "TalkStay",
       logoUrl: hotel?.branding?.logo_url,
       accentColor: hotel?.branding?.primary_color,
-      heading: reopened ? `Reopened — ${label}` : `${urgent ? "Urgent " : ""}${label} request`,
+      heading: banner ? `${EVENT_LABEL[event]} — ${label}` : `${urgent ? "Urgent " : ""}${label} request`,
       bodyHtml: `
-        ${reopened ? `<p style="margin:0 0 12px;color:#b91c1c;font-weight:600;">The guest said this wasn't done yet. Please pick it back up.</p>` : ""}
+        ${banner ? `<p style="margin:0 0 12px;color:#b91c1c;font-weight:600;">${escapeHtml(banner)}</p>` : ""}
         <p style="margin:0 0 10px;"><strong>Room:</strong> ${escapeHtml(roomNo)}</p>
         ${quoteBlock(staffSummary)}
         ${r.is_complaint ? `<p style="margin:14px 0 0;color:#b91c1c;font-weight:600;">This is a complaint — please handle promptly.</p>` : ""}`,

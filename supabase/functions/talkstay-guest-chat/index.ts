@@ -350,6 +350,23 @@ serve(async (req) => {
     if (!message) return json({ error: "message required" }, 400);
 
     const activeDepts = ctx.departments.length ? ctx.departments : DEPARTMENTS;
+
+    // This guest's currently-open requests for this stay — so a follow-up
+    // ("is it coming?", "it's been a while") isn't misread as a brand new ask
+    // and doesn't spawn a duplicate ticket. Terminal statuses are excluded.
+    const { data: openReqs } = sessionId
+      ? await admin.from("ts_service_requests")
+          .select("id, department_key, summary, created_at")
+          .eq("hotel_id", ctx.hotelId).eq("session_id", sessionId)
+          .in("status", ["new", "accepted", "in_progress", "on_the_way", "reopened"])
+          .order("created_at", { ascending: false }).limit(10)
+      : { data: [] as any[] };
+    const openRequests = openReqs ?? [];
+    const openList = openRequests.map((r: any) => {
+      const mins = Math.max(0, Math.round((Date.now() - new Date(r.created_at).getTime()) / 60000));
+      return `- [${r.id}] ${r.department_key} · ${r.summary} · asked ${mins} min ago`;
+    }).join("\n");
+
     const system = `You are the in-room guest assistant for ${ctx.hotelName}, Room ${ctx.roomNumber}.
 Be warm, brief and natural — like a helpful concierge, not a form. The guest should feel they just ask and it's handled.
 
@@ -359,6 +376,18 @@ WHAT TO DO:
 - General questions about the hotel (breakfast, wifi, checkout, facilities, local tips): call answer_from_knowledge FIRST, then answer from what it returns. If it returns nothing useful, say you'll check with the team and offer to pass it on — never invent facts.
 - A request for something (towels, food, drinks, laundry, a repair, taxi, late checkout, etc.): call create_service_request with the correct department. Confirm back conversationally with a rough ETA. Do NOT ask the guest to "track" anything.
 - Complaints, safety issues, anything upsetting or urgent: do NOT try to resolve it yourself. Call create_service_request with department "duty_manager", priority "urgent", is_complaint true, and reassure them a manager will contact them shortly.
+
+CURRENTLY OPEN REQUESTS FOR THIS STAY (id · department · summary · time since asked):
+${openList || "(none yet)"}
+
+FOLLOW-UPS vs NEW REQUESTS — check the list above BEFORE calling create_service_request. If the guest's
+message is chasing, checking on, or complaining about something already listed (e.g. "is it coming",
+"it's been a while", "still waiting", "where's my..."), that is a FOLLOW-UP, not a new request:
+- Do NOT create a duplicate request for it.
+- If they're just checking in, reassure them conversationally with an approximate wait and move on.
+- If they sound frustrated, or the time-since-asked is notably long for that kind of task, call
+  escalate_request with that request's id (copied exactly from the list) so staff are alerted now.
+Only call create_service_request for something genuinely new that isn't already on the list.
 
 DEPARTMENTS available (use exactly these keys): ${activeDepts.join(", ")}.
 Routing guide: towels/cleaning/bedding→housekeeping; laundry→laundry; food/breakfast/room service→kitchen; drinks/wine/cocktails→bar; TV/heating/AC/broken things→maintenance; taxi/recommendations/luggage→concierge; late checkout/billing/room access→front_desk; complaint/safety→duty_manager.
@@ -397,6 +426,21 @@ what you just said. Vary your phrasing so it doesn't sound like a scripted closi
               is_chargeable: { type: "boolean" },
             },
             required: ["department", "summary"],
+          },
+        },
+      },
+      {
+        type: "function",
+        function: {
+          name: "escalate_request",
+          description: "Flag an EXISTING open request (from CURRENTLY OPEN REQUESTS) as needing attention now, because the guest followed up, sounds frustrated, or it's overdue. Never use this to create something new — use create_service_request for that.",
+          parameters: {
+            type: "object",
+            properties: {
+              requestId: { type: "string", description: "The id of the existing request, copied exactly from the CURRENTLY OPEN REQUESTS list." },
+              note: { type: "string", description: "Short context for staff, e.g. 'guest says it has been 30+ minutes'." },
+            },
+            required: ["requestId"],
           },
         },
       },
@@ -518,6 +562,23 @@ what you just said. Vary your phrasing so it doesn't sound like a scripted closi
               role: "tool", tool_call_id: tc.id,
               content: JSON.stringify(reqRow ? { ok: true, department: dept, eta: ETA[dept] || "shortly", is_complaint: isComplaint } : { ok: false }),
             });
+          } else if (tc.function.name === "escalate_request") {
+            // Follow-up on something already open — bump it to urgent and alert
+            // staff, instead of the model creating a confusing duplicate ticket.
+            const reqId = String(args.requestId || "");
+            const match = openRequests.find((r: any) => r.id === reqId);
+            if (!match) {
+              messages.push({ role: "tool", tool_call_id: tc.id, content: JSON.stringify({ ok: false, error: "not_found" }) });
+            } else {
+              await admin.from("ts_service_requests").update({ priority: "urgent" }).eq("id", reqId);
+              await admin.from("ts_request_events").insert({
+                request_id: reqId, status: "escalated", actor_type: "guest",
+                note: args.note ? String(args.note).slice(0, 200) : null,
+              });
+              admin.functions.invoke("talkstay-notify", { body: { requestId: reqId, event: "escalated" } }).catch(() => {});
+              guestIntent = "complaint";
+              messages.push({ role: "tool", tool_call_id: tc.id, content: JSON.stringify({ ok: true }) });
+            }
           } else {
             messages.push({ role: "tool", tool_call_id: tc.id, content: "{}" });
           }
