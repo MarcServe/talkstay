@@ -229,11 +229,29 @@ export async function getMyHotel(): Promise<Hotel | null> {
   return (await getMyAccess()).hotel;
 }
 
-function normalizeUrl(raw?: string): string | null {
+export function normalizeUrl(raw?: string): string | null {
   const v = (raw || "").trim();
   if (!v) return null;
   const withProto = /^https?:\/\//i.test(v) ? v : `https://${v}`;
   try { return new URL(withProto).toString().replace(/\/$/, ""); } catch { return null; }
+}
+
+/** assistants.website_url is NOT NULL, so a hotel created without a real site
+ *  (e.g. an apartment/host with none) gets this placeholder instead of null.
+ *  Treat it as "no website set" everywhere in the UI — never scrape/reindex it. */
+export const PLACEHOLDER_WEBSITE = "https://talkstay.talkweb.io";
+export function isPlaceholderWebsite(url?: string | null): boolean {
+  return !url || url.replace(/\/$/, "") === PLACEHOLDER_WEBSITE;
+}
+
+/** Set (or change) the hotel's real website on its linked assistant. Does NOT
+ *  scrape/index it — call ingestHotelWebsite() separately for that. */
+export async function setHotelWebsite(assistantId: string, url: string): Promise<string> {
+  const normalized = normalizeUrl(url);
+  if (!normalized) throw new Error("Enter a valid website address");
+  const { error } = await supabase.from("assistants").update({ website_url: normalized }).eq("id", assistantId);
+  if (error) throw error;
+  return normalized;
 }
 
 /**
@@ -258,7 +276,7 @@ export async function createHotel(input: {
       business_name: input.name,
       // Real hotel website when given (enables TalkWeb's scraping/content infra);
       // the column is NOT NULL so fall back to a stable placeholder.
-      website_url: websiteUrl ?? "https://talkstay.talkweb.io",
+      website_url: websiteUrl ?? PLACEHOLDER_WEBSITE,
       language: input.default_language ?? "English",
       voice_type: "female",
       tone: "warm, professional",
