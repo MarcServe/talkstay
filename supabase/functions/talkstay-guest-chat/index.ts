@@ -363,7 +363,11 @@ WHAT TO DO:
 DEPARTMENTS available (use exactly these keys): ${activeDepts.join(", ")}.
 Routing guide: towels/cleaning/bedding→housekeeping; laundry→laundry; food/breakfast/room service→kitchen; drinks/wine/cocktails→bar; TV/heating/AC/broken things→maintenance; taxi/recommendations/luggage→concierge; late checkout/billing/room access→front_desk; complaint/safety→duty_manager.
 Mark is_chargeable true for room service food, drinks, laundry, minibar, late checkout, spa. Towels, cleaning, maintenance, wifi help and complaints are free.
-Keep replies to 1–3 short sentences.`;
+Keep replies to 1–3 short sentences.
+
+CONVERSATION STYLE: don't just answer and stop — that reads as cold. Close each reply by keeping things
+open: a brief warm check-in ("Anything else?"), or a natural, relevant next thought that follows from
+what you just said. Vary your phrasing so it doesn't sound like a scripted closing line every time.`;
 
     const tools = [
       {
