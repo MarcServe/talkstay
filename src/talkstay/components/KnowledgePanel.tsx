@@ -95,13 +95,23 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
     if (scope === "room" && !roomId) { toast.error("Add a room first."); return; }
     setBusy(true);
     try {
-      // Reuse TalkWeb's parse-document to extract text from PDF/DOCX/TXT.
-      const fd = new FormData();
-      fd.append("file", file);
-      fd.append("fileName", file.name);
-      const { data: parsed, error: pErr } = await supabase.functions.invoke("parse-document", { body: fd });
-      if (pErr) throw new Error(`Couldn't read the document: ${pErr.message}`);
-      const text = ((parsed?.pages ?? []) as any[]).map((p) => p.content || "").join("\n\n").trim();
+      let text: string;
+      if (file.name.toLowerCase().endsWith(".pdf")) {
+        // PDFs parse entirely in the browser via TalkWeb's own pdf.js pipeline
+        // (already used for large files in DocumentUploadSection) — avoids
+        // parse-document, which was unreliable for PDFs uploaded here.
+        const { parseClientPDF } = await import("@/utils/clientPDFParser");
+        const result = await parseClientPDF(file, file.name);
+        text = result.pages.map((p) => p.content).join("\n\n").trim();
+      } else {
+        // Reuse TalkWeb's parse-document for DOCX/TXT/etc.
+        const fd = new FormData();
+        fd.append("file", file);
+        fd.append("fileName", file.name);
+        const { data: parsed, error: pErr } = await supabase.functions.invoke("parse-document", { body: fd });
+        if (pErr) throw new Error(`Couldn't read the document: ${pErr.message}`);
+        text = ((parsed?.pages ?? []) as any[]).map((p) => p.content || "").join("\n\n").trim();
+      }
       if (text.length < 20) throw new Error("No readable text found in that file.");
       const { data, error } = await supabase.functions.invoke("talkstay-knowledge", {
         body: { action: "upsert", title: file.name.replace(/\.[^.]+$/, ""), content: text, ...targetPayload() },
