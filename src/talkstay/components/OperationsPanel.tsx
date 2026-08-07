@@ -66,6 +66,7 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
 }) {
   const [reqs, setReqs] = useState<Req[]>([]);
   const [ack, setAck] = useState<Record<string, { by: string; at: string }>>({});
+  const [escalations, setEscalations] = useState<Record<string, { note: string | null; at: string }>>({});
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<Filter>("active");
   // Department staff are hard-scoped to their own team's queue.
@@ -76,6 +77,10 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
   const [replyText, setReplyText] = useState<Record<string, string>>({});
   const [replyBusy, setReplyBusy] = useState<Record<string, boolean>>({});
   const seenIds = useRef<Set<string> | null>(null);
+  // Escalation EVENT ids already seen — separate from seenIds (row ids), since
+  // escalate_request updates an EXISTING row rather than creating a new one,
+  // so it needs its own "is this genuinely new" tracking for the chime.
+  const seenEscalations = useRef<Set<string> | null>(null);
   const soundRef = useRef(sound);
   soundRef.current = sound;
   // The queue this operator actually watches (locked team, or the dropdown).
@@ -115,19 +120,45 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
     setReqs(list);
     setLoading(false);
 
-    // Acknowledgement: who accepted each request, and when (latest 'accepted' event).
+    // Acknowledgement (latest 'accepted' event) + follow-up escalations
+    // (latest 'escalated' event — the guest chased something mid-conversation
+    // and talkstay-guest-chat's escalate_request flagged it, per request_id).
     const ids = list.map((r) => r.id);
     if (ids.length) {
       const { data: ev } = await supabase
         .from("ts_request_events")
-        .select("request_id, note, created_at")
-        .in("request_id", ids).eq("status", "accepted")
+        .select("id, request_id, status, note, created_at")
+        .in("request_id", ids).in("status", ["accepted", "escalated"])
         .order("created_at", { ascending: false });
-      const map: Record<string, { by: string; at: string }> = {};
+
+      const ackMap: Record<string, { by: string; at: string }> = {};
+      const escMap: Record<string, { note: string | null; at: string }> = {};
       (ev ?? []).forEach((e: any) => {
-        if (!map[e.request_id]) map[e.request_id] = { by: e.note || "staff", at: e.created_at };
+        if (e.status === "accepted" && !ackMap[e.request_id]) ackMap[e.request_id] = { by: e.note || "staff", at: e.created_at };
+        if (e.status === "escalated" && !escMap[e.request_id]) escMap[e.request_id] = { note: e.note, at: e.created_at };
       });
-      setAck(map);
+      setAck(ackMap);
+      setEscalations(escMap);
+
+      // Chime + toast when a NEW escalation event appears in the watched queue
+      // — this fires on a follow-up even though the request row itself isn't new.
+      const escalationEvents = (ev ?? []).filter((e: any) => e.status === "escalated");
+      if (seenEscalations.current) {
+        const fresh = escalationEvents.filter((e: any) => {
+          if (seenEscalations.current!.has(e.id)) return false;
+          const dept = list.find((r) => r.id === e.request_id)?.department_key;
+          return watchedRef.current === "all" || dept === watchedRef.current;
+        });
+        if (fresh.length) {
+          if (soundRef.current) playChime();
+          const e0 = fresh[0];
+          const r0 = list.find((r) => r.id === e0.request_id);
+          toast.message(`Guest followed up · Room ${r0?.ts_rooms?.room_number ?? "—"}`, {
+            description: e0.note || r0?.summary_staff || r0?.summary,
+          });
+        }
+      }
+      seenEscalations.current = new Set(escalationEvents.map((e: any) => e.id));
     }
   };
 
@@ -251,6 +282,7 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
             const next = NEXT[r.status];
             const overdue = r.status === "new" && minsSince(r.created_at) > OVERDUE_MIN;
             const acked = ack[r.id];
+            const escalation = escalations[r.id];
             return (
               <div key={r.id} className={`rounded-xl border p-4 ${
                 r.is_complaint || overdue ? "border-red-400/50 bg-red-500/5" : ""}`}>
@@ -265,6 +297,9 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
                       {r.priority === "urgent" && <Badge className="bg-red-500/15 text-red-600">Urgent</Badge>}
                       {overdue && <Badge className="bg-red-500/15 text-red-600">Overdue</Badge>}
                       {r.needs_triage && <Badge className="bg-amber-500/15 text-amber-600">Check routing</Badge>}
+                      {escalation && (
+                        <Badge className="bg-red-500/15 text-red-600"><MessageCircle className="mr-1 h-3 w-3" />Follow-up</Badge>
+                      )}
                     </div>
                     <p className="mt-1 text-sm">{r.summary_staff || r.summary}</p>
                     {r.summary_staff && r.summary_staff !== r.summary && (
@@ -275,6 +310,11 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
                     </p>
                     {acked && (
                       <p className="mt-1 text-xs text-green-600">✓ Accepted by {acked.by} · {timeAgo(acked.at)}</p>
+                    )}
+                    {escalation && (
+                      <p className="mt-1 text-xs text-red-600">
+                        ⚠ Guest followed up{escalation.note ? ` — "${escalation.note}"` : ""} · {timeAgo(escalation.at)}
+                      </p>
                     )}
                   </div>
                   <span className={`whitespace-nowrap rounded-full px-2 py-1 text-xs ${STATUS_STYLE[r.status] ?? "bg-muted"}`}>
