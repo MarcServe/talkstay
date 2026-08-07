@@ -111,7 +111,7 @@ export async function fetchMyRequests(hotelSlug: string, roomId: string, token: 
   return ((data as any)?.requests ?? []) as GuestRequest[];
 }
 
-/** Store where this guest device wants updates (email/whatsapp) for their stay. */
+/** Store where this guest device wants email updates for their stay. */
 export async function saveGuestContact(args: {
   hotelSlug: string; roomId: string; token: string; sessionId: string;
   channel: string; contact: string;
@@ -120,6 +120,35 @@ export async function saveGuestContact(args: {
   if (error) throw error;
   if ((data as any)?.error) throw new Error((data as any).error);
   return true;
+}
+
+/** Turn on "notify me on this device" — subscribes the browser to push (may
+ *  prompt for permission) and registers it for this stay. Throws a plain
+ *  Error with a guest-readable message on any failure (unsupported browser,
+ *  permission denied, etc.) — the caller decides how to show it. */
+export async function enableDevicePush(args: {
+  hotelSlug: string; roomId: string; token: string; sessionId: string;
+}): Promise<void> {
+  const { subscribeBrowserPush } = await import("@/talkstay/lib/push");
+  const keys = await subscribeBrowserPush();
+  const { data, error } = await fn({ action: "set_push", ...args, ...keys });
+  if (error) throw await realError(error);
+  if ((data as any)?.error) throw new Error((data as any).error);
+}
+
+/** Turn "notify me on this device" back off for this browser. Best-effort —
+ *  never throws, since there's nothing useful the guest can do about a
+ *  failed unsubscribe beyond what already happened (permission stays granted
+ *  but the server-side subscription row, and the one that matters, is gone). */
+export async function disableDevicePush(args: {
+  hotelSlug: string; roomId: string; token: string; sessionId: string;
+}): Promise<void> {
+  try {
+    const { currentPushEndpoint, unsubscribeBrowserPush } = await import("@/talkstay/lib/push");
+    const endpoint = await currentPushEndpoint();
+    if (endpoint) await fn({ action: "remove_push", ...args, endpoint });
+    await unsubscribeBrowserPush();
+  } catch { /* best-effort */ }
 }
 
 export async function submitReview(args: {

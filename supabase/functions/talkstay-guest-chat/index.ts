@@ -277,19 +277,40 @@ serve(async (req) => {
       return json({ messages });
     }
 
-    // ---- set_contact: where this device wants updates (email / whatsapp) ----
+    // ---- set_contact: guest wants email updates for this stay ----
     if (action === "set_contact") {
       const { channel, contact } = body;
       if (!sessionId || !channel) return json({ error: "sessionId and channel required" }, 400);
-      const isEmail = String(channel) === "email";
-      const clean = String(contact ?? "").trim().slice(0, 200);
+      const clean = String(contact ?? "").trim().slice(0, 200).toLowerCase();
       const { error } = await admin.from("ts_guest_sessions").upsert({
         hotel_id: ctx.hotelId, room_id: ctx.roomId, session_id: sessionId,
         language: ctx.language, notify_channel: String(channel),
-        contact_email: isEmail ? clean.toLowerCase() : null,
-        contact_phone: isEmail ? null : (clean || null),
+        contact_email: clean || null,
       }, { onConflict: "hotel_id,session_id" });
       if (error) return json({ error: error.message }, 400);
+      return json({ ok: true });
+    }
+
+    // ---- set_push: this device wants push notifications for this stay ----
+    // Independent of set_contact — a guest can have email AND device push
+    // both on at once, no exclusive "channel" choice.
+    if (action === "set_push") {
+      const { endpoint, p256dh, auth } = body;
+      if (!sessionId || !endpoint || !p256dh || !auth) return json({ error: "sessionId and push keys required" }, 400);
+      const { error } = await admin.from("ts_guest_push_subscriptions").upsert({
+        hotel_id: ctx.hotelId, room_id: ctx.roomId, session_id: sessionId,
+        endpoint: String(endpoint), p256dh: String(p256dh), auth: String(auth),
+      }, { onConflict: "endpoint" });
+      if (error) return json({ error: error.message }, 400);
+      return json({ ok: true });
+    }
+
+    // ---- remove_push: guest turned device notifications off ----
+    if (action === "remove_push") {
+      const { endpoint } = body;
+      if (!endpoint) return json({ error: "endpoint required" }, 400);
+      await admin.from("ts_guest_push_subscriptions")
+        .delete().eq("endpoint", String(endpoint)).eq("hotel_id", ctx.hotelId);
       return json({ ok: true });
     }
 

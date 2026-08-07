@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import webpush from "npm:web-push@3.6.7";
 import { renderEmail, quoteBlock, escapeHtml } from "../_shared/email.ts";
 
 // A member of staff replies directly to a guest. The reply is translated into
@@ -66,12 +67,12 @@ serve(async (req) => {
 
     const { data: r } = await admin
       .from("ts_service_requests")
-      .select("id, hotel_id, department_key, session_id, guest_language")
+      .select("id, hotel_id, room_id, department_key, session_id, guest_language")
       .eq("id", requestId).maybeSingle();
     if (!r) return json({ error: "request not found" }, 404);
 
     // Authorize: hotel owner OR an active staff member of this hotel.
-    const { data: hotel } = await admin.from("ts_hotels").select("id, user_id, name, branding").eq("id", r.hotel_id).maybeSingle();
+    const { data: hotel } = await admin.from("ts_hotels").select("id, user_id, name, slug, branding").eq("id", r.hotel_id).maybeSingle();
     if (!hotel) return json({ error: "not found" }, 404);
     const isOwner = hotel.user_id === caller.id;
     const { data: me } = await admin.from("ts_staff")
@@ -93,14 +94,21 @@ serve(async (req) => {
     }).select("id, staff_label, body, body_guest, created_at").single();
     if (insErr) return json({ error: insErr.message }, 400);
 
-    // Email the guest if they opted in for updates on this stay (best-effort).
+    // Tell the guest their reply arrived — email and/or "notify this device"
+    // (web push) are independent opt-ins, best-effort, one never blocks the other.
     if (r.session_id) {
-      const { data: sess } = await admin.from("ts_guest_sessions")
-        .select("notify_channel, contact_email").eq("hotel_id", r.hotel_id).eq("session_id", r.session_id).maybeSingle();
+      const shown = bodyGuest || text;
+
+      const [{ data: sess }, { data: pushSubs }] = await Promise.all([
+        admin.from("ts_guest_sessions")
+          .select("notify_channel, contact_email").eq("hotel_id", r.hotel_id).eq("session_id", r.session_id).maybeSingle(),
+        admin.from("ts_guest_push_subscriptions").select("id, endpoint, p256dh, auth")
+          .eq("hotel_id", r.hotel_id).eq("session_id", r.session_id),
+      ]);
+
       const email = sess?.contact_email;
       const key = (Deno.env.get("RESEND_API_KEY") || "").trim();
       if (email && sess?.notify_channel !== "none" && key) {
-        const shown = bodyGuest || text;
         const html = renderEmail({
           hotelName: hotel.name ?? "Your hotel",
           logoUrl: hotel.branding?.logo_url,
@@ -114,6 +122,33 @@ serve(async (req) => {
           headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
           body: JSON.stringify({ from: "TalkStay <notifications@talkweb.io>", to: email, subject: `${hotel.name ?? "Your hotel"}: a message from the team`, html }),
         }).catch(() => {});
+      }
+
+      if (pushSubs?.length) {
+        const vapidPub = (Deno.env.get("VAPID_PUBLIC_KEY") || "").trim();
+        const vapidPriv = (Deno.env.get("VAPID_PRIVATE_KEY") || "").trim();
+        if (vapidPub && vapidPriv) {
+          webpush.setVapidDetails(Deno.env.get("VAPID_SUBJECT") || "mailto:notifications@talkweb.io", vapidPub, vapidPriv);
+          let guestUrl = "https://talkstay.talkweb.io";
+          if (hotel.slug && r.room_id) {
+            const { data: tok } = await admin.from("ts_room_tokens").select("token")
+              .eq("room_id", r.room_id).eq("is_active", true)
+              .order("created_at", { ascending: false }).limit(1).maybeSingle();
+            if (tok?.token) guestUrl = `https://talkstay.talkweb.io/h/${hotel.slug}/r/${r.room_id}?token=${tok.token}`;
+          }
+          for (const s of pushSubs) {
+            try {
+              await webpush.sendNotification(
+                { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
+                JSON.stringify({ title: `${hotel.name ?? "Your hotel"}: ${staffLabel}`, body: shown, url: guestUrl, tag: r.id })
+              );
+            } catch (err: any) {
+              if (err?.statusCode === 404 || err?.statusCode === 410) {
+                await admin.from("ts_guest_push_subscriptions").delete().eq("id", s.id);
+              }
+            }
+          }
+        }
       }
     }
 

@@ -5,9 +5,10 @@ import { Input } from "@/components/ui/input";
 import { Loader2, Send, ClipboardList, Star, X, Mic, MicOff, Globe, Check, MessageCircle } from "lucide-react";
 import { toast } from "sonner";
 import { RealtimeChat } from "@/utils/RealtimeChat";
+import { pushSupported } from "@/talkstay/lib/push";
 import {
   fetchContext, sendMessage, fetchMyRequests, submitReview, saveGuestContact,
-  confirmRequest, reopenRequest, fetchStaffMessages,
+  confirmRequest, reopenRequest, fetchStaffMessages, enableDevicePush, disableDevicePush,
   getSessionId, getDeviceId, loadHistory, saveHistory, getNotifyChoice, setNotifyChoice,
   STATUS_LABEL, type ChatMsg, type GuestRequest, type GuestBranding,
 } from "@/talkstay/lib/guest";
@@ -416,14 +417,8 @@ export default function GuestApp() {
 
       {notifyOpen && (
         <NotifySheet
-          onChoose={(c, contact) => {
-            setNotifyChoice(sid, c);
-            setNotifyOpen(false);
-            if (contact) {
-              saveGuestContact({ hotelSlug, roomId, token, sessionId: sid, channel: c, contact })
-                .catch(() => { /* non-blocking */ });
-            }
-          }}
+          hotelSlug={hotelSlug} roomId={roomId} token={token} sid={sid}
+          onDone={() => { setNotifyChoice(sid, "on"); setNotifyOpen(false); }}
           onClose={() => setNotifyOpen(false)}
         />
       )}
@@ -437,49 +432,99 @@ export default function GuestApp() {
   );
 }
 
-function NotifySheet({ onChoose, onClose }: {
-  onChoose: (c: string, contact?: string) => void; onClose: () => void;
+function NotifySheet({ hotelSlug, roomId, token, sid, onDone, onClose }: {
+  hotelSlug: string; roomId: string; token: string; sid: string;
+  onDone: () => void; onClose: () => void;
 }) {
-  const [mode, setMode] = useState<null | "email" | "whatsapp">(null);
-  const [contact, setContact] = useState("");
-  const valid = mode === "email"
-    ? /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(contact.trim())
-    : contact.trim().replace(/\D/g, "").length >= 7;
+  // Independent, multi-selectable channels — a guest can have either, both,
+  // or neither. Push (if supported) commits immediately on toggle since it's
+  // a live browser permission flow; email is typed then committed on Save.
+  const canPush = pushSupported();
+  const [pushOn, setPushOn] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+  const [emailOn, setEmailOn] = useState(false);
+  const [email, setEmail] = useState("");
+  const [saving, setSaving] = useState(false);
+  const emailValid = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim());
+
+  const togglePush = async (next: boolean) => {
+    setPushBusy(true);
+    try {
+      if (next) {
+        await enableDevicePush({ hotelSlug, roomId, token, sessionId: sid });
+        setPushOn(true);
+        toast.success("You'll be notified on this device.");
+      } else {
+        await disableDevicePush({ hotelSlug, roomId, token, sessionId: sid });
+        setPushOn(false);
+      }
+    } catch (e: any) {
+      toast.error(e?.message ?? "Couldn't enable notifications on this device.");
+      setPushOn(false);
+    } finally {
+      setPushBusy(false);
+    }
+  };
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      if (emailOn && emailValid) {
+        await saveGuestContact({ hotelSlug, roomId, token, sessionId: sid, channel: "email", contact: email.trim() });
+      }
+      onDone();
+    } catch {
+      toast.error("Couldn't save — you can try again from here.");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40" onClick={onClose}>
       <div className="w-full max-w-md rounded-t-2xl bg-card p-5" onClick={(e) => e.stopPropagation()}>
         <p className="mb-1 font-medium">Your request has been sent.</p>
-        <p className="mb-4 text-sm text-muted-foreground">Where would you like updates?</p>
+        <p className="mb-4 text-sm text-muted-foreground">How would you like updates? Choose as many as you like.</p>
 
-        {mode ? (
-          <div className="space-y-2">
-            <Input
-              autoFocus
-              type={mode === "email" ? "email" : "tel"}
-              inputMode={mode === "email" ? "email" : "tel"}
-              value={contact}
-              onChange={(e) => setContact(e.target.value)}
-              placeholder={mode === "email" ? "you@example.com" : "+44 7…"}
-            />
-            <div className="flex gap-2">
-              <Button className="flex-1" disabled={!valid} onClick={() => onChoose(mode, contact.trim())}>
-                Send me updates
-              </Button>
-              <Button variant="ghost" onClick={() => { setMode(null); setContact(""); }}>Back</Button>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Only used to update you about this stay.
-            </p>
+        <div className="space-y-3">
+          {canPush && (
+            <label className="flex items-center gap-3 rounded-xl border p-3">
+              <input
+                type="checkbox" checked={pushOn} disabled={pushBusy}
+                onChange={(e) => togglePush(e.target.checked)}
+                className="h-4 w-4 shrink-0"
+              />
+              <span className="flex-1 text-sm">Notify me on this device</span>
+              {pushBusy && <Loader2 className="h-4 w-4 shrink-0 animate-spin" />}
+            </label>
+          )}
+
+          <div className="rounded-xl border p-3">
+            <label className="flex items-center gap-3">
+              <input
+                type="checkbox" checked={emailOn}
+                onChange={(e) => setEmailOn(e.target.checked)}
+                className="h-4 w-4 shrink-0"
+              />
+              <span className="flex-1 text-sm">Email me updates</span>
+            </label>
+            {emailOn && (
+              <Input
+                autoFocus type="email" inputMode="email"
+                value={email} onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@example.com" className="mt-2"
+              />
+            )}
           </div>
-        ) : (
-          <div className="grid gap-2">
-            <Button variant="outline" className="justify-start" onClick={() => setMode("email")}>Email</Button>
-            <Button variant="outline" className="justify-start" onClick={() => setMode("whatsapp")}>WhatsApp</Button>
-            <Button variant="outline" className="justify-start" onClick={() => onChoose("device")}>Notify this device</Button>
-            <Button variant="outline" className="justify-start" onClick={() => onChoose("none")}>No updates</Button>
-          </div>
-        )}
+        </div>
+
+        <div className="mt-4 flex gap-2">
+          <Button variant="ghost" className="flex-1" onClick={onClose}>Not now</Button>
+          <Button className="flex-1" disabled={saving || (emailOn && !emailValid)} onClick={save}>
+            {saving ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null} Save
+          </Button>
+        </div>
+        <p className="mt-3 text-xs text-muted-foreground">Only used to update you about this stay.</p>
       </div>
     </div>
   );

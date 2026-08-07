@@ -14,8 +14,12 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
   return arr;
 }
 
-/** Register the SW, subscribe to push, and store the subscription for this staff user. */
-export async function enablePush(hotelId: string, departmentKey?: string | null): Promise<void> {
+export interface PushKeys { endpoint: string; p256dh: string; auth: string; }
+
+/** Browser mechanics shared by staff and guest subscribe flows: request
+ *  permission, register the SW, subscribe. Reused as-is if already
+ *  subscribed (idempotent — safe to call again on an already-installed SW). */
+async function subscribeBrowser(): Promise<PushSubscription> {
   if (!pushSupported()) throw new Error("Push notifications aren't supported on this device/browser.");
 
   const perm = await Notification.requestPermission();
@@ -31,21 +35,56 @@ export async function enablePush(hotelId: string, departmentKey?: string | null)
       applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC!),
     });
   }
+  return sub;
+}
+
+function toKeys(sub: PushSubscription): PushKeys {
+  const j = sub.toJSON() as any;
+  return { endpoint: j.endpoint, p256dh: j.keys?.p256dh, auth: j.keys?.auth };
+}
+
+/** Register the SW, subscribe to push, and store the subscription for this staff user. */
+export async function enablePush(hotelId: string, departmentKey?: string | null): Promise<void> {
+  const sub = await subscribeBrowser();
 
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Not signed in.");
 
-  const j = sub.toJSON() as any;
+  const keys = toKeys(sub);
   const { error } = await supabase.from("ts_push_subscriptions").upsert(
     {
       hotel_id: hotelId,
       user_id: user.id,
       department_key: departmentKey ?? null,
-      endpoint: j.endpoint,
-      p256dh: j.keys?.p256dh,
-      auth: j.keys?.auth,
+      endpoint: keys.endpoint,
+      p256dh: keys.p256dh,
+      auth: keys.auth,
     },
     { onConflict: "endpoint" }
   );
   if (error) throw error;
+}
+
+/** Same browser subscribe flow, without any TalkStay-account storage — the
+ *  caller (e.g. a guest session) decides where the resulting keys go. */
+export async function subscribeBrowserPush(): Promise<PushKeys> {
+  return toKeys(await subscribeBrowser());
+}
+
+/** The current subscription's endpoint, if this browser has one — used to
+ *  unsubscribe without re-requesting permission. Null if never subscribed. */
+export async function currentPushEndpoint(): Promise<string | null> {
+  if (!pushSupported()) return null;
+  const reg = await navigator.serviceWorker.getRegistration("/sw.js");
+  const sub = await reg?.pushManager.getSubscription();
+  return sub?.endpoint ?? null;
+}
+
+/** Unsubscribe this browser from push entirely (used when a guest turns the
+ *  device toggle off). Safe to call even if never subscribed. */
+export async function unsubscribeBrowserPush(): Promise<void> {
+  if (!pushSupported()) return;
+  const reg = await navigator.serviceWorker.getRegistration("/sw.js");
+  const sub = await reg?.pushManager.getSubscription();
+  await sub?.unsubscribe();
 }
