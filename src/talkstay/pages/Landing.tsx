@@ -1,78 +1,124 @@
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { MessageSquare, Route as RouteIcon, CheckCircle2, Languages } from "lucide-react";
+import {
+  MessageSquare, Route as RouteIcon, CheckCircle2, Languages,
+  Mic, Sparkles, Clock, Users, PlayCircle,
+} from "lucide-react";
+import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
 
+// The 4-up strip under the hero — what a guest experiences, in order.
 const features = [
-  {
-    icon: MessageSquare,
-    title: "Scan & speak",
-    body: "Guests scan a room QR code and just talk — no app, no login, no waiting on hold.",
-  },
-  {
-    icon: RouteIcon,
-    title: "Auto-routed",
-    body: "Every request is understood and sent to the right team — housekeeping, kitchen, bar, maintenance, front desk and more.",
-  },
-  {
-    icon: CheckCircle2,
-    title: "Tracked to done",
-    body: "Staff accept, update and complete each task. Guests get quiet updates and confirm delivery.",
-  },
-  {
-    icon: Languages,
-    title: "Every language",
-    body: "Guests speak their language; staff receive clear tasks in English. No multilingual staffing required.",
-  },
+  { icon: MessageSquare, title: "Scan & speak", body: "No app, no login" },
+  { icon: RouteIcon, title: "Auto-routed", body: "Right team, instantly" },
+  { icon: CheckCircle2, title: "Tracked to done", body: "Updates in real time" },
+  { icon: Languages, title: "Every language", body: "Multi-language support" },
+];
+
+// The dark section — what the product gives the business.
+const pillars = [
+  { icon: Mic, title: "Voice-first experience", body: "Guests speak naturally in their own language." },
+  { icon: Sparkles, title: "Smart routing", body: "Requests go to the right department automatically." },
+  { icon: Clock, title: "Real-time tracking", body: "Track progress from request to completion." },
+  { icon: Users, title: "Staff collaboration", body: "Teams stay aligned and guests stay happy." },
 ];
 
 export default function Landing() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2.5">
+          <TalkStayLogo size={30} />
           <span className="text-lg font-semibold tracking-tight">TalkStay</span>
-          <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">by TalkWeb</span>
+          <span className="hidden rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground sm:inline">by TalkWeb</span>
         </div>
-        <Button asChild variant="outline" size="sm">
-          <Link to="/app">Hotel sign in</Link>
-        </Button>
+        <nav className="hidden items-center gap-7 text-sm text-muted-foreground md:flex">
+          <a href="#how" className="transition-colors hover:text-foreground">Features</a>
+          <a href="#how" className="transition-colors hover:text-foreground">How it works</a>
+          <a href="#hotels" className="transition-colors hover:text-foreground">For hotels</a>
+        </nav>
+        <div className="flex items-center gap-2">
+          <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex">
+            <Link to="/app">Hotel sign in</Link>
+          </Button>
+          <Button asChild size="sm" className="bg-violet-600 hover:bg-violet-700">
+            <Link to="/app">Get started</Link>
+          </Button>
+        </div>
       </header>
 
-      <main className="mx-auto max-w-6xl px-6">
-        <section className="py-20 text-center">
-          <h1 className="mx-auto max-w-3xl text-4xl font-bold leading-tight tracking-tight sm:text-5xl">
-            The voice-first guest-service platform for hotels & serviced stays
-          </h1>
-          <p className="mx-auto mt-6 max-w-2xl text-lg text-muted-foreground">
-            Guests scan a QR code and speak naturally to request room service, housekeeping,
-            laundry, maintenance or front-desk help. Every request is routed to the right team,
-            tracked through completion and reviewed by the guest.
-          </p>
-          <p className="mt-8 text-xl font-medium">Scan. Speak. Consider it done.</p>
-          <div className="mt-8 flex items-center justify-center gap-3">
-            <Button asChild size="lg">
-              <Link to="/app">Get started</Link>
-            </Button>
-            <Button asChild size="lg" variant="outline">
-              <a href="#how">See how it works</a>
-            </Button>
+      <main>
+        <section className="mx-auto max-w-6xl px-6">
+          <div className="py-16 text-center sm:py-24">
+            <div className="mb-6 inline-flex items-center gap-2 rounded-full border bg-muted/40 px-3 py-1 text-xs font-medium text-muted-foreground">
+              <Mic className="h-3.5 w-3.5" /> VOICE-FIRST GUEST SERVICE
+            </div>
+            <h1 className="mx-auto max-w-3xl text-4xl font-bold leading-[1.08] tracking-tight sm:text-6xl">
+              Guest requests.
+              <br />
+              Handled{" "}
+              <span className="bg-gradient-to-r from-violet-500 to-indigo-500 bg-clip-text text-transparent">
+                beautifully.
+              </span>
+            </h1>
+            <p className="mx-auto mt-6 max-w-xl text-lg text-muted-foreground">
+              TalkStay lets guests speak naturally to request room service, housekeeping,
+              maintenance and more. Every request is routed, tracked and completed with care.
+            </p>
+            <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
+              <Button asChild size="lg" className="bg-violet-600 hover:bg-violet-700">
+                <Link to="/app">Get started</Link>
+              </Button>
+              <Button asChild size="lg" variant="outline">
+                <a href="#how"><PlayCircle className="mr-1.5 h-4 w-4" /> See how it works</a>
+              </Button>
+            </div>
+          </div>
+
+          {/* What the guest experiences */}
+          <div id="how" className="mx-auto max-w-4xl rounded-2xl border bg-card p-6 shadow-sm sm:p-8">
+            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+              {features.map(({ icon: Icon, title, body }) => (
+                <div key={title} className="text-center sm:text-left">
+                  <Icon className="mx-auto h-5 w-5 text-violet-600 sm:mx-0" />
+                  <h3 className="mt-3 text-sm font-semibold">{title}</h3>
+                  <p className="mt-1 text-xs text-muted-foreground">{body}</p>
+                </div>
+              ))}
+            </div>
           </div>
         </section>
 
-        <section id="how" className="grid gap-6 pb-24 sm:grid-cols-2 lg:grid-cols-4">
-          {features.map(({ icon: Icon, title, body }) => (
-            <div key={title} className="rounded-2xl border bg-card p-6">
-              <Icon className="h-6 w-6 text-primary" />
-              <h3 className="mt-4 font-semibold">{title}</h3>
-              <p className="mt-2 text-sm text-muted-foreground">{body}</p>
+        {/* What the business gets */}
+        <section id="hotels" className="mx-auto mt-16 max-w-6xl px-6 pb-24 sm:mt-24">
+          <div className="rounded-3xl bg-[#4c2bb8] px-6 py-14 text-white sm:px-12">
+            <div className="text-center">
+              <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">Built for modern hospitality</h2>
+              <p className="mx-auto mt-3 max-w-2xl text-sm text-white/70">
+                Everything you need to deliver exceptional guest service, every time.
+              </p>
             </div>
-          ))}
+            <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {pillars.map(({ icon: Icon, title, body }) => (
+                <div key={title} className="rounded-2xl bg-white/10 p-5 backdrop-blur-sm">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/15">
+                    <Icon className="h-4 w-4 text-white" />
+                  </div>
+                  <h3 className="mt-4 text-sm font-semibold">{title}</h3>
+                  <p className="mt-1.5 text-xs leading-relaxed text-white/70">{body}</p>
+                </div>
+              ))}
+            </div>
+          </div>
         </section>
       </main>
 
       <footer className="border-t">
-        <div className="mx-auto max-w-6xl px-6 py-8 text-sm text-muted-foreground">
-          © {new Date().getFullYear()} TalkStay by TalkWeb
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-6 py-8 text-sm text-muted-foreground">
+          <div className="flex items-center gap-2">
+            <TalkStayLogo size={22} />
+            <span>© {new Date().getFullYear()} TalkStay by TalkWeb</span>
+          </div>
+          <Link to="/app" className="transition-colors hover:text-foreground">Hotel sign in</Link>
         </div>
       </footer>
     </div>
