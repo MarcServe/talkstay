@@ -530,6 +530,20 @@ function NotifySheet({ hotelSlug, roomId, token, sid, onDone, onClose }: {
   );
 }
 
+// Coloured status dot for the "My requests" list — greys while pending,
+// ambers while in flight, greens when done.
+const STATUS_DOT: Record<string, string> = {
+  new: "bg-slate-400",
+  accepted: "bg-amber-400",
+  in_progress: "bg-amber-400",
+  on_the_way: "bg-violet-500",
+  completed: "bg-green-500",
+  guest_confirmed: "bg-green-500",
+  reopened: "bg-orange-500",
+  escalated: "bg-red-500",
+  cancelled: "bg-slate-300",
+};
+
 function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
   hotelSlug: string; roomId: string; token: string; sid: string; onClose: () => void;
 }) {
@@ -586,10 +600,10 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/40" onClick={onClose}>
-      <div className="h-full w-full max-w-md overflow-y-auto bg-card p-5" onClick={(e) => e.stopPropagation()}>
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="font-semibold">My requests</h2>
-          <Button variant="ghost" size="icon" onClick={onClose}><X className="h-4 w-4" /></Button>
+      <div className="h-full w-full max-w-md overflow-y-auto bg-card p-6" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-5 flex items-center justify-between">
+          <h2 className="text-lg font-semibold tracking-tight">My requests</h2>
+          <Button variant="ghost" size="icon" onClick={onClose}><X className="h-5 w-5" /></Button>
         </div>
         {reqs === null ? (
           <div className="flex items-center gap-2 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</div>
@@ -607,9 +621,12 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
               const confirmed = effStatus === "guest_confirmed";
               const wasReopened = effStatus === "reopened";
               return (
-                <div key={r.id} className="rounded-xl border p-4">
-                  <div className="text-sm font-medium">{r.summary}</div>
-                  <div className="mt-1 text-xs text-muted-foreground">{STATUS_LABEL[effStatus] ?? effStatus}</div>
+                <div key={r.id} className="rounded-2xl border p-4 shadow-sm">
+                  <div className="text-[15px] font-medium leading-snug">{r.summary}</div>
+                  <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+                    <span className={`h-2 w-2 shrink-0 rounded-full ${STATUS_DOT[effStatus] ?? "bg-slate-400"}`} />
+                    {STATUS_LABEL[effStatus] ?? effStatus}
+                  </div>
 
                   {/* Staff marked it done — the guest gets the final say. */}
                   {awaitingConfirm && (
