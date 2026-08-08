@@ -4,9 +4,25 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { Loader2, AlertTriangle, RefreshCw, Volume2, VolumeX, MessageCircle, Send } from "lucide-react";
+import {
+  Loader2, AlertTriangle, RefreshCw, Volume2, VolumeX, MessageCircle, Send,
+  UtensilsCrossed, BedDouble, Wrench, Wine, Shirt, ConciergeBell, KeyRound, ShieldAlert,
+} from "lucide-react";
 import { DEPARTMENTS, type Hotel } from "@/talkstay/lib/hotels";
 import { playChime, primeChime } from "@/talkstay/lib/chime";
+
+// Each department gets a distinct icon + soft tint, so staff can scan the
+// queue by shape/colour instead of reading every card's department label.
+const DEPT_VISUAL: Record<string, { Icon: typeof Wrench; tint: string }> = {
+  housekeeping: { Icon: BedDouble, tint: "bg-sky-100 text-sky-600" },
+  laundry: { Icon: Shirt, tint: "bg-cyan-100 text-cyan-600" },
+  kitchen: { Icon: UtensilsCrossed, tint: "bg-amber-100 text-amber-600" },
+  bar: { Icon: Wine, tint: "bg-rose-100 text-rose-600" },
+  maintenance: { Icon: Wrench, tint: "bg-slate-100 text-slate-600" },
+  concierge: { Icon: ConciergeBell, tint: "bg-violet-100 text-violet-600" },
+  front_desk: { Icon: KeyRound, tint: "bg-indigo-100 text-indigo-600" },
+  duty_manager: { Icon: ShieldAlert, tint: "bg-red-100 text-red-600" },
+};
 
 interface Req {
   id: string;
@@ -56,7 +72,11 @@ const timeAgo = (iso: string) => {
   return `${Math.floor(s / 86400)}d ago`;
 };
 
-type Filter = "active" | "new" | "done" | "all";
+type Filter = "all" | "new" | "active" | "done" | "followup";
+
+const FILTER_LABEL: Record<Filter, string> = {
+  all: "All", new: "New", active: "Active", done: "Done", followup: "Follow-up",
+};
 
 const OVERDUE_MIN = 5; // a 'new' request older than this is flagged overdue
 const minsSince = (iso: string) => (Date.now() - new Date(iso).getTime()) / 60000;
@@ -228,28 +248,54 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
     toast.success("Reply sent to the guest.");
   };
 
-  const filtered = useMemo(() => {
-    return reqs.filter((r) => {
-      if (dept !== "all" && r.department_key !== dept) return false;
-      if (filter === "new") return r.status === "new";
-      if (filter === "done") return ["completed", "guest_confirmed", "cancelled"].includes(r.status);
-      if (filter === "active") return !["completed", "guest_confirmed", "cancelled"].includes(r.status);
-      return true;
-    });
-  }, [reqs, filter, dept]);
+  const matchesFilter = (r: Req, f: Filter) => {
+    if (f === "new") return r.status === "new";
+    if (f === "done") return ["completed", "guest_confirmed", "cancelled"].includes(r.status);
+    if (f === "active") return !["completed", "guest_confirmed", "cancelled"].includes(r.status);
+    if (f === "followup") return !!escalations[r.id];
+    return true;
+  };
 
-  const newCount = reqs.filter((r) => r.status === "new").length;
+  const inDept = (r: Req) => dept === "all" || r.department_key === dept;
+
+  const filtered = useMemo(
+    () => reqs.filter((r) => inDept(r) && matchesFilter(r, filter)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [reqs, filter, dept, escalations]
+  );
+
+  // Counts shown on each pill reflect the current department scope.
+  const counts = useMemo(() => {
+    const scoped = reqs.filter(inDept);
+    return {
+      all: scoped.length,
+      new: scoped.filter((r) => matchesFilter(r, "new")).length,
+      active: scoped.filter((r) => matchesFilter(r, "active")).length,
+      done: scoped.filter((r) => matchesFilter(r, "done")).length,
+      followup: scoped.filter((r) => matchesFilter(r, "followup")).length,
+    } as Record<Filter, number>;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reqs, dept, escalations]);
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex gap-1">
-          {(["active", "new", "done", "all"] as Filter[]).map((f) => (
-            <Button key={f} size="sm" variant={filter === f ? "default" : "outline"}
-              onClick={() => setFilter(f)} className="capitalize">
-              {f}{f === "new" && newCount ? ` (${newCount})` : ""}
-            </Button>
-          ))}
+        <div className="flex flex-wrap gap-1.5">
+          {(["all", "new", "active", "done", "followup"] as Filter[]).map((f) => {
+            const on = filter === f;
+            return (
+              <button
+                key={f}
+                onClick={() => setFilter(f)}
+                className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                  on ? "bg-violet-600 text-white" : "border bg-background text-muted-foreground hover:bg-muted"
+                }`}
+              >
+                {FILTER_LABEL[f]}
+                <span className={on ? "text-white/70" : "text-muted-foreground/70"}>{counts[f]}</span>
+              </button>
+            );
+          })}
         </div>
         <div className="flex items-center gap-2">
           {lockedDepartment ? (
@@ -283,11 +329,16 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
             const overdue = r.status === "new" && minsSince(r.created_at) > OVERDUE_MIN;
             const acked = ack[r.id];
             const escalation = escalations[r.id];
+            const visual = DEPT_VISUAL[r.department_key] ?? { Icon: ConciergeBell, tint: "bg-muted text-muted-foreground" };
+            const DeptIcon = visual.Icon;
             return (
               <div key={r.id} className={`rounded-xl border p-4 ${
                 r.is_complaint || overdue ? "border-red-400/50 bg-red-500/5" : ""}`}>
                 <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
+                  <div className={`hidden h-11 w-11 shrink-0 items-center justify-center rounded-xl sm:flex ${visual.tint}`}>
+                    <DeptIcon className="h-5 w-5" />
+                  </div>
+                  <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-semibold">Room {r.ts_rooms?.room_number ?? "—"}</span>
                       <Badge variant="secondary">{deptLabel(r.department_key)}</Badge>

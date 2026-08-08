@@ -6,11 +6,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import {
-  Loader2, LogOut, Bell, Menu, X,
+  Loader2, LogOut, Bell, Menu, X, ChevronDown,
   Inbox, BarChart3, QrCode, Building2, BookOpen, Users, Palette,
 } from "lucide-react";
 import { enablePush, pushSupported } from "@/talkstay/lib/push";
 import AuthPage, { isPasswordSetupUrl } from "@/talkstay/pages/AuthPage";
+import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
 import OperationsPanel from "@/talkstay/components/OperationsPanel";
 import InsightsPanel from "@/talkstay/components/InsightsPanel";
 import RoomsPanel from "@/talkstay/components/RoomsPanel";
@@ -190,25 +191,36 @@ export default function HotelApp() {
   const activeLabel = NAV.find((n) => n.key === effectiveActive)?.label ?? "";
   const go = (k: NavKey) => { setActive(k); setNavOpen(false); };
 
+  const identityName = access?.name || user?.email?.split("@")[0] || "You";
+  const identityInitial = identityName.trim().charAt(0).toUpperCase() || "?";
+
   const SidebarBody = (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col bg-[#15111f] text-white/70">
       <div className="flex items-center justify-between px-5 py-4">
-        <div className="min-w-0">
-          <div className="font-semibold tracking-tight">TalkStay</div>
-          <div className="truncate text-xs text-muted-foreground">{hotel.name}</div>
-          <div className="mt-0.5 inline-block rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">{roleLabel}</div>
+        <div className="flex min-w-0 items-center gap-2.5">
+          <TalkStayLogo size={30} />
+          <div className="min-w-0 font-semibold tracking-tight text-white">TalkStay</div>
         </div>
         <button className="md:hidden" onClick={() => setNavOpen(false)} aria-label="Close menu">
-          <X className="h-5 w-5 text-muted-foreground" />
+          <X className="h-5 w-5 text-white/60" />
         </button>
       </div>
+
+      <div className="mx-3 mb-2 flex items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5">
+        <div className="min-w-0">
+          <div className="truncate text-sm font-medium text-white">{hotel.name}</div>
+          <div className="text-xs text-white/50">{roleLabel}</div>
+        </div>
+        <ChevronDown className="h-4 w-4 shrink-0 text-white/40" />
+      </div>
+
       <nav className="flex-1 space-y-1 px-3">
         {visibleNav.map(({ key, label, icon: Icon }) => (
           <button
             key={key}
             onClick={() => go(key)}
             className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-              effectiveActive === key ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"
+              effectiveActive === key ? "bg-violet-600 text-white" : "text-white/60 hover:bg-white/5 hover:text-white"
             }`}
           >
             <Icon className="h-4 w-4 shrink-0" />
@@ -216,24 +228,31 @@ export default function HotelApp() {
           </button>
         ))}
       </nav>
-      <div className="space-y-1 border-t p-3">
+
+      <div className="space-y-1 border-t border-white/10 p-3">
         {pushSupported() && (
           <button
             onClick={async () => {
               try { await enablePush(hotel.id); toast.success("Alerts enabled on this device."); }
               catch (e: any) { toast.error(e?.message ?? "Couldn't enable alerts"); }
             }}
-            className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-white/60 hover:bg-white/5 hover:text-white"
           >
             <Bell className="h-4 w-4" /> Enable alerts
           </button>
         )}
-        <button
-          onClick={() => supabase.auth.signOut()}
-          className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
-        >
-          <LogOut className="h-4 w-4" /> Sign out
-        </button>
+        <div className="flex items-center gap-2.5 rounded-lg px-3 py-2">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-violet-600/30 text-xs font-semibold text-violet-200">
+            {identityInitial}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm font-medium text-white">{identityName}</div>
+            <div className="truncate text-xs text-white/40">{user?.email}</div>
+          </div>
+          <button onClick={() => supabase.auth.signOut()} aria-label="Sign out" title="Sign out">
+            <LogOut className="h-4 w-4 text-white/40 hover:text-white" />
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -241,7 +260,7 @@ export default function HotelApp() {
   return (
     <div className="flex min-h-screen bg-muted/20">
       {/* Desktop sidebar */}
-      <aside className="hidden w-64 shrink-0 border-r bg-background md:block">
+      <aside className="hidden w-64 shrink-0 md:block">
         <div className="sticky top-0 h-screen">{SidebarBody}</div>
       </aside>
 
@@ -249,7 +268,7 @@ export default function HotelApp() {
       {navOpen && (
         <>
           <div className="fixed inset-0 z-40 bg-black/40 md:hidden" onClick={() => setNavOpen(false)} />
-          <aside className="fixed inset-y-0 left-0 z-50 w-64 border-r bg-background md:hidden">{SidebarBody}</aside>
+          <aside className="fixed inset-y-0 left-0 z-50 w-64 md:hidden">{SidebarBody}</aside>
         </>
       )}
 
