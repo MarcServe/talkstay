@@ -4,11 +4,23 @@
 //  * Push: web-push notifications for staff alerts (new/assigned requests).
 // Self-contained — no workbox import — so it stays robust and dependency-light.
 
-const CACHE = "talkstay-shell-v1";
 // vite-plugin-pwa (injectManifest) replaces self.__WB_MANIFEST with the built
 // asset list. Guard so the raw source is still valid during local dev.
 const MANIFEST = (self.__WB_MANIFEST || []);
 const PRECACHE_URLS = MANIFEST.map((e) => (typeof e === "string" ? e : e.url));
+
+// The cache name is derived from the built asset list, so EVERY deploy gets a
+// fresh cache and `activate` below evicts the previous one. This was a fixed
+// "talkstay-shell-v1" before — which made the activate cleanup a permanent
+// no-op (nothing ever differed from it), so stale shell/assets could be served
+// indefinitely after a deploy.
+const BUILD_ID = (() => {
+  const s = PRECACHE_URLS.join("|");
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;
+  return Math.abs(h).toString(36);
+})();
+const CACHE = `talkstay-shell-${BUILD_ID}`;
 
 self.addEventListener("install", (event) => {
   self.skipWaiting();
