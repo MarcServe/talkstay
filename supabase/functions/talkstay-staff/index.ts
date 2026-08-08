@@ -1,5 +1,8 @@
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { renderEmail, escapeHtml } from "../_shared/email.ts";
+
+const PUBLIC_BASE_URL = "https://talkstay.talkweb.io";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -35,7 +38,7 @@ serve(async (req) => {
     // (Managers are the "sub-manager" access the owner grants so someone can
     // coordinate while the owner is away.)
     const { data: hotel } = await admin
-      .from("ts_hotels").select("id, user_id").eq("id", hotelId).maybeSingle();
+      .from("ts_hotels").select("id, user_id, name, branding").eq("id", hotelId).maybeSingle();
     if (!hotel) return json({ error: "Not found" }, 404);
     const isOwner = hotel.user_id === caller.id;
     let isManager = false;
@@ -93,18 +96,50 @@ serve(async (req) => {
         if (!data?.users || data.users.length < 200) break;
       }
 
-      let tempPassword: string | undefined;
+      let invited = false;
       if (!userId) {
-        // Create the account so they can sign in immediately (no SMTP needed).
-        tempPassword = `Stay-${crypto.randomUUID().slice(0, 8)}`;
-        const { data: created, error: cErr } = await admin.auth.admin.createUser({
+        // New team member: create the account (no password yet) and send them
+        // a branded invite link to set their own — never a temp password
+        // relayed by whoever invited them.
+        const { data: linkData, error: lErr } = await admin.auth.admin.generateLink({
+          type: "invite",
           email: cleanEmail,
-          password: tempPassword,
-          email_confirm: true,
-          user_metadata: staffName ? { full_name: staffName } : undefined,
+          options: {
+            data: staffName ? { full_name: staffName } : undefined,
+            // Our own type= marker survives regardless of how Supabase encodes
+            // the token — AuthPage/HotelApp use it to force the "set a
+            // password" screen instead of dropping the invitee into the app.
+            redirectTo: `${PUBLIC_BASE_URL}/app?type=invite`,
+          },
         });
-        if (cErr || !created?.user) return json({ error: cErr?.message ?? "Could not create user" }, 400);
-        userId = created.user.id;
+        if (lErr || !linkData?.user) return json({ error: lErr?.message ?? "Could not create user" }, 400);
+        userId = linkData.user.id;
+        invited = true;
+
+        const key = (Deno.env.get("RESEND_API_KEY") || "").trim();
+        const actionLink = linkData.properties?.action_link;
+        if (key && actionLink) {
+          // Who's doing the inviting — their own staff name if set, else email.
+          const { data: callerStaff } = await admin.from("ts_staff")
+            .select("name").eq("hotel_id", hotelId).eq("user_id", caller.id).maybeSingle();
+          const inviterName = callerStaff?.name || caller.email || "A manager";
+
+          const html = renderEmail({
+            hotelName: hotel.name ?? "Your hotel",
+            logoUrl: hotel.branding?.logo_url,
+            accentColor: hotel.branding?.primary_color,
+            heading: `You've been invited to join ${hotel.name ?? "the"} team`,
+            bodyHtml: `
+              <p style="margin:0 0 14px;">${escapeHtml(inviterName)} added you to their TalkStay team${departmentKey ? ` (${escapeHtml(String(departmentKey).replace(/_/g, " "))})` : ""}. Set a password to get started.</p>`,
+            cta: { label: "Set your password", url: actionLink },
+            footerNote: "If you weren't expecting this, you can safely ignore this email.",
+          });
+          fetch("https://api.resend.com/emails", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ from: "TalkStay <notifications@talkweb.io>", to: cleanEmail, subject: `You've been invited to join ${hotel.name ?? "a"} on TalkStay`, html }),
+          }).catch(() => {});
+        }
       }
 
       // Upsert the staff membership (unique on hotel_id,user_id,department_key).
@@ -121,7 +156,7 @@ serve(async (req) => {
       );
       if (sErr) return json({ error: sErr.message }, 400);
 
-      return json({ ok: true, created: !!tempPassword, tempPassword, email: cleanEmail });
+      return json({ ok: true, invited, email: cleanEmail });
     }
 
     // ------- update (edit name / role / department) -------

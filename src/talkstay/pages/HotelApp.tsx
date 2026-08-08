@@ -10,7 +10,7 @@ import {
   Inbox, BarChart3, QrCode, Building2, BookOpen, Users, Palette,
 } from "lucide-react";
 import { enablePush, pushSupported } from "@/talkstay/lib/push";
-import AuthPage from "@/talkstay/pages/AuthPage";
+import AuthPage, { isPasswordSetupUrl } from "@/talkstay/pages/AuthPage";
 import OperationsPanel from "@/talkstay/components/OperationsPanel";
 import InsightsPanel from "@/talkstay/components/InsightsPanel";
 import RoomsPanel from "@/talkstay/components/RoomsPanel";
@@ -156,6 +156,12 @@ export default function HotelApp() {
       .catch((e) => toast.error(e?.message ?? "Failed to load hotel"))
       .finally(() => setLoadingHotel(false));
   }, [user]);
+
+  // A password-reset or team-invite link exchanges its code into a real
+  // session immediately — but the person hasn't chosen a password yet. Keep
+  // them on AuthPage's "set a password" screen rather than letting the
+  // dashboard render underneath them just because `user` is now truthy.
+  if (isPasswordSetupUrl()) return <AuthPage />;
 
   if (loading || (user && loadingHotel)) {
     return (

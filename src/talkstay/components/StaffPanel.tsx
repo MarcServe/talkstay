@@ -57,8 +57,8 @@ export default function StaffPanel({ hotel }: { hotel: Hotel }) {
       if (error) throw error;
       const res = data as any;
       if (res?.error) throw new Error(res.error);
-      if (res?.created && res?.tempPassword) {
-        toast.success(`Account created for ${res.email}. Temp password: ${res.tempPassword}`, { duration: 12000 });
+      if (res?.invited) {
+        toast.success(`Invite sent to ${res.email} — they'll set their own password.`);
       } else {
         toast.success(`${res.email} added to staff.`);
       }
