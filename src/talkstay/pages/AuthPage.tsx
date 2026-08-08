@@ -4,6 +4,52 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
+import { Mic, Sparkles, ClipboardCheck } from "lucide-react";
+
+/** Shared dark split-screen shell: a decorative brand panel on the right
+ *  (desktop only) and the form card on the left. Keeps the auth and
+ *  set-password screens visually identical. */
+function AuthShell({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex min-h-screen bg-[#15111f]">
+      <div className="flex w-full flex-col items-center justify-center px-4 py-10 lg:w-[46%]">
+        <div className="w-full max-w-sm">
+          <div className="mb-8 flex flex-col items-center text-center">
+            <TalkStayLogo size={44} />
+            {children}
+          </div>
+        </div>
+      </div>
+      {/* Decorative panel — desktop only. */}
+      <div className="relative hidden flex-1 overflow-hidden lg:block">
+        <div className="absolute inset-0 bg-gradient-to-br from-violet-600 via-indigo-600 to-[#2e1065]" />
+        <div className="relative flex h-full flex-col justify-center px-14 text-white">
+          <h2 className="max-w-md text-3xl font-bold leading-tight tracking-tight">
+            Guest requests, handled beautifully.
+          </h2>
+          <p className="mt-4 max-w-md text-white/70">
+            Your operations dashboard — every request routed, tracked and completed in real time.
+          </p>
+          <div className="mt-10 space-y-4">
+            {[
+              { Icon: Mic, t: "Voice-first guest service" },
+              { Icon: Sparkles, t: "Smart routing to the right team" },
+              { Icon: ClipboardCheck, t: "Tracked from request to done" },
+            ].map(({ Icon, t }) => (
+              <div key={t} className="flex items-center gap-3">
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/15">
+                  <Icon className="h-4 w-4" />
+                </div>
+                <span className="text-sm text-white/85">{t}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 type Mode = "signin" | "signup";
 
@@ -153,103 +199,109 @@ export default function AuthPage() {
 
   if (setupMode) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background px-4">
-        <div className="w-full max-w-sm rounded-2xl border bg-card p-8">
-          <div className="mb-6 text-center">
-            <div className="text-lg font-semibold">TalkStay</div>
-            <p className="text-sm text-muted-foreground">
-              {isInvite ? "Set a password to join the team" : "Set a new password"}
-            </p>
+      <AuthShell>
+        <h1 className="mt-4 text-xl font-semibold text-white">
+          {isInvite ? "Join the team" : "Set a new password"}
+        </h1>
+        <p className="mt-1 text-sm text-white/50">
+          {isInvite ? "Choose a password to finish setting up your account." : "Choose a new password for your account."}
+        </p>
+        <div className="mt-6 w-full space-y-4 text-left">
+          <div className="space-y-1.5">
+            <Label htmlFor="new-password" className="text-white/70">New password</Label>
+            <Input
+              id="new-password" type="password" minLength={6} autoFocus
+              value={newPassword} onChange={(e) => setNewPassword(e.target.value)}
+              autoComplete="new-password"
+              className="border-white/10 bg-white/5 text-white placeholder:text-white/30"
+            />
           </div>
-          <div className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="new-password">New password</Label>
-              <Input
-                id="new-password" type="password" minLength={6} autoFocus
-                value={newPassword} onChange={(e) => setNewPassword(e.target.value)}
-                autoComplete="new-password"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="confirm-password">Confirm password</Label>
-              <Input
-                id="confirm-password" type="password" minLength={6}
-                value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)}
-                autoComplete="new-password"
-              />
-            </div>
-            <Button className="w-full" disabled={busy || !newPassword || !confirmPassword} onClick={finishSetup}>
-              {busy ? "Please wait…" : isInvite ? "Join the team" : "Update password"}
-            </Button>
+          <div className="space-y-1.5">
+            <Label htmlFor="confirm-password" className="text-white/70">Confirm password</Label>
+            <Input
+              id="confirm-password" type="password" minLength={6}
+              value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)}
+              autoComplete="new-password"
+              className="border-white/10 bg-white/5 text-white placeholder:text-white/30"
+            />
           </div>
+          <Button className="w-full bg-violet-600 hover:bg-violet-700" disabled={busy || !newPassword || !confirmPassword} onClick={finishSetup}>
+            {busy ? "Please wait…" : isInvite ? "Join the team" : "Update password"}
+          </Button>
         </div>
-      </div>
+      </AuthShell>
     );
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="w-full max-w-sm rounded-2xl border bg-card p-8">
-        <div className="mb-6 text-center">
-          <div className="text-lg font-semibold">TalkStay</div>
-          <p className="text-sm text-muted-foreground">Hotel operations sign in</p>
-        </div>
-        <form onSubmit={submit} className="space-y-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="email">Email</Label>
-            <Input id="email" type="email" required value={email}
-              onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="password">Password</Label>
-            <Input id="password" type="password" required minLength={6} value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete={mode === "signin" ? "current-password" : "new-password"} />
-          </div>
-          <Button type="submit" className="w-full" disabled={busy}>
-            {busy ? "Please wait…" : mode === "signin" ? "Sign in" : "Create account"}
-          </Button>
-        </form>
+    <AuthShell>
+      <h1 className="mt-4 text-xl font-semibold text-white">
+        {mode === "signin" ? "Welcome back" : "Create your account"}
+      </h1>
+      <p className="mt-1 text-sm text-white/50">
+        {mode === "signin" ? "Sign in to your operations dashboard." : "Set up your hotel's operations dashboard."}
+      </p>
 
+      <form onSubmit={submit} className="mt-6 w-full space-y-4 text-left">
+        <div className="space-y-1.5">
+          <Label htmlFor="email" className="text-white/70">Email address</Label>
+          <Input id="email" type="email" required value={email} placeholder="you@grandhotel.com"
+            onChange={(e) => setEmail(e.target.value)} autoComplete="email"
+            className="border-white/10 bg-white/5 text-white placeholder:text-white/30" />
+        </div>
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between">
+            <Label htmlFor="password" className="text-white/70">Password</Label>
+            {mode === "signin" && (
+              <button type="button" className="text-xs text-white/50 hover:text-white" onClick={() => setShowForgot(true)}>
+                Forgot password?
+              </button>
+            )}
+          </div>
+          <Input id="password" type="password" required minLength={6} value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete={mode === "signin" ? "current-password" : "new-password"}
+            className="border-white/10 bg-white/5 text-white placeholder:text-white/30" />
+        </div>
+        <Button type="submit" className="w-full bg-violet-600 hover:bg-violet-700" disabled={busy}>
+          {busy ? "Please wait…" : mode === "signin" ? "Sign in" : "Create account"}
+        </Button>
+      </form>
+
+      {mode === "signup" && (
         <div className="mt-3 text-center text-sm">
-          {mode === "signin" ? (
-            <button type="button" className="text-muted-foreground hover:text-foreground" onClick={() => setShowForgot(true)}>
-              Forgot password?
-            </button>
-          ) : (
-            <button type="button" className="text-muted-foreground hover:text-foreground" onClick={resendConfirmation}>
-              Didn't get the confirmation email? Resend
-            </button>
-          )}
+          <button type="button" className="text-white/50 hover:text-white" onClick={resendConfirmation}>
+            Didn't get the confirmation email? Resend
+          </button>
         </div>
+      )}
 
-        {showForgot && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setShowForgot(false)}>
-            <div className="w-full max-w-sm rounded-2xl bg-card p-6" onClick={(e) => e.stopPropagation()}>
-              <h3 className="mb-1 font-semibold">Reset your password</h3>
-              <p className="mb-4 text-sm text-muted-foreground">We'll email you a link to set a new one.</p>
-              <Input
-                type="email" placeholder="you@example.com" autoFocus
-                value={forgotEmail} onChange={(e) => setForgotEmail(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") sendReset(); }}
-              />
-              <div className="mt-4 flex gap-2">
-                <Button variant="outline" className="flex-1" onClick={() => setShowForgot(false)}>Cancel</Button>
-                <Button className="flex-1" disabled={busy} onClick={sendReset}>
-                  {busy ? "Sending…" : "Send link"}
-                </Button>
-              </div>
+      {showForgot && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setShowForgot(false)}>
+          <div className="w-full max-w-sm rounded-2xl border bg-card p-6 text-left" onClick={(e) => e.stopPropagation()}>
+            <h3 className="mb-1 font-semibold">Reset your password</h3>
+            <p className="mb-4 text-sm text-muted-foreground">We'll email you a link to set a new one.</p>
+            <Input
+              type="email" placeholder="you@example.com" autoFocus
+              value={forgotEmail} onChange={(e) => setForgotEmail(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") sendReset(); }}
+            />
+            <div className="mt-4 flex gap-2">
+              <Button variant="outline" className="flex-1" onClick={() => setShowForgot(false)}>Cancel</Button>
+              <Button className="flex-1" disabled={busy} onClick={sendReset}>
+                {busy ? "Sending…" : "Send link"}
+              </Button>
             </div>
           </div>
-        )}
+        </div>
+      )}
 
-        <button
-          className="mt-4 w-full text-center text-sm text-muted-foreground hover:text-foreground"
-          onClick={() => setMode(mode === "signin" ? "signup" : "signin")}
-        >
-          {mode === "signin" ? "Need an account? Sign up" : "Have an account? Sign in"}
-        </button>
-      </div>
-    </div>
+      <button
+        className="mt-6 w-full text-center text-sm text-white/50 hover:text-white"
+        onClick={() => setMode(mode === "signin" ? "signup" : "signin")}
+      >
+        {mode === "signin" ? "Need an account? Sign up" : "Have an account? Sign in"}
+      </button>
+    </AuthShell>
   );
 }
