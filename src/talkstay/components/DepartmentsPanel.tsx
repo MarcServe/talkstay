@@ -140,7 +140,7 @@ export default function DepartmentsPanel({ hotel }: { hotel: Hotel }) {
         </div>
       </div>
 
-      <div className="divide-y rounded-xl border">
+      <div className="divide-y rounded-2xl border">
         {depts.map((d) => (
           <div key={d.id} className="space-y-2 px-4 py-3">
             <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-center">

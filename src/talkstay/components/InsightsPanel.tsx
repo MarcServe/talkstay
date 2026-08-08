@@ -38,7 +38,7 @@ function Stat({ icon: Icon, label, value, sub, active, onClick }: {
   return (
     <button
       onClick={onClick}
-      className={`rounded-xl border p-4 text-left transition-colors ${onClick ? "hover:border-primary/50 hover:bg-muted/40" : ""} ${active ? "border-primary bg-primary/5" : ""}`}
+      className={`rounded-2xl border p-4 text-left transition-colors ${onClick ? "hover:border-primary/50 hover:bg-muted/40" : ""} ${active ? "border-primary bg-primary/5" : ""}`}
     >
       <div className="flex items-center gap-2 text-muted-foreground"><Icon className="h-4 w-4" /><span className="text-xs">{label}</span></div>
       <div className="mt-1 text-2xl font-semibold">{value}</div>
@@ -146,12 +146,12 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
 
       {/* Headline comparison band */}
       <div className="grid gap-3 sm:grid-cols-2">
-        <div className="rounded-xl border bg-muted/30 p-4">
+        <div className="rounded-2xl border bg-muted/30 p-4">
           <div className="flex items-center gap-2 text-xs text-muted-foreground"><Timer className="h-4 w-4" /> Avg time to accept</div>
           <div className="mt-1 text-2xl font-semibold">{fmtDur(m.avgAccept)}</div>
           <div className="text-xs text-muted-foreground">from request → staff accepted</div>
         </div>
-        <div className="rounded-xl border bg-muted/30 p-4">
+        <div className="rounded-2xl border bg-muted/30 p-4">
           <div className="flex items-center gap-2 text-xs text-muted-foreground"><CheckCircle2 className="h-4 w-4" /> Avg time to complete</div>
           <div className="mt-1 text-2xl font-semibold">{fmtDur(m.avgComplete)}</div>
           <div className="text-xs text-muted-foreground">from request → completed</div>
@@ -175,7 +175,7 @@ function AuditTable({ rows }: { rows: any[] }) {
   return (
     <div>
       <h3 className="mb-2 text-sm font-medium">Request audit ({rows.length})</h3>
-      <div className="overflow-x-auto rounded-xl border">
+      <div className="overflow-x-auto rounded-2xl border">
         <table className="w-full min-w-[720px] text-sm">
           <thead className="bg-muted/50 text-left text-xs text-muted-foreground">
             <tr>
@@ -211,7 +211,7 @@ function ReviewsList({ audit }: { audit: any[] }) {
   return (
     <div>
       <h3 className="mb-2 text-sm font-medium">Reviews ({audit.length})</h3>
-      <div className="divide-y rounded-xl border">
+      <div className="divide-y rounded-2xl border">
         {audit.map((r) => (
           <div key={r.id} className="px-4 py-2.5 text-sm">
             <div className="flex items-center justify-between">
@@ -235,7 +235,7 @@ function ActivityFeed({ feed }: { feed: Interaction[] }) {
   return (
     <div>
       <h3 className="mb-2 text-sm font-medium">Conversations ({feed.length})</h3>
-      <div className="divide-y rounded-xl border">
+      <div className="divide-y rounded-2xl border">
         {feed.slice(0, 60).map((r, i) => (
           <div key={i} className="flex items-center gap-3 px-4 py-2.5 text-sm">
             <span className={`rounded-full px-2 py-0.5 text-xs ${INTENT_STYLE[r.intent ?? "other"] ?? INTENT_STYLE.other}`}>{r.intent ?? "other"}</span>

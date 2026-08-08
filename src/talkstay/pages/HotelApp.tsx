@@ -23,13 +23,13 @@ import { createHotel, getMyAccess, ingestHotelWebsite, DEPARTMENTS, type Hotel, 
 
 const NAV = [
   // `admin: true` = owner/manager only. Department staff see just Operations.
-  { key: "operations", label: "Operations", icon: Inbox, admin: false },
-  { key: "insights", label: "Insights", icon: BarChart3, admin: true },
-  { key: "rooms", label: "Rooms & QR", icon: QrCode, admin: true },
-  { key: "branding", label: "Branding", icon: Palette, admin: true },
-  { key: "departments", label: "Departments", icon: Building2, admin: true },
-  { key: "knowledge", label: "Knowledge", icon: BookOpen, admin: true },
-  { key: "staff", label: "Staff", icon: Users, admin: true },
+  { key: "operations", label: "Operations", icon: Inbox, admin: false, desc: "Manage and track all guest requests in real time." },
+  { key: "insights", label: "Insights", icon: BarChart3, admin: true, desc: "Response times, volumes and guest satisfaction at a glance." },
+  { key: "rooms", label: "Rooms & QR", icon: QrCode, admin: true, desc: "Add rooms and print the QR code guests scan to reach you." },
+  { key: "branding", label: "Branding", icon: Palette, admin: true, desc: "Your logo, colour and the printable in-room poster." },
+  { key: "departments", label: "Departments", icon: Building2, admin: true, desc: "Teams, routing rules and per-department notifications." },
+  { key: "knowledge", label: "Knowledge", icon: BookOpen, admin: true, desc: "What the assistant knows — website, documents and hotel info." },
+  { key: "staff", label: "Staff", icon: Users, admin: true, desc: "Invite your team and manage their roles and access." },
 ] as const;
 type NavKey = (typeof NAV)[number]["key"];
 
@@ -188,7 +188,9 @@ export default function HotelApp() {
 
   // A department member should never sit on an admin tab (e.g. after a refresh).
   const effectiveActive: NavKey = visibleNav.some((n) => n.key === active) ? active : "operations";
-  const activeLabel = NAV.find((n) => n.key === effectiveActive)?.label ?? "";
+  const activeNav = NAV.find((n) => n.key === effectiveActive);
+  const activeLabel = activeNav?.label ?? "";
+  const activeDesc = activeNav?.desc ?? "";
   const go = (k: NavKey) => { setActive(k); setNavOpen(false); };
 
   const identityName = access?.name || user?.email?.split("@")[0] || "You";
@@ -274,14 +276,21 @@ export default function HotelApp() {
 
       {/* Main column */}
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-20 flex items-center gap-3 border-b bg-background/95 px-4 py-3 backdrop-blur md:px-8">
-          <button className="md:hidden" onClick={() => setNavOpen(true)} aria-label="Open menu">
+        {/* Compact top bar — only carries the mobile menu button + hotel context.
+            The real page title/subtitle live in the page header below, so every
+            tab gets the same designed heading Operations has in the mockup. */}
+        <header className="sticky top-0 z-20 flex items-center gap-3 border-b bg-background/95 px-4 py-3 backdrop-blur md:hidden">
+          <button onClick={() => setNavOpen(true)} aria-label="Open menu">
             <Menu className="h-5 w-5" />
           </button>
-          <h1 className="text-lg font-semibold tracking-tight">{activeLabel}</h1>
+          <span className="truncate text-sm font-medium">{hotel.name}</span>
         </header>
         <main className="flex-1 p-4 md:p-8">
           <div className="mx-auto max-w-5xl">
+            <div className="mb-6">
+              <h1 className="text-2xl font-bold tracking-tight">{activeLabel}</h1>
+              {activeDesc && <p className="mt-1 text-sm text-muted-foreground">{activeDesc}</p>}
+            </div>
             <Panel active={effectiveActive} hotel={hotel} onHotel={setHotel} departmentKey={lockedDepartment} />
           </div>
         </main>

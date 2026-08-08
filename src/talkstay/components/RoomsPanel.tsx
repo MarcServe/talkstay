@@ -185,7 +185,7 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
         <Button type="submit" disabled={busy}>{busy ? "Adding…" : "Add room"}</Button>
       </form>
 
-      <div className="flex items-start justify-between gap-4 rounded-xl border bg-muted/30 p-4">
+      <div className="flex items-start justify-between gap-4 rounded-2xl border bg-muted/30 p-4">
         <div className="min-w-0">
           <div className="text-sm font-medium">Require a check-in code</div>
           <p className="mt-0.5 text-xs text-muted-foreground">
@@ -211,7 +211,7 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
       ) : rooms.length === 0 ? (
         <p className="text-sm text-muted-foreground">No rooms yet. Add your first room above — a secure QR code is generated automatically.</p>
       ) : (
-        <div className="overflow-x-auto rounded-xl border">
+        <div className="overflow-x-auto rounded-2xl border">
           <table className="w-full min-w-[560px] text-sm">
             <thead className="bg-muted/50 text-left text-xs text-muted-foreground">
               <tr>

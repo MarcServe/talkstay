@@ -185,7 +185,7 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
       </p>
 
       {/* Add */}
-      <div className="rounded-xl border p-4 space-y-2">
+      <div className="rounded-2xl border p-4 space-y-2">
         <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title (optional)" />
         <Textarea value={content} onChange={(e) => setContent(e.target.value)} placeholder="Type the information…" rows={3} />
         <div className="flex items-center justify-between">
@@ -218,7 +218,7 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
           {filtered.length === 0 ? (
             <p className="text-sm text-muted-foreground">No entries match "{search}".</p>
           ) : (
-            <div className="divide-y rounded-xl border">
+            <div className="divide-y rounded-2xl border">
               {filtered.map((e) => (
                 <div key={e.id} className="px-4 py-3">
                   {editingId === e.id ? (

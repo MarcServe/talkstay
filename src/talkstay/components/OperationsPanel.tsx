@@ -332,7 +332,7 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
             const visual = DEPT_VISUAL[r.department_key] ?? { Icon: ConciergeBell, tint: "bg-muted text-muted-foreground" };
             const DeptIcon = visual.Icon;
             return (
-              <div key={r.id} className={`rounded-xl border p-4 ${
+              <div key={r.id} className={`rounded-2xl border bg-card p-4 shadow-sm ${
                 r.is_complaint || overdue ? "border-red-400/50 bg-red-500/5" : ""}`}>
                 <div className="flex items-start justify-between gap-3">
                   <div className={`hidden h-11 w-11 shrink-0 items-center justify-center rounded-xl sm:flex ${visual.tint}`}>
