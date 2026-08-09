@@ -24,6 +24,28 @@ serve(async (req) => {
     const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const admin = createClient(SUPABASE_URL, SERVICE_KEY);
 
+    const { action, hotelId, email, name, departmentKey, role, staffId, slug } = await req.json();
+
+    // ------- public_branding (NO auth) -------
+    // Lets the sign-in page wear the property's own logo and colour before
+    // anyone has signed in. Deliberately returns only what's already printed on
+    // the in-room poster — no emails, ids or staff data.
+    if (action === "public_branding") {
+      const clean = String(slug ?? "").trim().toLowerCase().slice(0, 100);
+      if (!clean) return json({ error: "slug required" }, 400);
+      const { data: h } = await admin
+        .from("ts_hotels").select("name, slug, branding").eq("slug", clean).maybeSingle();
+      if (!h) return json({ branding: null });
+      const b = (h.branding ?? {}) as Record<string, any>;
+      return json({
+        branding: {
+          name: h.name, slug: h.slug,
+          logoUrl: b.logo_url ?? null,
+          primaryColor: b.primary_color ?? null,
+        },
+      });
+    }
+
     // Identify the caller from their JWT.
     const authHeader = req.headers.get("Authorization") || "";
     const jwt = authHeader.replace(/^Bearer\s+/i, "");
@@ -31,14 +53,13 @@ serve(async (req) => {
     if (userErr || !userData?.user) return json({ error: "Unauthorized" }, 401);
     const caller = userData.user;
 
-    const { action, hotelId, email, name, departmentKey, role, staffId } = await req.json();
     if (!hotelId) return json({ error: "hotelId required" }, 400);
 
     // Authorize: OWNER or an active MANAGER of this hotel may manage staff.
     // (Managers are the "sub-manager" access the owner grants so someone can
     // coordinate while the owner is away.)
     const { data: hotel } = await admin
-      .from("ts_hotels").select("id, user_id, name, branding").eq("id", hotelId).maybeSingle();
+      .from("ts_hotels").select("id, user_id, name, slug, branding").eq("id", hotelId).maybeSingle();
     if (!hotel) return json({ error: "Not found" }, 404);
     const isOwner = hotel.user_id === caller.id;
     let isManager = false;
@@ -109,7 +130,8 @@ serve(async (req) => {
             // Our own type= marker survives regardless of how Supabase encodes
             // the token — AuthPage/HotelApp use it to force the "set a
             // password" screen instead of dropping the invitee into the app.
-            redirectTo: `${PUBLIC_BASE_URL}/app?type=invite`,
+            // ?property= makes the sign-in/password page wear THEIR property's branding.
+            redirectTo: `${PUBLIC_BASE_URL}/app?type=invite&property=${encodeURIComponent(hotel.slug ?? "")}`,
           },
         });
         if (lErr || !linkData?.user) return json({ error: lErr?.message ?? "Could not create user" }, 400);

@@ -5,48 +5,134 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
-import { Mic, Sparkles, ClipboardCheck } from "lucide-react";
+import { Eye, EyeOff, Lock, Mail } from "lucide-react";
 
-/** Shared dark split-screen shell: a decorative brand panel on the right
- *  (desktop only) and the form card on the left. Keeps the auth and
- *  set-password screens visually identical. */
-function AuthShell({ children }: { children: React.ReactNode }) {
+const SIDE_PHOTO = "/marketing/auth-side.jpg";
+
+/** Subtle curved-line texture on the dark auth panel (matches TalkAuth mock). */
+const PANEL_TEXTURE = `url("data:image/svg+xml,${encodeURIComponent(`
+<svg xmlns='http://www.w3.org/2000/svg' width='800' height='900' viewBox='0 0 800 900' fill='none'>
+  <path d='M-40 720 Q 220 560 520 680 T 900 620' stroke='rgba(139,92,246,0.14)' stroke-width='1.2'/>
+  <path d='M-60 520 Q 260 360 560 500 T 920 440' stroke='rgba(167,139,250,0.10)' stroke-width='1'/>
+  <path d='M-20 860 Q 300 700 620 820 T 940 760' stroke='rgba(109,40,217,0.12)' stroke-width='1.1'/>
+  <path d='M120 980 Q 420 820 720 940' stroke='rgba(139,92,246,0.08)' stroke-width='1'/>
+</svg>`)}")`;
+
+export interface PropertyBrand {
+  name: string; slug: string; logoUrl: string | null; primaryColor: string | null;
+}
+
+/** Which property is this sign-in for? Invite and reset links carry
+ *  `?property=<slug>`; we remember it so the SAME person coming back later
+ *  still lands on their own property's branded page rather than a generic one. */
+const PROPERTY_KEY = "talkstay:property";
+
+function usePropertyBrand(): PropertyBrand | null {
+  const [brand, setBrand] = useState<PropertyBrand | null>(null);
+
+  useEffect(() => {
+    let slug = "";
+    try {
+      const search = new URLSearchParams(window.location.search);
+      const hash = window.location.hash.startsWith("#")
+        ? new URLSearchParams(window.location.hash.slice(1)) : new URLSearchParams();
+      slug = (search.get("property") || hash.get("property") || localStorage.getItem(PROPERTY_KEY) || "").trim();
+    } catch { /* private browsing */ }
+    if (!slug) return;
+
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase.functions.invoke("talkstay-staff", {
+        body: { action: "public_branding", slug },
+      });
+      if (cancelled) return;
+      const b = (data as any)?.branding as PropertyBrand | null | undefined;
+      if (error || !b) {
+        try { localStorage.removeItem(PROPERTY_KEY); } catch { /* ignore */ }
+        return;
+      }
+      try { localStorage.setItem(PROPERTY_KEY, b.slug); } catch { /* ignore */ }
+      setBrand(b);
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  return brand;
+}
+
+function GoogleIcon() {
   return (
-    <div className="flex min-h-screen bg-[#15111f]">
-      <div className="flex w-full flex-col items-center justify-center px-4 py-10 lg:w-[46%]">
-        <div className="w-full max-w-sm">
-          <div className="mb-8 flex flex-col items-center text-center">
-            <TalkStayLogo size={44} />
-            {children}
+    <svg aria-hidden="true" className="h-5 w-5" viewBox="0 0 24 24">
+      <path fill="#4285F4" d="M21.35 11.1h-9.18v2.96h5.28c-.23 1.28-.92 2.36-1.96 3.08l3.17 2.46c1.85-1.71 2.9-4.22 2.9-7.23 0-.7-.06-1.37-.22-2.03z" />
+      <path fill="#34A853" d="M12.17 22c2.62 0 4.82-.87 6.43-2.36l-3.17-2.46c-.87.58-1.99.93-3.26.93-2.5 0-4.62-1.69-5.38-3.96H3.49v2.5C4.2 19.32 7.88 22 12.17 22z" />
+      <path fill="#FBBC05" d="M6.79 13.15a6.19 6.19 0 010-3.92v-2.5H3.49a9.83 9.83 0 000 8.92l3.3-2.5z" />
+      <path fill="#EA4335" d="M12.17 4.58c1.42 0 2.7.49 3.72 1.45l2.78-2.78C16.93 1.67 14.73.8 12.17.8 7.88.8 4.2 3.48 3.12 7.13l3.3 2.5c.76-2.27 2.88-4.05 5.75-4.05z" />
+    </svg>
+  );
+}
+
+/** Full-viewport split: dark patterned form panel + hospitality photo. */
+function AuthShell({ children, brand }: { children: React.ReactNode; brand: PropertyBrand | null }) {
+  return (
+    <div className="flex min-h-screen">
+      {/* Form panel */}
+      <div
+        className="relative flex w-full flex-col justify-center px-6 py-12 sm:px-10 lg:w-[46%] lg:px-14"
+        style={{
+          backgroundColor: "#0f0c29",
+          backgroundImage: `${PANEL_TEXTURE}, radial-gradient(ellipse 80% 60% at 20% 0%, rgba(109,40,217,0.18), transparent 55%)`,
+          backgroundSize: "cover, auto",
+        }}
+      >
+        <div className="relative mx-auto w-full max-w-sm">
+          <div className="mb-8 flex items-center gap-2.5">
+            {brand?.logoUrl ? (
+              <img src={brand.logoUrl} alt={brand.name}
+                className="h-10 max-w-[160px] object-contain" />
+            ) : (
+              <>
+                <TalkStayLogo size={36} />
+                <span className="text-xl font-semibold tracking-tight text-white">TalkStay</span>
+              </>
+            )}
           </div>
+          {brand && (
+            <p className="-mt-5 mb-6 text-sm font-medium text-violet-300/80">{brand.name}</p>
+          )}
+          {children}
+          {brand && (
+            <p className="mt-8 text-center text-xs text-white/35">Powered by TalkStay</p>
+          )}
         </div>
       </div>
-      {/* Decorative panel — desktop only. */}
+
+      {/* Photo panel — desktop only */}
       <div className="relative hidden flex-1 overflow-hidden lg:block">
-        <div className="absolute inset-0 bg-gradient-to-br from-violet-600 via-indigo-600 to-[#2e1065]" />
-        <div className="relative flex h-full flex-col justify-center px-14 text-white">
-          <h2 className="max-w-md text-3xl font-bold leading-tight tracking-tight">
-            Guest requests, handled beautifully.
-          </h2>
-          <p className="mt-4 max-w-md text-white/70">
-            Your operations dashboard — every request routed, tracked and completed in real time.
-          </p>
-          <div className="mt-10 space-y-4">
-            {[
-              { Icon: Mic, t: "Voice-first guest service" },
-              { Icon: Sparkles, t: "Smart routing to the right team" },
-              { Icon: ClipboardCheck, t: "Tracked from request to done" },
-            ].map(({ Icon, t }) => (
-              <div key={t} className="flex items-center gap-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/15">
-                  <Icon className="h-4 w-4" />
-                </div>
-                <span className="text-sm text-white/85">{t}</span>
-              </div>
-            ))}
-          </div>
-        </div>
+        <img src={SIDE_PHOTO} alt="" aria-hidden
+          className="absolute inset-0 h-full w-full object-cover object-center" />
       </div>
+    </div>
+  );
+}
+
+function AuthInput({
+  id, type, value, onChange, placeholder, autoComplete, icon: Icon, trailing,
+}: {
+  id: string; type: string; value: string; onChange: (v: string) => void;
+  placeholder?: string; autoComplete?: string;
+  icon: typeof Mail; trailing?: React.ReactNode;
+}) {
+  return (
+    <div className="relative">
+      <Icon className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+      <Input
+        id={id} type={type} required value={value} placeholder={placeholder}
+        onChange={(e) => onChange(e.target.value)} autoComplete={autoComplete}
+        className="h-11 rounded-xl border-0 bg-white pl-10 pr-10 text-gray-900 shadow-sm placeholder:text-gray-400 focus-visible:ring-violet-500/40"
+      />
+      {trailing && (
+        <div className="absolute right-3 top-1/2 -translate-y-1/2">{trailing}</div>
+      )}
     </div>
   );
 }
@@ -71,9 +157,12 @@ export function isPasswordSetupUrl(): boolean {
 }
 
 export default function AuthPage() {
+  const brand = usePropertyBrand();
+  const accent = brand?.primaryColor || "#7c3aed";
   const [mode, setMode] = useState<Mode>("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const [setupMode, setSetupMode] = useState(false);
@@ -84,7 +173,6 @@ export default function AuthPage() {
   const [showForgot, setShowForgot] = useState(false);
   const [forgotEmail, setForgotEmail] = useState("");
 
-  // Exchange the one-time code from a confirmation / reset / invite email link.
   useEffect(() => {
     if (isPasswordSetupUrl()) {
       setSetupMode(true);
@@ -105,8 +193,6 @@ export default function AuthPage() {
           ? "That link has expired or was already used — request a new one."
           : "That confirmation link has expired or is invalid.");
       }
-      // Strip the token from the URL but keep our own type= marker so
-      // setupMode survives the cleanup.
       const type = params.get("type");
       const clean = type ? `${window.location.pathname}?type=${type}` : window.location.pathname;
       window.history.replaceState({}, document.title, clean);
@@ -114,8 +200,6 @@ export default function AuthPage() {
     return () => { cancelled = true; };
   }, []);
 
-  // Older (hash-token) recovery links skip the `code` query param entirely —
-  // Supabase's client still fires this event once it picks the token up.
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (event === "PASSWORD_RECOVERY") { setSetupMode(true); setIsInvite(false); }
@@ -145,6 +229,25 @@ export default function AuthPage() {
     }
   };
 
+  const signInWithGoogle = async () => {
+    setBusy(true);
+    try {
+      const property = brand ? `&property=${encodeURIComponent(brand.slug)}` : "";
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          scopes: "openid email profile",
+          redirectTo: `${window.location.origin}/app${property ? `?${property.slice(1)}` : ""}`,
+        },
+      });
+      if (error) throw error;
+    } catch (err: any) {
+      toast.error(err?.message ?? "Couldn't open Google sign-in.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const resendConfirmation = async () => {
     if (!email.trim()) { toast.error("Enter your email above first."); return; }
     setBusy(true);
@@ -167,7 +270,7 @@ export default function AuthPage() {
     setBusy(true);
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(forgotEmail.trim(), {
-        redirectTo: `${window.location.origin}/app?type=recovery`,
+        redirectTo: `${window.location.origin}/app?type=recovery${brand ? `&property=${encodeURIComponent(brand.slug)}` : ""}`,
       });
       if (error) throw error;
       toast.success("Password reset email sent — check your inbox.");
@@ -197,35 +300,36 @@ export default function AuthPage() {
     }
   };
 
+  const primaryBtnStyle = brand
+    ? { backgroundColor: accent }
+    : { backgroundImage: "linear-gradient(90deg, #7c3aed 0%, #5b21b6 100%)" };
+
   if (setupMode) {
     return (
-      <AuthShell>
-        <h1 className="mt-4 text-xl font-semibold text-white">
+      <AuthShell brand={brand}>
+        <h1 className="text-2xl font-bold tracking-tight text-white">
           {isInvite ? "Join the team" : "Set a new password"}
         </h1>
-        <p className="mt-1 text-sm text-white/50">
+        <p className="mt-1.5 text-sm text-white/50">
           {isInvite ? "Choose a password to finish setting up your account." : "Choose a new password for your account."}
         </p>
-        <div className="mt-6 w-full space-y-4 text-left">
+        <div className="mt-7 space-y-4">
           <div className="space-y-1.5">
-            <Label htmlFor="new-password" className="text-white/70">New password</Label>
-            <Input
-              id="new-password" type="password" minLength={6} autoFocus
-              value={newPassword} onChange={(e) => setNewPassword(e.target.value)}
-              autoComplete="new-password"
-              className="border-white/10 bg-white/5 text-white placeholder:text-white/30"
-            />
+            <Label htmlFor="new-password" className="text-sm text-white/80">New password</Label>
+            <AuthInput id="new-password" type="password" autoFocus autoComplete="new-password"
+              value={newPassword} onChange={setNewPassword} icon={Lock} />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="confirm-password" className="text-white/70">Confirm password</Label>
-            <Input
-              id="confirm-password" type="password" minLength={6}
-              value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)}
-              autoComplete="new-password"
-              className="border-white/10 bg-white/5 text-white placeholder:text-white/30"
-            />
+            <Label htmlFor="confirm-password" className="text-sm text-white/80">Confirm password</Label>
+            <AuthInput id="confirm-password" type="password" autoComplete="new-password"
+              value={confirmPassword} onChange={setConfirmPassword} icon={Lock} />
           </div>
-          <Button className="w-full bg-violet-600 hover:bg-violet-700" disabled={busy || !newPassword || !confirmPassword} onClick={finishSetup}>
+          <Button
+            className="h-11 w-full rounded-xl border-0 text-white shadow-lg hover:opacity-90"
+            style={primaryBtnStyle}
+            disabled={busy || !newPassword || !confirmPassword}
+            onClick={finishSetup}
+          >
             {busy ? "Please wait…" : isInvite ? "Join the team" : "Update password"}
           </Button>
         </div>
@@ -234,43 +338,71 @@ export default function AuthPage() {
   }
 
   return (
-    <AuthShell>
-      <h1 className="mt-4 text-xl font-semibold text-white">
+    <AuthShell brand={brand}>
+      <h1 className="text-2xl font-bold tracking-tight text-white">
         {mode === "signin" ? "Welcome back" : "Create your account"}
       </h1>
-      <p className="mt-1 text-sm text-white/50">
+      <p className="mt-1.5 text-sm text-white/50">
         {mode === "signin" ? "Sign in to your operations dashboard." : "Set up your property's operations dashboard."}
       </p>
 
-      <form onSubmit={submit} className="mt-6 w-full space-y-4 text-left">
+      <form onSubmit={submit} className="mt-7 space-y-4">
         <div className="space-y-1.5">
-          <Label htmlFor="email" className="text-white/70">Email address</Label>
-          <Input id="email" type="email" required value={email} placeholder="you@yourproperty.com"
-            onChange={(e) => setEmail(e.target.value)} autoComplete="email"
-            className="border-white/10 bg-white/5 text-white placeholder:text-white/30" />
+          <Label htmlFor="email" className="text-sm text-white/80">Email address</Label>
+          <AuthInput id="email" type="email" autoComplete="email"
+            value={email} onChange={setEmail} placeholder="you@yourproperty.com" icon={Mail} />
         </div>
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
-            <Label htmlFor="password" className="text-white/70">Password</Label>
+            <Label htmlFor="password" className="text-sm text-white/80">Password</Label>
             {mode === "signin" && (
-              <button type="button" className="text-xs text-white/50 hover:text-white" onClick={() => setShowForgot(true)}>
+              <button type="button" className="text-xs text-white/45 hover:text-white/70"
+                onClick={() => setShowForgot(true)}>
                 Forgot password?
               </button>
             )}
           </div>
-          <Input id="password" type="password" required minLength={6} value={password}
-            onChange={(e) => setPassword(e.target.value)}
+          <AuthInput
+            id="password" type={showPassword ? "text" : "password"}
             autoComplete={mode === "signin" ? "current-password" : "new-password"}
-            className="border-white/10 bg-white/5 text-white placeholder:text-white/30" />
+            value={password} onChange={setPassword} icon={Lock}
+            trailing={
+              <button type="button" tabIndex={-1} aria-label={showPassword ? "Hide password" : "Show password"}
+                className="text-gray-400 hover:text-gray-600"
+                onClick={() => setShowPassword((v) => !v)}>
+                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            }
+          />
         </div>
-        <Button type="submit" className="w-full bg-violet-600 hover:bg-violet-700" disabled={busy}>
+        <Button
+          type="submit"
+          className="h-11 w-full rounded-xl border-0 text-white shadow-lg hover:opacity-90"
+          style={primaryBtnStyle}
+          disabled={busy}
+        >
           {busy ? "Please wait…" : mode === "signin" ? "Sign in" : "Create account"}
         </Button>
       </form>
 
+      <div className="my-5 flex items-center gap-3">
+        <div className="h-px flex-1 bg-white/10" />
+        <span className="text-xs text-white/40">or</span>
+        <div className="h-px flex-1 bg-white/10" />
+      </div>
+
+      <Button
+        type="button" variant="outline"
+        className="h-11 w-full rounded-xl border-white/10 bg-white text-gray-800 hover:bg-white/90"
+        disabled={busy} onClick={signInWithGoogle}
+      >
+        <GoogleIcon />
+        <span className="ml-2">{busy ? "Opening Google…" : "Sign in with Google"}</span>
+      </Button>
+
       {mode === "signup" && (
         <div className="mt-3 text-center text-sm">
-          <button type="button" className="text-white/50 hover:text-white" onClick={resendConfirmation}>
+          <button type="button" className="text-white/45 hover:text-white/70" onClick={resendConfirmation}>
             Didn't get the confirmation email? Resend
           </button>
         </div>
@@ -296,12 +428,16 @@ export default function AuthPage() {
         </div>
       )}
 
-      <button
-        className="mt-6 w-full text-center text-sm text-white/50 hover:text-white"
-        onClick={() => setMode(mode === "signin" ? "signup" : "signin")}
-      >
-        {mode === "signin" ? "Need an account? Sign up" : "Have an account? Sign in"}
-      </button>
+      <p className="mt-6 text-center text-sm text-white/45">
+        {mode === "signin" ? "Need an account? " : "Have an account? "}
+        <button
+          type="button"
+          className="font-medium text-violet-400 hover:text-violet-300"
+          onClick={() => setMode(mode === "signin" ? "signup" : "signin")}
+        >
+          {mode === "signin" ? "Sign up" : "Sign in"}
+        </button>
+      </p>
     </AuthShell>
   );
 }
