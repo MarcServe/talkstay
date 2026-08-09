@@ -5,7 +5,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
-import { Eye, EyeOff, Lock, Mail } from "lucide-react";
+import { Apple, Eye, EyeOff, Linkedin, Lock, Mail } from "lucide-react";
+import type { Provider } from "@supabase/supabase-js";
 
 const SIDE_PHOTO = "/marketing/auth-side.jpg";
 
@@ -128,7 +129,7 @@ function AuthInput({
       <Input
         id={id} type={type} required value={value} placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)} autoComplete={autoComplete}
-        className="h-11 rounded-xl border-0 bg-white pl-10 pr-10 text-gray-900 shadow-sm placeholder:text-gray-400 focus-visible:ring-violet-500/40"
+        className="h-11 rounded-xl border-0 bg-white pl-11 pr-10 text-base text-gray-900 shadow-sm placeholder:text-gray-400 focus-visible:ring-violet-500/40 md:h-11 md:px-0 md:pl-11 md:pr-10"
       />
       {trailing && (
         <div className="absolute right-3 top-1/2 -translate-y-1/2">{trailing}</div>
@@ -229,20 +230,23 @@ export default function AuthPage() {
     }
   };
 
-  const signInWithGoogle = async () => {
+  /** Same OAuth providers as TalkWeb — shared Supabase project. Always return
+   *  to TalkStay `/app` (never TalkWeb `/auth`), or the allowlist falls through
+   *  to talkweb.io. */
+  const signInWithProvider = async (provider: Provider, scopes: string, label: string) => {
     setBusy(true);
     try {
-      const property = brand ? `&property=${encodeURIComponent(brand.slug)}` : "";
+      const qs = brand ? `?property=${encodeURIComponent(brand.slug)}` : "";
       const { error } = await supabase.auth.signInWithOAuth({
-        provider: "google",
+        provider,
         options: {
-          scopes: "openid email profile",
-          redirectTo: `${window.location.origin}/app${property ? `?${property.slice(1)}` : ""}`,
+          scopes,
+          redirectTo: `${window.location.origin}/app${qs}`,
         },
       });
       if (error) throw error;
     } catch (err: any) {
-      toast.error(err?.message ?? "Couldn't open Google sign-in.");
+      toast.error(err?.message ?? `Couldn't open ${label} sign-in.`);
     } finally {
       setBusy(false);
     }
@@ -391,14 +395,32 @@ export default function AuthPage() {
         <div className="h-px flex-1 bg-white/10" />
       </div>
 
-      <Button
-        type="button" variant="outline"
-        className="h-11 w-full rounded-xl border-white/10 bg-white text-gray-800 hover:bg-white/90"
-        disabled={busy} onClick={signInWithGoogle}
-      >
-        <GoogleIcon />
-        <span className="ml-2">{busy ? "Opening Google…" : "Sign in with Google"}</span>
-      </Button>
+      <div className="space-y-2.5">
+        <Button
+          type="button" variant="outline"
+          className="h-11 w-full rounded-xl border-white/10 bg-white text-gray-800 hover:bg-white/90"
+          disabled={busy} onClick={() => signInWithProvider("google", "openid email profile", "Google")}
+        >
+          <GoogleIcon />
+          <span className="ml-2">{busy ? "Opening…" : "Continue with Google"}</span>
+        </Button>
+        <Button
+          type="button" variant="outline"
+          className="h-11 w-full rounded-xl border-white/10 bg-white text-gray-800 hover:bg-white/90"
+          disabled={busy} onClick={() => signInWithProvider("linkedin_oidc", "openid email profile", "LinkedIn")}
+        >
+          <Linkedin className="h-4 w-4 text-[#0A66C2]" />
+          <span className="ml-2">{busy ? "Opening…" : "Continue with LinkedIn"}</span>
+        </Button>
+        <Button
+          type="button" variant="outline"
+          className="h-11 w-full rounded-xl border-white/10 bg-white text-gray-800 hover:bg-white/90"
+          disabled={busy} onClick={() => signInWithProvider("apple", "name email", "Apple")}
+        >
+          <Apple className="h-4 w-4" />
+          <span className="ml-2">{busy ? "Opening…" : "Continue with Apple"}</span>
+        </Button>
+      </div>
 
       {mode === "signup" && (
         <div className="mt-3 text-center text-sm">

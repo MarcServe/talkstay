@@ -108,12 +108,12 @@ export default function Landing() {
           />
           {/* Reads as the end of the headline baked into the banner
               ("…Handled beautifully.") rather than a caption under it. */}
-          <div className="mt-7 flex items-center justify-center gap-4 sm:gap-6">
-            <span className="h-px w-8 bg-gradient-to-r from-transparent to-violet-300 sm:w-24 dark:to-violet-500/50" />
-            <span className="bg-gradient-to-r from-violet-600 to-indigo-600 bg-clip-text font-serif text-3xl italic tracking-tight text-transparent sm:text-5xl">
+          <div className="mt-7 flex items-center justify-center gap-3 sm:gap-5">
+            <span className="h-px w-6 shrink-0 bg-gradient-to-r from-transparent to-violet-300 sm:w-16 dark:to-violet-500/50" />
+            <span className="bg-gradient-to-r from-violet-600 to-indigo-600 bg-clip-text px-1 font-serif text-2xl italic leading-snug tracking-tight text-transparent sm:text-3xl lg:text-4xl">
               from anywhere.
             </span>
-            <span className="h-px w-8 bg-gradient-to-l from-transparent to-violet-300 sm:w-24 dark:to-violet-500/50" />
+            <span className="h-px w-6 shrink-0 bg-gradient-to-l from-transparent to-violet-300 sm:w-16 dark:to-violet-500/50" />
           </div>
           <p className="mx-auto mt-8 max-w-2xl text-center text-lg text-muted-foreground">
             TalkStay lets guests scan a QR code and simply speak. Requests are understood, routed
