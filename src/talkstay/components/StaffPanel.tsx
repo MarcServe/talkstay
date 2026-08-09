@@ -119,7 +119,7 @@ export default function StaffPanel({ hotel }: { hotel: Hotel }) {
         </div>
         <div className="min-w-[200px] flex-1">
           <label className="mb-1 block text-xs text-muted-foreground">Staff email</label>
-          <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@hotel.com" />
+          <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@yourproperty.com" />
         </div>
         <div>
           <label className="mb-1 block text-xs text-muted-foreground">Department</label>
@@ -150,7 +150,7 @@ export default function StaffPanel({ hotel }: { hotel: Hotel }) {
       {loading ? (
         <div className="flex items-center gap-2 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</div>
       ) : staff.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No staff yet. Add someone above — if they don't have an account, one is created and a temporary password is shown once.</p>
+        <p className="text-sm text-muted-foreground">No staff yet. Add someone above — they'll get an email invite and set their own password.</p>
       ) : (
         <div className="overflow-x-auto rounded-2xl border">
           <table className="w-full min-w-[640px] text-sm">

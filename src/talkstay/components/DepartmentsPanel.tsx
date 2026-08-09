@@ -205,7 +205,7 @@ export default function DepartmentsPanel({ hotel }: { hotel: Hotel }) {
         ))}
       </div>
       <p className="text-xs text-muted-foreground">
-        Assigned staff receive this team's alerts. No email set? Alerts fall back to the hotel owner; complaints always also notify the owner.
+        Assigned staff receive this team's alerts. No email set? Alerts fall back to the property owner; complaints always also notify the owner.
       </p>
     </div>
   );

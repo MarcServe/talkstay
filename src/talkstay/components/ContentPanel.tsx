@@ -40,7 +40,7 @@ export default function ContentPanel({ hotel }: { hotel: Hotel }) {
   }, [assistantId]);
 
   if (!assistantId) {
-    return <p className="text-sm text-muted-foreground">This hotel has no linked assistant.</p>;
+    return <p className="text-sm text-muted-foreground">This property has no linked assistant.</p>;
   }
 
   const saveWebsite = async () => {
@@ -68,13 +68,13 @@ export default function ContentPanel({ hotel }: { hotel: Hotel }) {
   return (
     <div className="space-y-6">
       <p className="text-sm text-muted-foreground">
-        Your hotel's website content powers the assistant. Add it once to build starter knowledge
+        Your property's website content powers the assistant. Add it once to build starter knowledge
         automatically, then re-scrape after site updates — or upload documents (menus, policies,
         guides) below, which get indexed the same way.
       </p>
 
       <div className="space-y-2 rounded-xl border p-4">
-        <Label className="flex items-center gap-1.5 text-sm"><Globe className="h-3.5 w-3.5" /> Hotel website</Label>
+        <Label className="flex items-center gap-1.5 text-sm"><Globe className="h-3.5 w-3.5" /> Property website</Label>
         {!hasRealWebsite && (
           <p className="text-xs text-muted-foreground">
             No website connected yet. Add one to scan it into the knowledge base — or skip this and just upload documents below if you don't have one.

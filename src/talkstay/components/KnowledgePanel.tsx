@@ -179,7 +179,7 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
       ) : (
       <>
       <p className="text-xs text-muted-foreground">
-        {scope === "general" && "Hotel-wide info every guest can ask about (breakfast, wifi, checkout, policies)."}
+        {scope === "general" && "Property-wide info every guest can ask about (breakfast, wifi, checkout, policies)."}
         {scope === "department" && "Guest-facing info for a team (menus, spa treatments, opening hours)."}
         {scope === "room" && "Info shown only to this room's guest (appliance guide, balcony access, quirks)."}
       </p>

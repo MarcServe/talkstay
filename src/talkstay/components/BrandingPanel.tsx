@@ -92,7 +92,7 @@ function IdentityTab({ hotel, onSaved }: { hotel: Hotel; onSaved?: (b: HotelBran
         </p>
 
         <div className="space-y-2">
-          <Label>Hotel logo</Label>
+          <Label>Property logo</Label>
           <div className="flex items-center gap-3">
             {logo ? (
               <img src={logo} alt="logo" className="h-12 w-12 rounded-lg border object-cover" />

@@ -28,7 +28,7 @@ const NAV = [
   { key: "rooms", label: "Rooms & QR", icon: QrCode, admin: true, desc: "Add rooms and print the QR code guests scan to reach you." },
   { key: "branding", label: "Branding", icon: Palette, admin: true, desc: "Your logo, colour and the printable in-room poster." },
   { key: "departments", label: "Departments", icon: Building2, admin: true, desc: "Teams, routing rules and per-department notifications." },
-  { key: "knowledge", label: "Knowledge", icon: BookOpen, admin: true, desc: "What the assistant knows — website, documents and hotel info." },
+  { key: "knowledge", label: "Knowledge", icon: BookOpen, admin: true, desc: "What the assistant knows — website, documents and property info." },
   { key: "staff", label: "Staff", icon: Users, admin: true, desc: "Invite your team and manage their roles and access." },
 ] as const;
 type NavKey = (typeof NAV)[number]["key"];
@@ -45,7 +45,7 @@ function CreateHotel({ onCreated }: { onCreated: (h: Hotel) => void }) {
     if (!name.trim()) return;
     setBusy(true);
     try {
-      setStage("Creating your hotel…");
+      setStage("Creating your property…");
       const hotel = await createHotel({
         name: name.trim(),
         website_url: website.trim() || undefined,
@@ -62,18 +62,18 @@ function CreateHotel({ onCreated }: { onCreated: (h: Hotel) => void }) {
           );
           toast.success(
             chunks > 0
-              ? `Hotel created — indexed ${chunks} knowledge chunks from your website.${crawlStarted ? " Full site crawl running in the background." : ""}`
-              : "Hotel created. Website scrape is running — check the Content section."
+              ? `Property created — indexed ${chunks} knowledge chunks from your website.${crawlStarted ? " Full site crawl running in the background." : ""}`
+              : "Property created. Website scrape is running — check the Content section."
           );
         } catch {
-          toast.message("Hotel created. Website scrape didn't finish — you can run it from the Content section.");
+          toast.message("Property created. Website scrape didn't finish — you can run it from the Content section.");
         }
       } else {
-        toast.success("Hotel created");
+        toast.success("Property created");
       }
       onCreated(hotel);
     } catch (err: any) {
-      toast.error(err?.message ?? "Failed to create hotel");
+      toast.error(err?.message ?? "Failed to create property");
     } finally {
       setBusy(false);
       setStage("");
@@ -84,18 +84,18 @@ function CreateHotel({ onCreated }: { onCreated: (h: Hotel) => void }) {
     <div className="flex min-h-screen items-center justify-center bg-muted/20 px-4">
       <div className="w-full max-w-md rounded-2xl border bg-card p-8 shadow-sm">
         <div className="mb-1 text-lg font-semibold">TalkStay</div>
-        <h1 className="text-2xl font-semibold tracking-tight">Create your hotel</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Create your property</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Sets up your guest assistant, knowledge base and the standard service departments.
         </p>
         <form onSubmit={submit} className="mt-6 space-y-4">
           <div className="space-y-1.5">
-            <Label htmlFor="hotel-name">Hotel name</Label>
-            <Input id="hotel-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="The Grand Hotel" />
+            <Label htmlFor="hotel-name">Property name</Label>
+            <Input id="hotel-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="The Grand Hotel / Seaview Apartment 3B" />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="hotel-web">Hotel website (optional)</Label>
-            <Input id="hotel-web" value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="https://yourhotel.com" />
+            <Label htmlFor="hotel-web">Property website or listing (optional)</Label>
+            <Input id="hotel-web" value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="https://yourproperty.com" />
             <p className="text-xs text-muted-foreground">
               We'll read your website so the assistant can answer guest questions from day one.
             </p>
@@ -105,7 +105,7 @@ function CreateHotel({ onCreated }: { onCreated: (h: Hotel) => void }) {
             <Input id="hotel-lang" value={language} onChange={(e) => setLanguage(e.target.value)} />
           </div>
           <Button type="submit" disabled={busy} className="w-full">
-            {busy ? (stage || "Creating…") : "Create hotel"}
+            {busy ? (stage || "Creating…") : "Create property"}
           </Button>
         </form>
       </div>
@@ -116,9 +116,9 @@ function CreateHotel({ onCreated }: { onCreated: (h: Hotel) => void }) {
 function NoAccess() {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-3 px-6 text-center">
-      <h1 className="text-xl font-semibold">You're signed in, but not on a hotel team yet</h1>
+      <h1 className="text-xl font-semibold">You're signed in, but not on a property team yet</h1>
       <p className="max-w-sm text-sm text-muted-foreground">
-        Ask your hotel manager to add your email under <strong>Staff</strong>. Once they do,
+        Ask your property manager to add your email under <strong>Staff</strong>. Once they do,
         refresh this page and your department's queue will appear here.
       </p>
       <Button variant="outline" onClick={() => supabase.auth.signOut()}>Sign out</Button>
@@ -154,7 +154,7 @@ export default function HotelApp() {
     getMyAccess()
       .then((a) => { setAccess(a); return a.hotel; })
       .then(setHotel)
-      .catch((e) => toast.error(e?.message ?? "Failed to load hotel"))
+      .catch((e) => toast.error(e?.message ?? "Failed to load property"))
       .finally(() => setLoadingHotel(false));
   }, [user]);
 

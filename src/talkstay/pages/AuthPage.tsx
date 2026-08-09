@@ -239,13 +239,13 @@ export default function AuthPage() {
         {mode === "signin" ? "Welcome back" : "Create your account"}
       </h1>
       <p className="mt-1 text-sm text-white/50">
-        {mode === "signin" ? "Sign in to your operations dashboard." : "Set up your hotel's operations dashboard."}
+        {mode === "signin" ? "Sign in to your operations dashboard." : "Set up your property's operations dashboard."}
       </p>
 
       <form onSubmit={submit} className="mt-6 w-full space-y-4 text-left">
         <div className="space-y-1.5">
           <Label htmlFor="email" className="text-white/70">Email address</Label>
-          <Input id="email" type="email" required value={email} placeholder="you@grandhotel.com"
+          <Input id="email" type="email" required value={email} placeholder="you@yourproperty.com"
             onChange={(e) => setEmail(e.target.value)} autoComplete="email"
             className="border-white/10 bg-white/5 text-white placeholder:text-white/30" />
         </div>

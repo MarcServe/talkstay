@@ -88,7 +88,7 @@ export default function Landing() {
         </nav>
         <div className="flex items-center gap-2">
           <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex">
-            <Link to="/app">Hotel sign in</Link>
+            <Link to="/app">Property sign in</Link>
           </Button>
           <Button asChild size="sm" className="bg-violet-600 hover:bg-violet-700">
             <Link to="/app">Get started</Link>
@@ -97,8 +97,7 @@ export default function Landing() {
       </header>
 
       <main>
-        {/* Hero — the brand banner ends on "Handled beautifully"; the serif
-            "from anywhere." continues the line in a different, smaller face. */}
+        {/* Hero — the brand banner ends on "Handled beautifully". */}
         <section className="mx-auto max-w-6xl px-6 pt-6 sm:pt-10">
           <h1 className="sr-only">TalkStay — voice-first guest service. Guest requests, handled beautifully, from anywhere.</h1>
           <Photo
@@ -107,10 +106,16 @@ export default function Landing() {
             eager
             className="aspect-[1672/941] w-full rounded-3xl shadow-xl"
           />
-          <p className="mt-5 text-center font-serif text-2xl italic text-muted-foreground sm:text-3xl">
-            from anywhere.
-          </p>
-          <p className="mx-auto mt-5 max-w-2xl text-center text-lg text-muted-foreground">
+          {/* Reads as the end of the headline baked into the banner
+              ("…Handled beautifully.") rather than a caption under it. */}
+          <div className="mt-7 flex items-center justify-center gap-4 sm:gap-6">
+            <span className="h-px w-8 bg-gradient-to-r from-transparent to-violet-300 sm:w-24 dark:to-violet-500/50" />
+            <span className="bg-gradient-to-r from-violet-600 to-indigo-600 bg-clip-text font-serif text-3xl italic tracking-tight text-transparent sm:text-5xl">
+              from anywhere.
+            </span>
+            <span className="h-px w-8 bg-gradient-to-l from-transparent to-violet-300 sm:w-24 dark:to-violet-500/50" />
+          </div>
+          <p className="mx-auto mt-8 max-w-2xl text-center text-lg text-muted-foreground">
             TalkStay lets guests scan a QR code and simply speak. Requests are understood, routed
             to the right team and tracked to completion — without another app for the guest.
           </p>
@@ -231,7 +236,7 @@ export default function Landing() {
                   <Link to="/app">Get started <ArrowRight className="ml-1.5 h-4 w-4" /></Link>
                 </Button>
                 <Button asChild size="lg" variant="outline">
-                  <Link to="/app">Hotel sign in</Link>
+                  <Link to="/app">Property sign in</Link>
                 </Button>
               </div>
             </div>
@@ -245,7 +250,7 @@ export default function Landing() {
             <TalkStayLogo size={22} />
             <span>© {new Date().getFullYear()} TalkStay by TalkWeb</span>
           </div>
-          <Link to="/app" className="transition-colors hover:text-foreground">Hotel sign in</Link>
+          <Link to="/app" className="transition-colors hover:text-foreground">Property sign in</Link>
         </div>
       </footer>
     </div>
