@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Loader2, Send, ClipboardList, Star, X, Mic, MicOff, Globe, Check, MessageCircle } from "lucide-react";
+import { Loader2, Send, ClipboardList, Star, X, Mic, MicOff, Globe, Check, MessageCircle, Smile, Meh, Frown, BellRing } from "lucide-react";
 import { toast } from "sonner";
 import { RealtimeChat } from "@/utils/RealtimeChat";
 import { pushSupported } from "@/talkstay/lib/push";
@@ -10,12 +10,14 @@ import {
   fetchContext, sendMessage, fetchMyRequests, submitReview, saveGuestContact,
   confirmRequest, reopenRequest, fetchStaffMessages, enableDevicePush, disableDevicePush,
   getSessionId, getDeviceId, loadHistory, saveHistory, getNotifyChoice, setNotifyChoice,
+  submitPulse, getPulseState, setPulseState,
   STATUS_LABEL, type ChatMsg, type GuestRequest, type GuestBranding,
 } from "@/talkstay/lib/guest";
 
 type Ctx = {
   hotelName: string; roomNumber: string; greeting: string;
   branding?: GuestBranding; assistantId?: string | null;
+  pulseAsk?: boolean;
 };
 
 type Msg = ChatMsg | { role: "request"; content: string } | { role: "notice"; content: string } | { role: "staff"; content: string; label?: string };
@@ -37,6 +39,7 @@ export default function GuestApp() {
   const [busy, setBusy] = useState(false);
   const [notifyOpen, setNotifyOpen] = useState(false);
   const [requestsOpen, setRequestsOpen] = useState(false);
+  const [pulseHidden, setPulseHidden] = useState(false);
 
   // Voice state (TalkWeb realtime stack)
   const [voiceState, setVoiceState] = useState<"idle" | "connecting" | "connected">("idle");
@@ -50,7 +53,7 @@ export default function GuestApp() {
 
   const loadContext = (code?: string) => {
     if (!hotelSlug || !roomId || !token) { setInvalid(true); return; }
-    fetchContext(hotelSlug, roomId, token, code)
+    fetchContext(hotelSlug, roomId, token, code, sid)
       .then((c) => {
         setNeedCode(false); setCodeError(null);
         setCtx(c);
@@ -64,6 +67,7 @@ export default function GuestApp() {
           try {
             localStorage.removeItem(`talkstay:hist:${sid}`);
             localStorage.removeItem(`talkstay:notify:${sid}`);
+            localStorage.removeItem(`talkstay:pulse:${sid}`);
           } catch { /* ignore */ }
           setCheckedOut(true);
         } else if (msg.includes("room_full")) {
@@ -396,6 +400,14 @@ export default function GuestApp() {
             <div className="rounded-2xl bg-muted px-4 py-2 text-sm text-muted-foreground">…</div>
           </div>
         )}
+        {/* Only once the guest has actually said something — asking a stranger
+            how their stay is going before they've engaged reads as a survey. */}
+        {ctx?.pulseAsk && !pulseHidden && !getPulseState(sid) && msgs.some((m) => m.role === "user") && (
+          <PulseCard
+            hotelSlug={hotelSlug} roomId={roomId} token={token} sid={sid} brand={brand}
+            onFinished={() => setPulseHidden(true)}
+          />
+        )}
       </div>
       </div>
 
@@ -427,6 +439,95 @@ export default function GuestApp() {
           hotelSlug={hotelSlug} roomId={roomId} token={token} sid={sid}
           onClose={() => setRequestsOpen(false)}
         />
+      )}
+    </div>
+  );
+}
+
+/** "How has your stay been?" — asked DURING the stay, so a fixable problem gets
+ *  fixed instead of surfacing two weeks later as a public review. */
+function PulseCard({ hotelSlug, roomId, token, sid, brand, onFinished }: {
+  hotelSlug: string; roomId: string; token: string; sid: string;
+  brand: string; onFinished: (state: "done" | "dismissed") => void;
+}) {
+  const [rating, setRating] = useState<number | null>(null);
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ reply: string; notifiedManager: boolean } | null>(null);
+
+  const send = async (withRating: number) => {
+    setBusy(true);
+    try {
+      const res = await submitPulse({ hotelSlug, roomId, token, sessionId: sid, rating: withRating, text: text.trim() || undefined });
+      setResult(res);
+      setPulseState(sid, "done");
+    } catch (e: any) {
+      toast.error(e?.message ?? "Couldn't send that — please try again.");
+      setBusy(false);
+    }
+  };
+
+  if (result) {
+    return (
+      <div className="rounded-2xl border p-4 text-sm" style={{ borderColor: `${brand}66`, background: `${brand}0f` }}>
+        <p>{result.reply}</p>
+        {result.notifiedManager && (
+          <p className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium" style={{ color: brand }}>
+            <BellRing className="h-3.5 w-3.5" /> A manager has been notified.
+          </p>
+        )}
+        <button onClick={() => onFinished("done")} className="mt-3 block text-xs text-muted-foreground underline">Close</button>
+      </div>
+    );
+  }
+
+  const FACES = [
+    { value: 5, label: "Great", Icon: Smile },
+    { value: 3, label: "Okay", Icon: Meh },
+    { value: 2, label: "Not great", Icon: Frown },
+  ];
+
+  return (
+    <div className="rounded-2xl border p-4" style={{ borderColor: `${brand}55` }}>
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-sm font-semibold">How has your stay been so far?</p>
+        <button onClick={() => { setPulseState(sid, "dismissed"); onFinished("dismissed"); }}
+          aria-label="Dismiss" className="-mr-1 -mt-1 rounded-full p-1 text-muted-foreground hover:bg-muted">
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Tell us now and we can still put it right before you leave.
+      </p>
+
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        {FACES.map(({ value, label, Icon }) => (
+          <button
+            key={value}
+            onClick={() => setRating(value)}
+            disabled={busy}
+            className={`flex flex-col items-center gap-1 rounded-xl border py-3 text-xs transition-colors ${rating === value ? "text-white" : "hover:bg-muted"}`}
+            style={rating === value ? { backgroundColor: brand, borderColor: brand } : undefined}
+          >
+            <Icon className="h-6 w-6" />
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {rating != null && (
+        <div className="mt-3 space-y-2">
+          <Input
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder={rating >= 4 ? "What stood out? (optional)" : "What would you like us to fix? (optional)"}
+            disabled={busy}
+            autoFocus
+          />
+          <Button onClick={() => send(rating)} disabled={busy} className="w-full" style={{ backgroundColor: brand }}>
+            {busy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null} Send
+          </Button>
+        </div>
       )}
     </div>
   );

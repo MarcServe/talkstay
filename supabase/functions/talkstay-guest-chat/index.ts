@@ -32,6 +32,7 @@ interface RoomCtx {
   departments: string[];
   rules: { department_key: string; keywords: string[] }[];
   branding: Record<string, unknown>;
+  pulseEnabled: boolean;
 }
 
 // Built-in deterministic keyword routing (safety net + works when OpenAI is down).
@@ -81,7 +82,7 @@ async function resolveRoom(
 
   const { data: hotel } = await admin
     .from("ts_hotels")
-    .select("id, name, slug, assistant_id, default_language, branding")
+    .select("id, name, slug, assistant_id, default_language, branding, pulse_enabled")
     .eq("id", tok.hotel_id).maybeSingle();
   if (!hotel || hotel.slug !== hotelSlug) return null;
 
@@ -104,6 +105,7 @@ async function resolveRoom(
     departments: (depts ?? []).map((d: any) => d.key),
     rules: (rules ?? []) as any,
     branding: (hotel as any).branding || {},
+    pulseEnabled: (hotel as any).pulse_enabled !== false,
   };
 }
 
@@ -165,7 +167,134 @@ async function searchKnowledge(
   return parts.join("\n\n").slice(0, 6000);
 }
 
+// ---- Mid-stay pulse check ---------------------------------------------------
+// Fixed taxonomy: free text can't be aggregated, and the point of asking during
+// the stay is to trend the SAME issue over weeks and show whether it improved.
+const PULSE_ISSUES = [
+  "cleanliness", "staff_attitude", "response_time", "noise", "maintenance",
+  "food_quality", "wifi", "checkin_checkout", "amenities", "comfort", "value", "other",
+] as const;
+
+const PULSE_ISSUE_LABEL: Record<string, string> = {
+  cleanliness: "Cleanliness", staff_attitude: "Staff attitude", response_time: "Response time",
+  noise: "Noise", maintenance: "Something broken", food_quality: "Food & drink",
+  wifi: "Wi-Fi & tech", checkin_checkout: "Check-in / check-out", amenities: "Amenities",
+  comfort: "Room comfort", value: "Value for money", other: "General",
+};
+
+// Safety net when OpenAI is unavailable — a guest's complaint must never be lost
+// just because the classifier is down.
+const PULSE_KEYWORDS: Record<string, string[]> = {
+  cleanliness: ["dirty", "unclean", "not clean", "stain", "smell", "dusty", "mould", "mold", "hair in"],
+  staff_attitude: ["rude", "dismissive", "unfriendly", "unhelpful", "ignored", "attitude", "impolite", "arrogant"],
+  response_time: ["slow", "waiting", "waited", "took too long", "no one came", "still waiting", "ages"],
+  noise: ["noisy", "loud", "noise", "can't sleep", "cant sleep", "banging", "music"],
+  maintenance: ["broken", "not working", "doesn't work", "leak", "no hot water", "air con", "heating", "aircon"],
+  food_quality: ["food", "breakfast", "cold meal", "tasteless", "undercooked", "menu", "coffee"],
+  wifi: ["wifi", "wi-fi", "internet", "signal", "connection"],
+  checkin_checkout: ["check in", "check-in", "checkout", "check out", "queue at reception", "front desk"],
+  amenities: ["towel", "toiletries", "pool", "gym", "spa", "parking"],
+  comfort: ["bed", "mattress", "pillow", "uncomfortable", "small room", "hot room", "cold room"],
+};
+const NEGATIVE_WORDS = ["not", "bad", "poor", "terrible", "awful", "worst", "disappointing", "unacceptable", "rude", "dirty", "slow", "broken", "never", "no one", "annoyed", "frustrat", "complain"];
+const POSITIVE_WORDS = ["great", "lovely", "excellent", "perfect", "amazing", "wonderful", "beautiful", "friendly", "helpful", "clean", "comfortable", "enjoy", "thank"];
+
+interface PulseVerdict {
+  sentiment: "positive" | "neutral" | "negative";
+  severity: "low" | "medium" | "high";
+  issueKey: string;
+  departmentKey: string | null;
+  method: "llm" | "keyword" | "rating";
+  reply: string | null; // warm acknowledgement, in the guest's own language
+}
+
+/** Deterministic pulse read — keyword hits + a star rating when one was tapped. */
+function classifyPulseDeterministic(text: string, rating: number | null, ctx: RoomCtx): PulseVerdict {
+  const m = ` ${(text || "").toLowerCase()} `;
+  let issueKey = "other";
+  let bestHits = 0;
+  for (const [key, words] of Object.entries(PULSE_KEYWORDS)) {
+    const hits = words.filter((w) => m.includes(w)).length;
+    if (hits > bestHits) { bestHits = hits; issueKey = key; }
+  }
+
+  let sentiment: PulseVerdict["sentiment"];
+  if (rating != null) {
+    sentiment = rating <= 2 ? "negative" : rating >= 4 ? "positive" : "neutral";
+  } else {
+    const neg = NEGATIVE_WORDS.filter((w) => m.includes(w)).length;
+    const pos = POSITIVE_WORDS.filter((w) => m.includes(w)).length;
+    sentiment = neg > pos ? "negative" : pos > neg ? "positive" : "neutral";
+  }
+
+  // A 1-star or an explicit safety/abuse word is high; anything else negative is
+  // medium, because "medium" is still worth waking a manager during the stay.
+  const severe = ["unsafe", "dangerous", "threat", "harass", "discriminat", "police", "injur", "assault", "refund"].some((w) => m.includes(w));
+  const severity: PulseVerdict["severity"] =
+    sentiment !== "negative" ? "low" : severe || rating === 1 ? "high" : "medium";
+
+  const deptGuess = classifyDeterministic(text || "", ctx);
+  return {
+    sentiment, severity, issueKey,
+    departmentKey: deptGuess?.dept ?? null,
+    method: text?.trim() ? "keyword" : "rating",
+    reply: null,
+  };
+}
+
 const OPENAI = "https://api.openai.com/v1/chat/completions";
+
+/** Classify what the guest said about their stay. Falls back to keywords on any failure. */
+async function classifyPulse(
+  apiKey: string, text: string, rating: number | null, ctx: RoomCtx
+): Promise<PulseVerdict> {
+  const fallback = classifyPulseDeterministic(text, rating, ctx);
+  if (!apiKey || !text.trim()) return fallback;
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
+    const resp = await fetch(OPENAI, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      signal: ctrl.signal,
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        temperature: 0,
+        max_tokens: 120,
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content: `Classify one piece of mid-stay guest feedback for a hospitality property. Reply with ONLY JSON:
+{"sentiment":"positive|neutral|negative","severity":"low|medium|high","issue_key":"<one of: ${PULSE_ISSUES.join(", ")}>","department":"<one of: ${ctx.departments.join(", ") || "front_desk"} or null>","reply":"<one warm sentence back to the guest, IN THE GUEST'S OWN LANGUAGE>"}
+- department = the team the feedback is ABOUT, not who should fix it.
+- severity: low = a passing remark; medium = a real problem worth a manager acting on today; high = safety, discrimination, abuse, or a stay-ruining failure.
+- Positive or neutral feedback is always severity "low".
+- reply: thank them and acknowledge specifically what they said. If it is a negative issue, say a manager has been told and will follow up before they leave. Never promise refunds or compensation.`,
+          },
+          { role: "user", content: rating != null ? `Guest rated the stay ${rating}/5. They said: ${text}` : text },
+        ],
+      }),
+    });
+    clearTimeout(timer);
+    if (!resp.ok) return fallback;
+    const data = await resp.json();
+    const parsed = JSON.parse(String(data?.choices?.[0]?.message?.content ?? "{}"));
+
+    const sentiment = ["positive", "neutral", "negative"].includes(parsed.sentiment) ? parsed.sentiment : fallback.sentiment;
+    let severity = ["low", "medium", "high"].includes(parsed.severity) ? parsed.severity : fallback.severity;
+    if (sentiment !== "negative") severity = "low";
+    const dept = typeof parsed.department === "string" && ctx.departments.includes(parsed.department) ? parsed.department : fallback.departmentKey;
+
+    return {
+      sentiment, severity,
+      issueKey: (PULSE_ISSUES as readonly string[]).includes(parsed.issue_key) ? parsed.issue_key : fallback.issueKey,
+      departmentKey: dept,
+      method: "llm",
+      reply: typeof parsed.reply === "string" && parsed.reply.trim() ? parsed.reply.trim().slice(0, 400) : null,
+    };
+  } catch { return fallback; }
+}
 
 const isEnglish = (lang?: string) => {
   const l = (lang || "").trim().toLowerCase();
@@ -234,9 +363,18 @@ serve(async (req) => {
 
     // ---- context: greeting + room info ----
     if (action === "context") {
+      // Only offer the pulse check when the property wants it and this stay
+      // hasn't answered yet — asking twice is worse than not asking.
+      let pulseAsk = ctx.pulseEnabled;
+      if (pulseAsk && sessionId) {
+        const { count } = await admin
+          .from("ts_guest_pulse").select("id", { count: "exact", head: true })
+          .eq("hotel_id", ctx.hotelId).eq("session_id", sessionId);
+        pulseAsk = (count ?? 0) === 0;
+      }
       return json({
         hotelName: ctx.hotelName, roomNumber: ctx.roomNumber, language: ctx.language,
-        departments: ctx.departments, branding: ctx.branding,
+        departments: ctx.departments, branding: ctx.branding, pulseAsk,
         // Assistant id powers the voice session (TalkWeb realtime stack); assistant
         // ids are public by design in TalkWeb's widget embeds.
         assistantId: ctx.assistantId,
@@ -312,6 +450,75 @@ serve(async (req) => {
       await admin.from("ts_guest_push_subscriptions")
         .delete().eq("endpoint", String(endpoint)).eq("hotel_id", ctx.hotelId);
       return json({ ok: true });
+    }
+
+    // ---- pulse: "How has your stay been?", asked DURING the stay ----
+    // The point is to hear it while the guest is still in the building, not two
+    // weeks later on Booking.com.
+    if (action === "pulse") {
+      if (!sessionId) return json({ error: "sessionId required" }, 400);
+      const rating = body.rating != null ? Math.max(1, Math.min(5, Math.round(Number(body.rating)))) : null;
+      const text = String(body.text ?? "").trim().slice(0, 2000);
+      if (rating == null && !text) return json({ error: "rating or text required" }, 400);
+
+      // One stay can't flood the manager with alerts.
+      const { count } = await admin
+        .from("ts_guest_pulse").select("id", { count: "exact", head: true })
+        .eq("hotel_id", ctx.hotelId).eq("session_id", sessionId);
+      if ((count ?? 0) >= 5) return json({ error: "too_many" }, 429);
+
+      const v = await classifyPulse(OPENAI_API_KEY, text, rating, ctx);
+      const issueLabel = PULSE_ISSUE_LABEL[v.issueKey] ?? "General";
+      const actionable = v.sentiment === "negative" && v.severity !== "low";
+
+      // An actionable pulse becomes a real service request, so it inherits
+      // everything already built: staff alerting, the reply-to-guest thread,
+      // escalation and the Operations queue. It routes to the duty manager, NOT
+      // to the team it's about — "the front desk were dismissive" must never
+      // land in the front desk's own queue.
+      let requestId: string | null = null;
+      if (actionable) {
+        const routeTo = ["duty_manager", "front_desk"].find((d) => ctx.departments.includes(d))
+          ?? ctx.departments[0] ?? "front_desk";
+        const about = v.departmentKey && v.departmentKey !== routeTo ? ` · about ${v.departmentKey.replace(/_/g, " ")}` : "";
+        const summary = `Guest feedback during stay — ${issueLabel}${about}: ${text || `rated the stay ${rating}/5`}`.slice(0, 500);
+        const summaryStaff = await translateForStaff(OPENAI_API_KEY, summary, ctx.language);
+        const { data: reqRow } = await admin.from("ts_service_requests").insert({
+          hotel_id: ctx.hotelId, room_id: ctx.roomId, department_key: routeTo,
+          intent: "pulse_check", summary, summary_staff: summaryStaff,
+          priority: v.severity === "high" ? "urgent" : "high",
+          is_complaint: true, is_chargeable: false,
+          guest_language: ctx.language, session_id: sessionId,
+          classification_method: v.method, needs_triage: false,
+        }).select("id").single();
+        if (reqRow) {
+          requestId = reqRow.id;
+          await admin.from("ts_request_events").insert({ request_id: reqRow.id, status: "new", actor_type: "guest" });
+          admin.functions.invoke("talkstay-notify", { body: { requestId: reqRow.id } }).catch(() => {});
+        }
+      }
+
+      const { error: pErr } = await admin.from("ts_guest_pulse").insert({
+        hotel_id: ctx.hotelId, room_id: ctx.roomId, session_id: sessionId,
+        body: text || `Rated the stay ${rating}/5`, language: ctx.language, rating,
+        sentiment: v.sentiment, severity: v.severity,
+        department_key: v.departmentKey, issue_key: v.issueKey, issue_label: issueLabel,
+        request_id: requestId, classified_by: v.method,
+      });
+      if (pErr) return json({ error: pErr.message }, 400);
+
+      const fallbackReply = actionable
+        ? "Thank you for telling us while you're still here — a manager has been notified and will follow up with you before you leave."
+        : v.sentiment === "positive"
+          ? "That's lovely to hear — thank you. I'll pass it on to the team."
+          : "Thank you for the feedback — it's been shared with the team.";
+
+      return json({
+        ok: true,
+        reply: v.reply || fallbackReply,
+        notifiedManager: !!requestId,
+        classification: { sentiment: v.sentiment, severity: v.severity, issue: issueLabel, department: v.departmentKey },
+      });
     }
 
     // ---- review: rate a completed request from this session ----

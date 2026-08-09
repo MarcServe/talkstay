@@ -65,6 +65,16 @@ export function setNotifyChoice(sid: string, choice: string) {
   localStorage.setItem(notifyKey(sid), choice);
 }
 
+// Remembers that this device already answered (or waved away) the pulse check,
+// so a refresh doesn't ask the same guest twice.
+const pulseKey = (sid: string) => `talkstay:pulse:${sid}`;
+export function getPulseState(sid: string): string | null {
+  return localStorage.getItem(pulseKey(sid));
+}
+export function setPulseState(sid: string, state: "done" | "dismissed") {
+  localStorage.setItem(pulseKey(sid), state);
+}
+
 export interface GuestBranding {
   logo_url?: string | null;
   primary_color?: string | null;
@@ -74,13 +84,14 @@ export interface GuestBranding {
   poster?: { bg_image_url?: string | null } | null;
 }
 
-export async function fetchContext(hotelSlug: string, roomId: string, token: string, code?: string) {
-  const { data, error } = await fn({ action: "context", hotelSlug, roomId, token, code });
+export async function fetchContext(hotelSlug: string, roomId: string, token: string, code?: string, sessionId?: string) {
+  const { data, error } = await fn({ action: "context", hotelSlug, roomId, token, code, sessionId });
   if (error) throw await realError(error);
   if ((data as any)?.error) throw new Error((data as any).error);
   return data as {
     hotelName: string; roomNumber: string; language: string; greeting: string;
     departments: string[]; branding?: GuestBranding; assistantId?: string | null;
+    pulseAsk?: boolean;
   };
 }
 
@@ -178,6 +189,19 @@ export async function reopenRequest(args: {
   if (error) throw await realError(error);
   if ((data as any)?.error) throw new Error((data as any).error);
   return true;
+}
+
+/** Mid-stay pulse check. `notifiedManager` is true when the answer was negative
+ *  enough that a manager was alerted — the guest is told so explicitly, because
+ *  "someone is coming" is the whole reason to speak up during the stay. */
+export async function submitPulse(args: {
+  hotelSlug: string; roomId: string; token: string; sessionId: string;
+  rating?: number | null; text?: string;
+}) {
+  const { data, error } = await fn({ action: "pulse", ...args });
+  if (error) throw await realError(error);
+  if ((data as any)?.error) throw new Error((data as any).error);
+  return data as { reply: string; notifiedManager: boolean };
 }
 
 export const STATUS_LABEL: Record<string, string> = {
