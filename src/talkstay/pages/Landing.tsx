@@ -2,9 +2,18 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import {
   MessageSquare, Route as RouteIcon, CheckCircle2, Languages,
-  Mic, Sparkles, Clock, Users, PlayCircle,
+  Mic, Sparkles, Clock, Users, PlayCircle, Hotel, House, KeyRound, Building2,
 } from "lucide-react";
 import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
+
+// Who it works for — hotels are the deepest use case, but any short-term stay
+// with a room and a guest fits the same model.
+const audiences = [
+  { icon: Hotel, label: "Hotels" },
+  { icon: House, label: "Short stays" },
+  { icon: KeyRound, label: "Airbnb" },
+  { icon: Building2, label: "Serviced apartments" },
+];
 
 // The 4-up strip under the hero — what a guest experiences, in order.
 const features = [
@@ -34,7 +43,7 @@ export default function Landing() {
         <nav className="hidden items-center gap-7 text-sm text-muted-foreground md:flex">
           <a href="#how" className="transition-colors hover:text-foreground">Features</a>
           <a href="#how" className="transition-colors hover:text-foreground">How it works</a>
-          <a href="#hotels" className="transition-colors hover:text-foreground">For hotels</a>
+          <a href="#hotels" className="transition-colors hover:text-foreground">For properties</a>
         </nav>
         <div className="flex items-center gap-2">
           <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex">
@@ -61,8 +70,9 @@ export default function Landing() {
               </span>
             </h1>
             <p className="mx-auto mt-6 max-w-xl text-lg text-muted-foreground">
-              TalkStay lets guests speak naturally to request room service, housekeeping,
-              maintenance and more. Every request is routed, tracked and completed with care.
+              TalkStay lets guests speak or chat naturally to request anything they need — in
+              hotels, short stays and Airbnbs. Every request is routed to the right team,
+              tracked in real time and completed with care.
             </p>
             <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
               <Button asChild size="lg" className="bg-violet-600 hover:bg-violet-700">
@@ -71,6 +81,21 @@ export default function Landing() {
               <Button asChild size="lg" variant="outline">
                 <a href="#how"><PlayCircle className="mr-1.5 h-4 w-4" /> See how it works</a>
               </Button>
+            </div>
+
+            {/* Who it's for — hotels are the deep case, but any short-term
+                stay with a room and a guest fits the same model. */}
+            <div className="mx-auto mt-8 inline-flex max-w-full flex-wrap items-center justify-center gap-5 rounded-2xl border bg-card px-6 py-4 shadow-sm sm:gap-8 sm:px-8">
+              <span className="text-sm font-medium text-muted-foreground">Perfect for</span>
+              <span className="hidden h-8 w-px bg-border sm:block" />
+              {audiences.map(({ icon: Icon, label }) => (
+                <div key={label} className="flex flex-col items-center gap-1.5">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-100">
+                    <Icon className="h-5 w-5 text-violet-600" />
+                  </div>
+                  <span className="text-xs font-medium text-muted-foreground">{label}</span>
+                </div>
+              ))}
             </div>
           </div>
 
@@ -94,7 +119,8 @@ export default function Landing() {
             <div className="text-center">
               <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">Built for modern hospitality</h2>
               <p className="mx-auto mt-3 max-w-2xl text-sm text-white/70">
-                Everything you need to deliver exceptional guest service, every time.
+                Everything you need to deliver exceptional guest service — for hotels, short
+                stays, Airbnbs and serviced apartments alike.
               </p>
             </div>
             <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
