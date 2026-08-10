@@ -5,11 +5,11 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import {
-  Loader2, AlertTriangle, RefreshCw, Volume2, VolumeX, MessageCircle, Send,
+  Loader2, AlertTriangle, RefreshCw, MessageCircle, Send,
   UtensilsCrossed, BedDouble, Wrench, Wine, Shirt, ConciergeBell, KeyRound, ShieldAlert,
 } from "lucide-react";
 import { DEPARTMENTS, type Hotel } from "@/talkstay/lib/hotels";
-import { playChime, primeChime } from "@/talkstay/lib/chime";
+import { playChime } from "@/talkstay/lib/chime";
 
 // Each department gets a distinct icon + soft tint, so staff can scan the
 // queue by shape/colour instead of reading every card's department label.
@@ -91,7 +91,6 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
   const [filter, setFilter] = useState<Filter>("active");
   // Department staff are hard-scoped to their own team's queue.
   const [dept, setDept] = useState<string>(lockedDepartment ?? "all");
-  const [sound, setSound] = useState(() => localStorage.getItem("ts:opsSound") !== "off");
   // Per-request "reply to guest" composer state.
   const [replyOpen, setReplyOpen] = useState<Record<string, boolean>>({});
   const [replyText, setReplyText] = useState<Record<string, string>>({});
@@ -101,8 +100,6 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
   // escalate_request updates an EXISTING row rather than creating a new one,
   // so it needs its own "is this genuinely new" tracking for the chime.
   const seenEscalations = useRef<Set<string> | null>(null);
-  const soundRef = useRef(sound);
-  soundRef.current = sound;
   // The queue this operator actually watches (locked team, or the dropdown).
   const watchedDept = lockedDepartment ?? dept;
   const watchedRef = useRef(watchedDept);
@@ -125,7 +122,7 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
           (watchedRef.current === "all" || r.department_key === watchedRef.current)
       );
       if (fresh.length) {
-        if (soundRef.current) playChime();
+        playChime();
         const r = fresh[0];
         toast.message(
           fresh.length === 1
@@ -170,7 +167,7 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
           return watchedRef.current === "all" || dept === watchedRef.current;
         });
         if (fresh.length) {
-          if (soundRef.current) playChime();
+          playChime();
           const e0 = fresh[0];
           const r0 = list.find((r) => r.id === e0.request_id);
           toast.message(`Guest followed up · Room ${r0?.ts_rooms?.room_number ?? "—"}`, {
@@ -307,13 +304,6 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
               {DEPARTMENTS.map((d) => <option key={d.key} value={d.key}>{d.display_name}</option>)}
             </select>
           )}
-          <Button
-            size="sm" variant="ghost"
-            title={sound ? "New-request sound on" : "New-request sound off"}
-            onClick={() => { const v = !sound; setSound(v); localStorage.setItem("ts:opsSound", v ? "on" : "off"); if (v) { primeChime(); playChime(); } }}
-          >
-            {sound ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4 text-muted-foreground" />}
-          </Button>
           <Button size="sm" variant="ghost" onClick={refresh}><RefreshCw className="h-4 w-4" /></Button>
         </div>
       </div>

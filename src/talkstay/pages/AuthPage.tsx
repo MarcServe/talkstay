@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
-import { Apple, Eye, EyeOff, Linkedin, Lock, Mail } from "lucide-react";
+import { Eye, EyeOff, Linkedin, Lock, Mail } from "lucide-react";
 import type { Provider } from "@supabase/supabase-js";
 
 const SIDE_PHOTO = "/marketing/auth-side.jpg";
@@ -182,6 +182,32 @@ export default function AuthPage() {
     }
 
     const params = new URLSearchParams(window.location.search);
+    const hash = window.location.hash.startsWith("#")
+      ? new URLSearchParams(window.location.hash.slice(1)) : new URLSearchParams();
+
+    // OAuth / magic-link failures land here with ?error=… (and often a duplicate
+    // in the hash). Surface them — otherwise Apple/Google look like a silent
+    // "didn't redirect" when the callback actually succeeded but auth failed.
+    const oauthErr = params.get("error_description") || params.get("error")
+      || hash.get("error_description") || hash.get("error");
+    if (oauthErr) {
+      const decoded = decodeURIComponent(oauthErr.replace(/\+/g, " "));
+      const appleSecretHint = /unable to exchange external code/i.test(decoded);
+      toast.error(
+        appleSecretHint
+          ? "Apple sign-in failed — the Apple Secret Key in Supabase is likely expired. Regenerate it (Apple JWTs last 6 months) and try again."
+          : decoded,
+      );
+      const property = params.get("property") || hash.get("property");
+      const type = params.get("type") || hash.get("type");
+      const keep = new URLSearchParams();
+      if (property) keep.set("property", property);
+      if (type) keep.set("type", type);
+      const qs = keep.toString();
+      window.history.replaceState({}, document.title, qs ? `${window.location.pathname}?${qs}` : window.location.pathname);
+      return;
+    }
+
     const code = params.get("code");
     if (!code) return;
 
@@ -411,14 +437,6 @@ export default function AuthPage() {
         >
           <Linkedin className="h-4 w-4 text-[#0A66C2]" />
           <span className="ml-2">{busy ? "Opening…" : "Continue with LinkedIn"}</span>
-        </Button>
-        <Button
-          type="button" variant="outline"
-          className="h-11 w-full rounded-xl border-white/10 bg-white text-gray-800 hover:bg-white/90"
-          disabled={busy} onClick={() => signInWithProvider("apple", "name email", "Apple")}
-        >
-          <Apple className="h-4 w-4" />
-          <span className="ml-2">{busy ? "Opening…" : "Continue with Apple"}</span>
         </Button>
       </div>
 
