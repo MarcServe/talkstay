@@ -424,12 +424,11 @@ function printPoster() {
   window.addEventListener("afterprint", cleanup);
 
   // Let the clone paint (and QR data-URL decode) before the dialog opens.
-  // window.print() blocks in most browsers until the dialog closes; afterprint
-  // covers the async cases. Do not time-out cleanup — that can blank mid-dialog.
+  // Do NOT cleanup() immediately after print() — Safari/iPad often snapshots
+  // asynchronously; early cleanup restores the full dashboard into the print.
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
       window.print();
-      cleanup();
     });
   });
 }

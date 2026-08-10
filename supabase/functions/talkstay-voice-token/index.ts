@@ -63,17 +63,29 @@ serve(async (req) => {
     let knowledge = "";
     try {
       const [{ data: kb }, siteRes] = await Promise.all([
-        admin.from("ts_knowledge").select("title, content, scope, room_id")
-          .eq("hotel_id", hotel.id).limit(30),
+        admin.from("ts_knowledge").select("title, content, scope, room_id, media")
+          .eq("hotel_id", hotel.id).limit(40),
         hotel.assistant_id
           ? admin.from("knowledge_vectors").select("title, content").eq("assistant_id", hotel.assistant_id).limit(12)
           : Promise.resolve({ data: [] as any[] }),
       ]);
       const layered = (kb ?? [])
         .filter((k: any) => !k.room_id || k.room_id === roomId)
-        .map((k: any) => `${k.title ? k.title + ": " : ""}${k.content}`);
+        .map((k: any) => {
+          const title = k.title ? `${k.title}: ` : "";
+          const body = String(k.content ?? "").trim();
+          const images = Array.isArray(k.media?.images) ? k.media.images : [];
+          const urls = images
+            .map((img: any) => img?.url)
+            .filter((u: unknown) => typeof u === "string" && u.startsWith("http"))
+            .slice(0, 3);
+          const photoLine = urls.length
+            ? `\n[Photo available on the guest screen — mention it and tell them to look at the chat for the image: ${urls.join(", ")}]`
+            : "";
+          return `${title}${body}${photoLine}`;
+        });
       const site = ((siteRes as any).data ?? []).map((k: any) => `${k.title ? k.title + ": " : ""}${k.content}`);
-      knowledge = [...layered, ...site].join("\n").slice(0, 8000);
+      knowledge = [...layered, ...site].join("\n").slice(0, 10000);
     } catch { /* best-effort */ }
 
     // Same session memory the typed chat uses — open tickets + recent turns —
@@ -117,6 +129,7 @@ Reply in whatever language the guest speaks (hotel default: ${hotel.default_lang
 
 WHAT YOU DO
 - Answer questions about the hotel from the knowledge below (breakfast, wifi, checkout, facilities, local tips).
+- When knowledge mentions a photo/menu image, tell the guest to glance at the chat screen — the image card appears there while you speak.
 - When the guest ASKS FOR SOMETHING (towels, food, drinks, laundry, a repair, a taxi, late checkout),
   confirm it warmly and say you've passed it to the right team with a rough time —
   the request is logged automatically, so never ask them to call reception or repeat themselves.

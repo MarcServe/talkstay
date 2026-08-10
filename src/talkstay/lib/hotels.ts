@@ -122,6 +122,10 @@ export async function setRoomOccupancy(roomId: string, status: "occupied" | "vac
     : { occupancy_status: status, checked_out_at: new Date().toISOString() };
   const { error } = await supabase.from("ts_rooms").update(patch).eq("id", roomId);
   if (error) throw error;
+  // Drop previous-stay device rows so the same phone can enrol in the new stay.
+  if (status === "occupied") {
+    await supabase.from("ts_stay_devices").delete().eq("room_id", roomId);
+  }
 }
 
 /** Toggle the optional check-in-code requirement. When switching it ON, backfill a

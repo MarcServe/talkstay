@@ -184,15 +184,32 @@ export default function StaffPanel({ hotel }: { hotel: Hotel }) {
   const [bulkReport, setBulkReport] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const call = (body: Record<string, unknown>) =>
-    supabase.functions.invoke("talkstay-staff", { body: { hotelId: hotel.id, ...body } });
+  const call = async (body: Record<string, unknown>) => {
+    const { data, error } = await supabase.functions.invoke("talkstay-staff", {
+      body: { hotelId: hotel.id, ...body },
+    });
+    const bodyErr = (data as { error?: string } | null)?.error;
+    if (error || bodyErr) {
+      const msg = bodyErr
+        || (error as { context?: { json?: () => Promise<{ error?: string }> } })?.message
+        || "Staff request failed";
+      // Surfaces DB/auth detail instead of only "Edge Function returned a non-2xx".
+      throw new Error(msg);
+    }
+    return data;
+  };
 
   const load = async () => {
     setLoading(true);
-    const { data, error } = await call({ action: "list" });
-    if (error) toast.error(error.message);
-    setStaff(((data as any)?.staff as StaffRow[]) ?? []);
-    setLoading(false);
+    try {
+      const data = await call({ action: "list" });
+      setStaff(((data as any)?.staff as StaffRow[]) ?? []);
+    } catch (e: any) {
+      toast.error(e?.message ?? "Couldn't load staff");
+      setStaff([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [hotel.id]);
@@ -204,18 +221,16 @@ export default function StaffPanel({ hotel }: { hotel: Hotel }) {
     if (!email.trim()) return;
     setBusy(true);
     try {
-      const { data, error } = await call({
+      const data = await call({
         action: "invite",
         email: email.trim(),
         name: name.trim() || null,
         departmentKey: dept === ALL_DEPTS ? null : dept,
         role,
       });
-      if (error) throw error;
       const res = data as any;
-      if (res?.error) throw new Error(res.error);
       if (res?.invited) {
-        toast.success(`Invite sent to ${res.email} — they'll set their own password.`);
+        toast.success(`Invite sent to ${res.email} — they'll open TalkStay to set a password.`);
       } else {
         toast.success(`${res.email} added to staff.`);
       }
@@ -241,10 +256,8 @@ export default function StaffPanel({ hotel }: { hotel: Hotel }) {
     setBulkBusy(true);
     setBulkReport(null);
     try {
-      const { data, error } = await call({ action: "invite_bulk", rows });
-      if (error) throw error;
+      const data = await call({ action: "invite_bulk", rows });
       const res = data as any;
-      if (res?.error) throw new Error(res.error);
       const invited = res.invited ?? 0;
       const added = res.added ?? 0;
       const failed = res.failed ?? 0;
@@ -309,10 +322,12 @@ export default function StaffPanel({ hotel }: { hotel: Hotel }) {
 
   const remove = async (row: StaffRow) => {
     if (!confirm(`Remove ${row.email}?`)) return;
-    const { error } = await call({ action: "remove", staffId: row.id });
-    const res = error as any;
-    if (res) { toast.error(res.message); return; }
-    await load();
+    try {
+      await call({ action: "remove", staffId: row.id });
+      await load();
+    } catch (e: any) {
+      toast.error(e?.message ?? "Couldn't remove");
+    }
   };
 
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -321,9 +336,7 @@ export default function StaffPanel({ hotel }: { hotel: Hotel }) {
   const update = async (row: StaffRow, patch: { name?: string; role?: string; departmentKey?: string | null }) => {
     setSavingId(row.id);
     try {
-      const { data, error } = await call({ action: "update", staffId: row.id, ...patch });
-      if (error) throw error;
-      if ((data as any)?.error) throw new Error((data as any).error);
+      await call({ action: "update", staffId: row.id, ...patch });
       setStaff((prev) => prev.map((s) => s.id === row.id ? {
         ...s,
         ...(patch.name !== undefined ? { name: patch.name || null } : {}),

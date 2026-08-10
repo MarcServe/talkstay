@@ -140,8 +140,47 @@ serve(async (req) => {
       const dept = opts.departmentKey === undefined
         ? null
         : (opts.departmentKey === null ? null : normalizeDept(opts.departmentKey));
-      // Unknown department string → treat as all departments rather than failing the row.
       const department_key = dept;
+      const redirectTo = `${PUBLIC_BASE_URL}/app?type=invite&property=${encodeURIComponent(hotel.slug ?? "")}`;
+
+      const forceRedirect = (actionLink: string) => {
+        try {
+          const u = new URL(actionLink);
+          u.searchParams.set("redirect_to", redirectTo);
+          return u.toString();
+        } catch {
+          return actionLink;
+        }
+      };
+
+      const sendInviteEmail = async (actionLink: string) => {
+        const key = (Deno.env.get("RESEND_API_KEY") || "").trim();
+        if (!key || !actionLink) return;
+        const deptLabel = department_key ? department_key.replace(/_/g, " ") : "";
+        const html = renderEmail({
+          hotelName: hotel.name ?? "Your hotel",
+          logoUrl: (hotel.branding as any)?.logo_url,
+          accentColor: (hotel.branding as any)?.primary_color,
+          heading: `You've been invited to join ${hotel.name ?? "the"} team`,
+          bodyHtml: `
+              <p style="margin:0 0 14px;">${escapeHtml(inviterName)} added you to their TalkStay team${deptLabel ? ` (${escapeHtml(deptLabel)})` : ""}. Open the link below to set your password and join the dashboard.</p>
+              <p style="margin:0 0 14px;font-size:13px;color:#64748b;">This link opens TalkStay at talkstay.talkweb.io — not the TalkWeb dashboard.</p>`,
+          cta: { label: "Open TalkStay & set password", url: forceRedirect(actionLink) },
+          footerNote: "If you weren't expecting this, you can safely ignore this email.",
+        });
+        try {
+          await fetch("https://api.resend.com/emails", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              from: "TalkStay <notifications@talkweb.io>",
+              to: cleanEmail,
+              subject: `You've been invited to join ${hotel.name ?? "a property"} on TalkStay`,
+              html,
+            }),
+          });
+        } catch { /* membership still created */ }
+      };
 
       const index = await loadEmailIndex();
       let userId: string | null = index.get(cleanEmail) ?? null;
@@ -153,43 +192,43 @@ serve(async (req) => {
           email: cleanEmail,
           options: {
             data: staffName ? { full_name: staffName } : undefined,
-            redirectTo: `${PUBLIC_BASE_URL}/app?type=invite&property=${encodeURIComponent(hotel.slug ?? "")}`,
+            redirectTo,
           },
         });
-        if (lErr || !linkData?.user) {
-          return { email: cleanEmail, ok: false, error: lErr?.message ?? "Could not create user" };
-        }
-        userId = linkData.user.id;
-        index.set(cleanEmail, userId);
-        invited = true;
 
-        const key = (Deno.env.get("RESEND_API_KEY") || "").trim();
-        const actionLink = linkData.properties?.action_link;
-        if (key && actionLink) {
-          const deptLabel = department_key ? department_key.replace(/_/g, " ") : "";
-          const html = renderEmail({
-            hotelName: hotel.name ?? "Your hotel",
-            logoUrl: hotel.branding?.logo_url,
-            accentColor: hotel.branding?.primary_color,
-            heading: `You've been invited to join ${hotel.name ?? "the"} team`,
-            bodyHtml: `
-              <p style="margin:0 0 14px;">${escapeHtml(inviterName)} added you to their TalkStay team${deptLabel ? ` (${escapeHtml(deptLabel)})` : ""}. Set a password to get started.</p>`,
-            cta: { label: "Set your password", url: actionLink },
-            footerNote: "If you weren't expecting this, you can safely ignore this email.",
-          });
-          // Await so bulk invites don't drop most emails when the isolate freezes.
-          try {
-            await fetch("https://api.resend.com/emails", {
-              method: "POST",
-              headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-              body: JSON.stringify({
-                from: "TalkStay <notifications@talkweb.io>",
-                to: cleanEmail,
-                subject: `You've been invited to join ${hotel.name ?? "a"} on TalkStay`,
-                html,
-              }),
+        if (linkData?.user) {
+          userId = linkData.user.id;
+          index.set(cleanEmail, userId);
+          invited = true;
+          await sendInviteEmail(linkData.properties?.action_link ?? "");
+        } else {
+          // Often: email already registered in the shared TalkWeb project.
+          const msg = (lErr?.message || "").toLowerCase();
+          emailToUserId = null;
+          const refreshed = await loadEmailIndex();
+          userId = refreshed.get(cleanEmail) ?? null;
+
+          if (!userId && (msg.includes("already") || msg.includes("registered") || msg.includes("exists"))) {
+            const { data: created } = await admin.auth.admin.createUser({
+              email: cleanEmail,
+              email_confirm: true,
+              user_metadata: staffName ? { full_name: staffName } : undefined,
             });
-          } catch { /* membership still created */ }
+            userId = created?.user?.id ?? null;
+          }
+
+          if (!userId) {
+            return { email: cleanEmail, ok: false, error: lErr?.message ?? "Could not create user" };
+          }
+
+          // Existing account: send a magic link that lands on TalkStay /app.
+          const { data: mag } = await admin.auth.admin.generateLink({
+            type: "magiclink",
+            email: cleanEmail,
+            options: { redirectTo },
+          });
+          invited = true;
+          await sendInviteEmail(mag?.properties?.action_link ?? "");
         }
       }
 

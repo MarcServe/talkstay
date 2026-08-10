@@ -31,8 +31,14 @@ export default function LiveShareCard({ hotel }: { hotel: Hotel }) {
       body: { action: "list", hotelId: hotel.id },
     });
     setLoading(false);
-    if (error || (data as { error?: string })?.error) {
-      toast.error((data as { error?: string })?.error ?? error?.message ?? "Couldn't load live links");
+    const detail = (data as { error?: string })?.error;
+    if (error || detail) {
+      const msg = detail || error?.message || "Couldn't load live links";
+      toast.error(
+        /relation|does not exist|schema cache/i.test(msg)
+          ? "Live links need a database update — ask support to apply the view-tokens migration."
+          : msg,
+      );
       return;
     }
     setLinks(((data as { links?: LiveLink[] })?.links) ?? []);
@@ -53,7 +59,12 @@ export default function LiveShareCard({ hotel }: { hotel: Hotel }) {
     });
     setBusy(false);
     if (error || (data as { error?: string })?.error) {
-      toast.error((data as { error?: string })?.error ?? error?.message ?? "Couldn't create link");
+      const msg = (data as { error?: string })?.error ?? error?.message ?? "Couldn't create link";
+      toast.error(
+        /relation|does not exist|schema cache/i.test(msg)
+          ? "Live links need a database update — ask support to apply the view-tokens migration."
+          : msg,
+      );
       return;
     }
     const link = (data as { link: LiveLink }).link;

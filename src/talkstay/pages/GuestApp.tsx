@@ -231,25 +231,32 @@ export default function GuestApp() {
     fetchContext(hotelSlug, roomId, token, code, sid)
       .then((c) => {
         setNeedCode(false); setCodeError(null);
+        setCheckedOut(false); setRoomFull(false); setInvalid(false);
         setCtx(c);
         const prev = loadHistory(sid) as Msg[];
+        // Fresh stay after re-check-in: prefer greeting if history was wiped.
         setMsgs(prev.length ? prev : [{ role: "assistant", content: c.greeting }]);
       })
       .catch((e) => {
         const msg = String(e?.message ?? e);
         if (msg.includes("checked_out")) {
-          // Stay has ended — clear this device's cached history for privacy.
+          // Stay vacant OR this device is still on an old stay — clear local history.
           try {
             localStorage.removeItem(`talkstay:hist:${sid}`);
             localStorage.removeItem(`talkstay:notify:${sid}`);
             localStorage.removeItem(`talkstay:pulse:${sid}`);
           } catch { /* ignore */ }
           setCheckedOut(true);
+          setNeedCode(false);
         } else if (msg.includes("room_full")) {
           setRoomFull(true);
         } else if (msg.includes("need_code")) {
+          // New stay on an occupied room — collect the check-in code (also after
+          // "stay ended" when the room has been re-let).
+          setCheckedOut(false);
           setNeedCode(true); setCodeError(null);
         } else if (msg.includes("bad_code")) {
+          setCheckedOut(false);
           setNeedCode(true); setCodeError("That code didn't match. Please check with reception.");
         } else setInvalid(true);
       });
@@ -309,6 +316,14 @@ export default function GuestApp() {
           role: "assistant",
           content: res.reply,
           ...(res.cards?.length ? { cards: res.cards } : {}),
+        });
+      } else if (res.cards?.length) {
+        // Voice speaks its own reply, but still surface KB cards (menu photos, etc.)
+        // so guests see the same media they'd get in typed chat.
+        append({
+          role: "assistant",
+          content: res.reply || "Here's what I found:",
+          cards: res.cards,
         });
       }
       return res;
@@ -461,12 +476,46 @@ export default function GuestApp() {
 
   if (checkedOut) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-2 p-8 text-center">
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 p-8 text-center">
         <h1 className="text-xl font-semibold">Your stay has ended</h1>
         <p className="max-w-sm text-sm text-muted-foreground">
-          Thank you for staying with us. This room assistant is no longer active for this stay.
-          If you're checking in again, please scan the code in your room.
+          Thank you for staying with us. This room assistant is no longer active for the previous stay.
+          If you've just checked in again, enter the new check-in code from reception — or ask them to
+          confirm the room is checked in.
         </p>
+        <form
+          className="flex w-full max-w-xs flex-col gap-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const v = codeInput.trim();
+            if (!v) {
+              // Retry without a code (hotels that don't require one, after re-check-in).
+              loadContext();
+              return;
+            }
+            setCodeError(null);
+            loadContext(v);
+          }}
+        >
+          <input
+            value={codeInput}
+            onChange={(e) => setCodeInput(e.target.value.toUpperCase())}
+            placeholder="Check-in code (if you have one)"
+            autoCapitalize="characters"
+            className="w-full rounded-xl border px-4 py-3 text-center text-lg tracking-[0.3em] outline-none focus:ring-2 focus:ring-primary"
+          />
+          {codeError && <p className="text-sm text-red-600">{codeError}</p>}
+          <button type="submit" className="w-full rounded-xl bg-primary py-3 font-medium text-primary-foreground">
+            Connect to this stay
+          </button>
+          <button
+            type="button"
+            className="text-sm text-muted-foreground underline"
+            onClick={() => loadContext()}
+          >
+            Try again without a code
+          </button>
+        </form>
       </div>
     );
   }

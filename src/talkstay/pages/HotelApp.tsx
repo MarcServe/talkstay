@@ -297,7 +297,7 @@ export default function HotelApp() {
     // to auto without a max height, so the page couldn't scroll and sticky nav stuck.
     <div data-talkstay className="ts-atmosphere flex h-[100dvh] overflow-hidden">
       {/* Desktop sidebar — fixed column, not sticky */}
-      <aside className="hidden h-full w-64 shrink-0 print:hidden md:block">
+      <aside className="hidden h-full w-64 shrink-0 md:block print:!hidden">
         {SidebarBody}
       </aside>
 
