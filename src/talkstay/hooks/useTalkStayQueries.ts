@@ -25,11 +25,12 @@ export const TALKSTAY_STALE = {
   request: 30_000,
 } as const;
 
-export function useHotelAccess(enabled = true) {
+export function useHotelAccess(userId: string | undefined) {
   return useQuery({
-    queryKey: talkstayKeys.access(),
+    // Per-user key so switching Google ↔ email never reuses the wrong cache.
+    queryKey: talkstayKeys.access(userId ?? ""),
     queryFn: fetchAccess,
-    enabled,
+    enabled: !!userId,
     staleTime: TALKSTAY_STALE.access,
     gcTime: 30 * 60_000,
   });

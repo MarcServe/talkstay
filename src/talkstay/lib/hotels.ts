@@ -190,25 +190,39 @@ export async function getMyAccess(): Promise<HotelAccess> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return none;
 
-  // 1. Owner?
-  const { data: owned } = await supabase
+  // 1. Owner? (ts_hotels.user_id must match THIS auth user — Google vs email
+  //    password can be different auth.users rows even with the same email.)
+  const { data: owned, error: ownedErr } = await supabase
     .from("ts_hotels").select("*").eq("user_id", user.id)
     .order("created_at", { ascending: true }).limit(1).maybeSingle();
+  if (ownedErr) throw ownedErr;
   if (owned) return { hotel: owned as Hotel, isOwner: true, role: "owner", departmentKey: null, name: null };
 
   // 2. Staff member? (managers see everything; staff are scoped to their team)
-  const { data: memberships } = await supabase
+  const { data: memberships, error: staffErr } = await supabase
     .from("ts_staff")
     .select("hotel_id, role, department_key, name, status")
     .eq("user_id", user.id).eq("status", "active");
-  const rows = (memberships ?? []) as any[];
+  if (staffErr) throw staffErr;
+  const rows = (memberships ?? []) as Array<{
+    hotel_id: string; role: string; department_key: string | null; name: string | null; status: string;
+  }>;
   if (rows.length === 0) return none;
 
   const manager = rows.find((r) => r.role === "manager" || r.role === "owner");
   const chosen = manager ?? rows[0];
-  const { data: hotel } = await supabase
+  const { data: hotel, error: hotelErr } = await supabase
     .from("ts_hotels").select("*").eq("id", chosen.hotel_id).maybeSingle();
-  if (!hotel) return none;
+  if (hotelErr) throw hotelErr;
+  if (!hotel) {
+    // Membership exists but the property row is missing — treat as invited staff
+    // with no dashboard, not as a brand-new owner.
+    return {
+      hotel: null, isOwner: false,
+      role: (chosen.role as HotelAccess["role"]) ?? "staff",
+      departmentKey: chosen.department_key, name: chosen.name ?? null,
+    };
+  }
 
   // A member listed under several departments works across them → treat as all.
   const depts = rows.filter((r) => r.hotel_id === chosen.hotel_id).map((r) => r.department_key);
@@ -217,7 +231,7 @@ export async function getMyAccess(): Promise<HotelAccess> {
   return {
     hotel: hotel as Hotel,
     isOwner: false,
-    role: (chosen.role as any) ?? "staff",
+    role: (chosen.role as HotelAccess["role"]) ?? "staff",
     departmentKey,
     name: chosen.name ?? null,
   };

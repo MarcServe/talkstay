@@ -30,7 +30,7 @@ export const INSIGHTS_TIME_MS: Record<InsightsTimeRange, number> = {
 
 export const talkstayKeys = {
   all: ["talkstay"] as const,
-  access: () => [...talkstayKeys.all, "access"] as const,
+  access: (userId = "") => [...talkstayKeys.all, "access", userId] as const,
   ops: (hotelId: string, timeRange: OpsTimeRange) =>
     [...talkstayKeys.all, "ops", hotelId, timeRange] as const,
   opsHotel: (hotelId: string) => [...talkstayKeys.all, "ops", hotelId] as const,

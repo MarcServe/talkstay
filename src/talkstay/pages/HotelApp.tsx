@@ -119,7 +119,7 @@ function CreateHotel({ onCreated }: { onCreated: (h: Hotel) => void }) {
   );
 }
 
-function NoAccess() {
+function NoAccess({ email }: { email?: string | null }) {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-3 px-6 text-center">
       <h1 className="text-xl font-semibold">You're signed in, but not on a property team yet</h1>
@@ -127,6 +127,13 @@ function NoAccess() {
         Ask your property manager to add your email under <strong>Staff</strong>. Once they do,
         refresh this page and your department's queue will appear here.
       </p>
+      {email && (
+        <p className="max-w-sm text-xs text-muted-foreground">
+          Signed in as <span className="font-medium text-foreground">{email}</span>.
+          If you own a property, sign in with the same method you used when you created it
+          (email/password and Google can be different accounts).
+        </p>
+      )}
       <Button variant="outline" onClick={() => supabase.auth.signOut()}>Sign out</Button>
     </div>
   );
@@ -150,7 +157,7 @@ export default function HotelApp() {
   const { user, loading } = useAuth();
   const qc = useQueryClient();
   const { data: access, isPending: loadingHotel, isError, error, refetch: refetchAccess } =
-    useHotelAccess(!!user);
+    useHotelAccess(user?.id);
   const [hotel, setHotel] = useState<Hotel | null>(null);
   usePrefetchHotelData(hotel?.id);
 
@@ -182,15 +189,18 @@ export default function HotelApp() {
     );
   }
   if (!user) return <AuthPage />;
-  // Only OWNERS get the create-hotel screen. A signed-in staff member with no
-  // hotel membership is shown a clear "ask your manager" message instead.
+  // Invited staff without a property → ask manager. Everyone else with no
+  // hotel yet (incl. owners who haven't created one) → create-property screen.
+  // IMPORTANT: `isOwner: false` alone is NOT "staff" — getMyAccess returns that
+  // for brand-new accounts too.
   if (!hotel) {
-    if (access && !access.isOwner) return <NoAccess />;
+    const isInvitedStaff = access?.role === "staff" || access?.role === "manager";
+    if (isInvitedStaff) return <NoAccess email={user.email} />;
     return (
       <CreateHotel
         onCreated={(h) => {
           setHotel(h);
-          void qc.invalidateQueries({ queryKey: talkstayKeys.access() });
+          void qc.invalidateQueries({ queryKey: talkstayKeys.access(user.id) });
           void refetchAccess();
         }}
       />
