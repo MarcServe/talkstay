@@ -175,7 +175,18 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
           fresh.length === 1
             ? `New request · Room ${r.ts_rooms?.room_number ?? "—"}`
             : `${fresh.length} new requests`,
-          { description: fresh.length === 1 ? (r.summary_staff || r.summary) : undefined },
+          {
+            description: fresh.length === 1 ? (r.summary_staff || r.summary) : "Open the queue to review them.",
+            duration: 10_000,
+            action: {
+              label: "Open",
+              onClick: () => {
+                setFilter("new");
+                setBoardFocus(null);
+                setSelectedId(r.id);
+              },
+            },
+          },
         );
       }
     }
@@ -193,6 +204,18 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
         const r0 = list.find((r) => r.id === e0.request_id);
         toast.message(`Guest followed up · Room ${r0?.ts_rooms?.room_number ?? "—"}`, {
           description: e0.note || r0?.summary_staff || r0?.summary,
+          duration: 12_000,
+          action: {
+            label: "Open",
+            onClick: () => {
+              setFilter("followup");
+              setBoardFocus(null);
+              setSelectedId(e0.request_id);
+              requestAnimationFrame(() => {
+                queueRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+              });
+            },
+          },
         });
       }
     }
@@ -337,10 +360,22 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
     revealQueue(note);
   };
 
+  const clearBoardFilters = (nextFilter: Filter = "active") => {
+    setBoardFocus(null);
+    setFilter(nextFilter);
+    if (!lockedDepartment) setDept("all");
+  };
+
   const exploreDept = (key: string) => {
     if (lockedDepartment) {
       // Department staff stay locked — still drill into today's work for their team.
       exploreBoard("today", "all", `${deptLabel(key)} · today`);
+      return;
+    }
+    // Click the active team again to return to all departments.
+    if (dept === key && boardFocus === "today") {
+      clearBoardFilters("all");
+      revealQueue("All departments");
       return;
     }
     setDept(key);
@@ -529,15 +564,32 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
 
       <div className="grid min-w-0 gap-3 lg:grid-cols-3">
         <div className="min-w-0 overflow-hidden rounded-2xl border bg-card p-4 shadow-sm lg:col-span-1">
-          <h3 className="text-sm font-medium">Requests by department today</h3>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">Click a team to open their queue</p>
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <h3 className="text-sm font-medium">Requests by department today</h3>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">
+                {dept !== "all" && !lockedDepartment
+                  ? `Showing ${deptLabel(dept)} — tap again or All teams to go back`
+                  : "Click a team to open their queue"}
+              </p>
+            </div>
+            {dept !== "all" && !lockedDepartment && (
+              <button
+                type="button"
+                onClick={() => { clearBoardFilters("all"); revealQueue("All departments"); }}
+                className="shrink-0 rounded-lg border border-violet-200 bg-violet-50 px-2 py-1 text-[11px] font-medium text-violet-700 hover:bg-violet-100"
+              >
+                ← All teams
+              </button>
+            )}
+          </div>
           {bi.deptRows.length === 0 ? (
             <p className="mt-3 text-sm text-muted-foreground">No requests yet today.</p>
           ) : (
             <ul className="mt-3 space-y-1.5">
               {bi.deptRows.slice(0, 6).map((d) => {
                 const pct = Math.round((d.count / bi.deptTotal) * 100);
-                const on = dept === d.key && boardFocus === "today";
+                const on = dept === d.key;
                 return (
                   <li key={d.key} className="min-w-0">
                     <button
@@ -653,13 +705,13 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
               </button>
             );
           })}
-          {boardFocus && (
+          {(boardFocus || (dept !== "all" && !lockedDepartment)) && (
             <button
               type="button"
-              onClick={() => { setBoardFocus(null); setFilter("active"); }}
+              onClick={() => { clearBoardFilters("active"); revealQueue("Full queue"); }}
               className="rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-1.5 text-xs font-medium text-violet-700 hover:bg-violet-100"
             >
-              Clear board filter
+              ← Clear filters
             </button>
           )}
         </div>
@@ -753,16 +805,25 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
                     {acked && (
                       <p className="mt-1 text-xs text-emerald-700">✓ Accepted by {acked.by} · {timeAgo(acked.at)}</p>
                     )}
-                    {escalation && (
-                      <p className="mt-1 break-words text-xs text-rose-700">
-                        ⚠ Guest followed up{escalation.note ? ` — "${escalation.note}"` : ""} · {timeAgo(escalation.at)}
-                      </p>
-                    )}
                   </div>
                   <span className={`max-w-[35%] shrink-0 truncate rounded-full px-2 py-1 text-xs sm:max-w-none sm:whitespace-nowrap ${statusBadge(r.status)}`}>
                     {statusLabel(r.status)}
                   </span>
                 </button>
+                {escalation && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFilter("followup");
+                      setBoardFocus(null);
+                      setSelectedId(r.id);
+                    }}
+                    className="mt-2 block w-full break-words rounded-lg border border-rose-200 bg-rose-50/80 px-3 py-2 text-left text-xs font-medium text-rose-800 transition-colors hover:bg-rose-100"
+                  >
+                    ⚠ Guest followed up{escalation.note ? ` — "${escalation.note}"` : ""} · {timeAgo(escalation.at)}
+                    <span className="ml-1 font-semibold text-rose-700">· Open to respond</span>
+                  </button>
+                )}
                 <div className="mt-3 flex flex-wrap items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>
                   <Button size="sm" variant="ghost" onClick={() => setSelectedId(r.id)}>
                     <MessageCircle className="mr-1 h-4 w-4" /> Open
