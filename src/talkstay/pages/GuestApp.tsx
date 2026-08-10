@@ -9,6 +9,7 @@ import { RealtimeChat } from "@/utils/RealtimeChat";
 import { conversationMemory } from "@/utils/ConversationMemory";
 import { pushSupported } from "@/talkstay/lib/push";
 import { alertIncoming } from "@/talkstay/lib/alerts";
+import { iosNeedsHomeScreenInstall, IOS_ADD_HOME_SCREEN_HINT } from "@/talkstay/lib/install";
 import InstallAppBanner from "@/talkstay/components/InstallAppBanner";
 import {
   fetchContext, sendMessage, fetchMyRequests, submitReview, saveGuestContact,
@@ -1128,7 +1129,10 @@ function NotifySheet({ hotelSlug, roomId, token, sid, onDone, onClose }: {
   // Independent, multi-selectable channels — a guest can have either, both,
   // or neither. Push (if supported) commits immediately on toggle since it's
   // a live browser permission flow; email is typed then committed on Save.
+  // On iOS Safari tabs, PushManager may be missing until Add to Home Screen —
+  // still show guidance so guests know why device alerts aren't available yet.
   const canPush = pushSupported();
+  const needsIosInstall = iosNeedsHomeScreenInstall();
   const [pushOn, setPushOn] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
   const [emailOn, setEmailOn] = useState(false);
@@ -1140,6 +1144,11 @@ function NotifySheet({ hotelSlug, roomId, token, sid, onDone, onClose }: {
     setPushBusy(true);
     try {
       if (next) {
+        if (iosNeedsHomeScreenInstall()) {
+          toast.message(IOS_ADD_HOME_SCREEN_HINT);
+          setPushOn(false);
+          return;
+        }
         const { enableAlertSounds } = await import("@/talkstay/lib/alerts");
         await enableAlertSounds();
         await enableDevicePush({ hotelSlug, roomId, token, sessionId: sid });
@@ -1188,6 +1197,12 @@ function NotifySheet({ hotelSlug, roomId, token, sid, onDone, onClose }: {
               <span className="flex-1 text-sm">Notify me on this device</span>
               {pushBusy && <Loader2 className="h-4 w-4 shrink-0 animate-spin" />}
             </label>
+          )}
+          {!canPush && needsIosInstall && (
+            <div className="rounded-xl border border-violet-200 bg-violet-50/80 p-3 text-sm text-violet-950">
+              <p className="font-medium">Notify me on this device</p>
+              <p className="mt-1 text-xs leading-relaxed text-violet-800/90">{IOS_ADD_HOME_SCREEN_HINT}</p>
+            </div>
           )}
 
           <div className="rounded-xl border p-3">

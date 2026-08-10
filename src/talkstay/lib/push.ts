@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { iosNeedsHomeScreenInstall, IOS_ADD_HOME_SCREEN_HINT } from "@/talkstay/lib/install";
 
 const VAPID_PUBLIC = import.meta.env.VITE_VAPID_PUBLIC_KEY as string | undefined;
 
@@ -20,10 +21,25 @@ export interface PushKeys { endpoint: string; p256dh: string; auth: string; }
  *  permission, register the SW, subscribe. Reused as-is if already
  *  subscribed (idempotent — safe to call again on an already-installed SW). */
 async function subscribeBrowser(): Promise<PushSubscription> {
-  if (!pushSupported()) throw new Error("Push notifications aren't supported on this device/browser.");
+  // iOS only grants Web Push after Add to Home Screen + open from the icon.
+  if (iosNeedsHomeScreenInstall()) throw new Error(IOS_ADD_HOME_SCREEN_HINT);
+
+  if (!pushSupported()) {
+    throw new Error("Push notifications aren't supported on this device/browser.");
+  }
+
+  if (typeof Notification === "undefined") {
+    throw new Error(IOS_ADD_HOME_SCREEN_HINT);
+  }
 
   const perm = await Notification.requestPermission();
-  if (perm !== "granted") throw new Error("Notification permission was not granted.");
+  if (perm !== "granted") {
+    throw new Error(
+      perm === "denied"
+        ? "Notification permission was not granted."
+        : IOS_ADD_HOME_SCREEN_HINT,
+    );
+  }
 
   const reg = await navigator.serviceWorker.register("/sw.js");
   await navigator.serviceWorker.ready;

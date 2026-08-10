@@ -35,9 +35,9 @@ export default defineConfig(async ({ mode }) => {
       filename: 'sw.js',
       registerType: 'autoUpdate',
       injectRegister: 'auto',
-      includeAssets: ['icons/*.png', 'lovable-uploads/*.png', 'lovable-uploads/*.jpg'],
+      includeAssets: ['icons/*.png', 'favicon.ico', 'favicon-32.png', 'lovable-uploads/*.png', 'lovable-uploads/*.jpg'],
       injectManifest: {
-        globPatterns: ['**/*.{js,css,html,woff2}', 'icons/*.png', 'favicon.ico'],
+        globPatterns: ['**/*.{js,css,html,woff2}', 'icons/*.png', 'favicon.ico', 'favicon-32.png'],
         // Don't precache inherited TalkWeb marketing imagery — keeps install lean.
         globIgnores: ['**/lovable-uploads/**', '**/assets/*.{png,jpg,jpeg}'],
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024, // 3 MB
@@ -55,6 +55,7 @@ export default defineConfig(async ({ mode }) => {
           { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
           { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
           { src: '/icons/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+          { src: '/icons/apple-touch-icon-180.png', sizes: '180x180', type: 'image/png', purpose: 'any' },
         ],
       },
     })
