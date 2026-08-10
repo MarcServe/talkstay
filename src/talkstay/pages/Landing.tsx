@@ -97,11 +97,11 @@ function DemoVideo({ videoId }: { videoId: string }) {
 const IMG = {
   hero: "/marketing/hero.jpg",
   heroWebp: "/marketing/hero.webp",
-  heroWebpSrcSet: "/marketing/hero-720.webp 720w, /marketing/hero.webp 1024w",
+  heroWebpSrcSet: "/marketing/hero-720.webp 720w, /marketing/hero.webp 763w",
   heroSizes: "(min-width: 1024px) 45vw, min(100vw, 40rem)",
   // Tiny blurred stand-in so the hero frame never looks empty while bytes arrive.
   heroLqip:
-    "data:image/jpeg;base64,/9j/2wBDABQUFBQVFBcZGRcfIh4iHy4rJycrLkYyNjI2MkZqQk5CQk5Cal5yXVZdcl6phXZ2hanDpJukw+zT0+z/////////2wBDARQUFBQVFBcZGRcfIh4iHy4rJycrLkYyNjI2MkZqQk5CQk5Cal5yXVZdcl6phXZ2hanDpJukw+zT0+z/////////wgARCAAQABgDASIAAhEBAxEB/8QAFwAAAwEAAAAAAAAAAAAAAAAAAAMFAf/EABQBAQAAAAAAAAAAAAAAAAAAAAP/2gAMAwEAAhADEAAAAIFdCSdhgh//xAAhEAADAAICAAcAAAAAAAAAAAABAgMEEQASEyEiMUGRov/aAAgBAQABPwDCm9NlV2R5AKB25VkwKGbbsaS9nOuvM/BugtkPRD6l/XJ4izQLKoDg7JI49pZFKLag6gbHwSRy+X40qr1I2Q31z//EABkRAAIDAQAAAAAAAAAAAAAAAAABESEikf/aAAgBAgEBPwB6kaiq6f/EABcRAAMBAAAAAAAAAAAAAAAAAAABEYH/2gAIAQMBAT8AkSMP/9k=",
+    "data:image/jpeg;base64,/9j/2wBDABQUFBQVFBcZGRcfIh4iHy4rJycrLkYyNjI2MkZqQk5CQk5Cal5yXVZdcl6phXZ2hanDpJukw+zT0+z/////////2wBDARQUFBQVFBcZGRcfIh4iHy4rJycrLkYyNjI2MkZqQk5CQk5Cal5yXVZdcl6phXZ2hanDpJukw+zT0+z/////////wgARCAAWABgDASIAAhEBAxEB/8QAGQABAQADAQAAAAAAAAAAAAAAAAUBAgQD/8QAFwEBAAMAAAAAAAAAAAAAAAAAAwABBP/aAAwDAQACEAMQAAAA27J1pUnvRlTgpiTIo//EACIQAAIBBAEEAwAAAAAAAAAAAAECAwAEEhMFERQhIjEyQf/aAAgBAQABPwCa8RmlikLBxIS3iouPRkR8xiw61yFpH2zhfIFSrB3N5kR12tSaNC7AHCwI3xlV+pZ31+Mo1YZev2q4tkNzIT+tVpPHFPGoz6aStStFyE5RQVVY/ev/xAAaEQEBAQEAAwAAAAAAAAAAAAABAgAREhMh/9oACAECAQE/APTMyePfrqUpF1XSyLuCu//EABgRAQEBAQEAAAAAAAAAAAAAAAEAAiES/9oACAEDAQE/AHawCHLWQw8hfJf/2Q==",
   howItWorks: "/marketing/how-it-works.jpg",
   howItWorksWebp: "/marketing/how-it-works.webp",
   howItWorksWebpSrcSet:
@@ -230,12 +230,11 @@ function Hero({ signedIn }: { signedIn: boolean }) {
           webpSrcSet={IMG.heroWebpSrcSet}
           sizes={IMG.heroSizes}
           lqip={IMG.heroLqip}
-          width={1024}
-          height={682}
-          alt="Guest scanning a TalkStay room QR code — scan to speak with TalkStay"
+          width={763}
+          height={719}
+          alt="Guest scanning a TalkStay bedside QR stand to open the voice room assistant on their phone"
           eager
-          fit="contain"
-          className="aspect-[1024/682] w-full rounded-3xl bg-[#1a1035] shadow-xl ring-1 ring-black/5"
+          className="aspect-[763/719] w-full rounded-3xl shadow-xl ring-1 ring-black/5"
         />
       </div>
 
@@ -440,7 +439,7 @@ export default function Landing() {
         <section id="how" className="mx-auto mt-20 max-w-6xl px-6 sm:mt-28">
           <div className="text-center">
             <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">How it works</h2>
-            <p className="mx-auto mt-3 max-w-xl text-sm text-muted-foreground">
+            <p className="mx-auto mt-4 max-w-2xl text-base font-semibold leading-snug tracking-tight text-foreground sm:text-lg">
               No app to download. Guests scan the room QR, speak, and it’s done — from their phone to your team.
             </p>
           </div>
