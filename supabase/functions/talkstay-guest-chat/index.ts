@@ -989,20 +989,37 @@ serve(async (req) => {
 
     const activeDepts = ctx.departments.length ? ctx.departments : DEPARTMENTS;
 
-    // This guest's currently-open requests for this stay — so a follow-up
-    // ("is it coming?", "it's been a while") isn't misread as a brand new ask
-    // and doesn't spawn a duplicate ticket. Terminal statuses are excluded.
-    const { data: openReqs } = sessionId
-      ? await admin.from("ts_service_requests")
-          .select("id, department_key, summary, created_at")
-          .eq("hotel_id", ctx.hotelId).eq("session_id", sessionId)
-          .in("status", ["new", "accepted", "in_progress", "on_the_way", "reopened"])
-          .order("created_at", { ascending: false }).limit(10)
-      : { data: [] as any[] };
-    const openRequests = openReqs ?? [];
+    // Open requests for THIS ROOM (any channel) — so a guest who already called
+    // reception (staff-logged phone order) doesn't spawn a duplicate via chat.
+    // Prefer session-matched rows first, then other open room tickets.
+    let openRequests: any[] = [];
+    {
+      const full = await admin.from("ts_service_requests")
+        .select("id, department_key, summary, created_at, source, session_id, classification_method")
+        .eq("hotel_id", ctx.hotelId).eq("room_id", ctx.roomId)
+        .in("status", ["new", "accepted", "in_progress", "on_the_way", "reopened", "escalated"])
+        .order("created_at", { ascending: false }).limit(15);
+      if (full.error?.message?.includes("source")) {
+        const legacy = await admin.from("ts_service_requests")
+          .select("id, department_key, summary, created_at, session_id, classification_method")
+          .eq("hotel_id", ctx.hotelId).eq("room_id", ctx.roomId)
+          .in("status", ["new", "accepted", "in_progress", "on_the_way", "reopened", "escalated"])
+          .order("created_at", { ascending: false }).limit(15);
+        openRequests = legacy.data ?? [];
+      } else {
+        openRequests = full.data ?? [];
+      }
+    }
     const openList = openRequests.map((r: any) => {
       const mins = Math.max(0, Math.round((Date.now() - new Date(r.created_at).getTime()) / 60000));
-      return `- [${r.id}] ${r.department_key} · ${r.summary} · asked ${mins} min ago`;
+      const channel = r.source || r.classification_method || "";
+      const via =
+        channel === "phone" ? "via phone"
+        : channel === "walk_in" ? "via walk-in"
+        : channel === "front_desk" ? "via front desk"
+        : sessionId && r.session_id === sessionId ? "this chat"
+        : "already logged";
+      return `- [${r.id}] ${r.department_key} · ${r.summary} · ${via} · ${mins} min ago`;
     }).join("\n");
 
     // Recent cancelled/done — so "can I reopen / same again" can recreate quickly.
@@ -1028,16 +1045,17 @@ WHAT TO DO:
 - Complaints, safety issues, anything upsetting or urgent: do NOT try to resolve it yourself. Call create_service_request with department "duty_manager", priority "urgent", is_complaint true, and reassure them a manager will contact them shortly.
 - If they want to re-open a cancelled request or "same again" / repeat something from RECENT CLOSED REQUESTS: call create_service_request with the SAME department and a matching English summary (you may copy the closed summary). Confirm warmly that it's back with the team. Tell them they can also tap Ask again in My requests.
 
-CURRENTLY OPEN REQUESTS FOR THIS STAY (id · department · summary · time since asked):
+CURRENTLY OPEN REQUESTS FOR THIS ROOM (includes phone / front-desk orders already logged by staff):
 ${openList || "(none yet)"}
 
 RECENT CLOSED REQUESTS (cancelled / done — usable for "ask again"):
 ${closedList || "(none)"}
 
 FOLLOW-UPS vs NEW REQUESTS — check the OPEN list above BEFORE calling create_service_request. If the guest's
-message is chasing, checking on, or complaining about something already listed (e.g. "is it coming",
-"it's been a while", "still waiting", "where's my..."), that is a FOLLOW-UP, not a new request:
+message matches something already listed — including orders taken by phone or front desk — that is a
+FOLLOW-UP / already-ordered item, not a new request:
 - Do NOT create a duplicate request for it.
+- Tell them it's already with the team (mention if it was logged by phone/front desk when relevant).
 - If they're just checking in, reassure them conversationally with an approximate wait and move on.
 - If they sound frustrated, or the time-since-asked is notably long for that kind of task, call
   escalate_request with that request's id (copied exactly from the list) so staff are alerted now.
@@ -1143,7 +1161,8 @@ what you just said. Vary your phrasing so it doesn't sound like a scripted closi
       const enSummary = summary.slice(0, 500);
       // B4: give staff the request in the hotel's language (falls back to English).
       const summaryStaff = await translateForStaff(OPENAI_API_KEY, enSummary, ctx.language);
-      const { data: reqRow } = await admin.from("ts_service_requests").insert({
+      const guestSource = o.method === "guest_repeat" ? "repeat" : "guest_chat";
+      const baseInsert = {
         hotel_id: ctx.hotelId, room_id: ctx.roomId, department_key: dept,
         intent: message.slice(0, 200), summary: enSummary, summary_staff: summaryStaff,
         priority: isComplaint ? "urgent" : (o.priority || "normal"),
@@ -1151,7 +1170,19 @@ what you just said. Vary your phrasing so it doesn't sound like a scripted closi
         guest_language: ctx.language, session_id: sessionId || null,
         classification_method: o.method, needs_triage: !!o.needsTriage,
         conversation: [...history.slice(-6), { role: "user", content: message }],
-      }).select("id, department_key, summary, summary_staff, status, is_complaint").single();
+      };
+      let reqRow: any = null;
+      {
+        const first = await admin.from("ts_service_requests")
+          .insert({ ...baseInsert, source: guestSource })
+          .select("id, department_key, summary, summary_staff, status, is_complaint").single();
+        reqRow = first.data;
+        if (first.error?.message?.includes("source")) {
+          const second = await admin.from("ts_service_requests").insert(baseInsert)
+            .select("id, department_key, summary, summary_staff, status, is_complaint").single();
+          reqRow = second.data;
+        }
+      }
       if (reqRow) {
         await admin.from("ts_request_events").insert({ request_id: reqRow.id, status: "new", actor_type: "guest" });
         admin.functions.invoke("talkstay-notify", { body: { requestId: reqRow.id } }).catch(() => {});

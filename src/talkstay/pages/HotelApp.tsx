@@ -12,6 +12,7 @@ import {
   Inbox, BarChart3, QrCode, Building2, BookOpen, Users, Palette,
 } from "lucide-react";
 import { enablePush, pushSupported } from "@/talkstay/lib/push";
+import { enableAlertSounds, notificationPermission } from "@/talkstay/lib/alerts";
 import AuthPage, { isPasswordSetupUrl } from "@/talkstay/pages/AuthPage";
 import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
 import OperationsPanel from "@/talkstay/components/OperationsPanel";
@@ -20,20 +21,23 @@ import RoomsPanel from "@/talkstay/components/RoomsPanel";
 import DepartmentsPanel from "@/talkstay/components/DepartmentsPanel";
 import KnowledgePanel from "@/talkstay/components/KnowledgePanel";
 import BrandingPanel from "@/talkstay/components/BrandingPanel";
-import { createHotel, ingestHotelWebsite, DEPARTMENTS, type Hotel } from "@/talkstay/lib/hotels";
+import StaffAlertsHost from "@/talkstay/components/StaffAlertsHost";
+import InstallAppBanner from "@/talkstay/components/InstallAppBanner";
+import { createHotel, ingestHotelWebsite, DEPARTMENTS, type Hotel, type PropertyProfile } from "@/talkstay/lib/hotels";
 import { talkstayKeys } from "@/talkstay/lib/data";
 import {
   useHotelAccess, usePrefetchHotelData,
 } from "@/talkstay/hooks/useTalkStayQueries";
+import PropertyProfileFields from "@/talkstay/components/PropertyProfileFields";
 
 const StaffPanel = lazy(() => import("@/talkstay/components/StaffPanel"));
 
 const NAV = [
   // `admin: true` = owner/manager only. Department staff see just Operations.
   { key: "operations", label: "Operations", icon: Inbox, admin: false, desc: "Live queue with today’s volumes — click any request for the full chat and timeline." },
-  { key: "insights", label: "Insights", icon: BarChart3, admin: true, desc: "Interactive analytics board — click charts and KPIs to drill into the data." },
+  { key: "insights", label: "Insights", icon: BarChart3, admin: true, desc: "Analytics board plus business intelligence — click charts to filter the brief and records." },
   { key: "rooms", label: "Rooms & QR", icon: QrCode, admin: true, desc: "Add rooms or named units and print the QR guests scan." },
-  { key: "branding", label: "Branding", icon: Palette, admin: true, desc: "Your logo, colour and the printable in-room poster." },
+  { key: "branding", label: "Branding", icon: Palette, admin: true, desc: "Logo, colour, property profile (type/address/scale), and the printable poster." },
   { key: "departments", label: "Departments", icon: Building2, admin: true, desc: "Teams, routing rules and per-department notifications." },
   { key: "knowledge", label: "Knowledge", icon: BookOpen, admin: true, desc: "What the assistant knows — website, documents and property info." },
   { key: "staff", label: "Staff", icon: Users, admin: true, desc: "Invite your team and manage their roles and access." },
@@ -44,6 +48,7 @@ function CreateHotel({ onCreated }: { onCreated: (h: Hotel) => void }) {
   const [name, setName] = useState("");
   const [website, setWebsite] = useState("");
   const [language, setLanguage] = useState("English");
+  const [property, setProperty] = useState<PropertyProfile>({ property_count: 1 });
   const [busy, setBusy] = useState(false);
   const [stage, setStage] = useState("");
 
@@ -57,6 +62,17 @@ function CreateHotel({ onCreated }: { onCreated: (h: Hotel) => void }) {
         name: name.trim(),
         website_url: website.trim() || undefined,
         default_language: language,
+        property: {
+          ...property,
+          type: property.type || undefined,
+          address: property.address?.trim() || undefined,
+          city: property.city?.trim() || undefined,
+          region: property.region?.trim() || undefined,
+          country: property.country?.trim() || undefined,
+          postcode: property.postcode?.trim() || undefined,
+          room_count: property.room_count ?? undefined,
+          property_count: property.property_count ?? 1,
+        },
       });
 
       // Starter knowledge from the hotel's website (TalkWeb scrape pipeline).
@@ -88,12 +104,13 @@ function CreateHotel({ onCreated }: { onCreated: (h: Hotel) => void }) {
   };
 
   return (
-    <div data-talkstay className="ts-atmosphere flex min-h-screen items-center justify-center px-4">
-      <div className="ts-glass-strong w-full max-w-md rounded-2xl border p-8">
+    <div data-talkstay className="ts-atmosphere flex min-h-screen items-center justify-center px-4 py-10">
+      <div className="ts-glass-strong w-full max-w-lg rounded-2xl border p-8">
         <div className="mb-1 text-lg font-semibold">TalkStay</div>
         <h1 className="text-2xl font-semibold tracking-tight">Create your property</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Sets up your guest assistant, knowledge base and the standard service departments.
+          A little context on type and scale helps Insights give better business advice.
         </p>
         <form onSubmit={submit} className="mt-6 space-y-4">
           <div className="space-y-1.5">
@@ -110,6 +127,10 @@ function CreateHotel({ onCreated }: { onCreated: (h: Hotel) => void }) {
           <div className="space-y-1.5">
             <Label htmlFor="hotel-lang">Primary language</Label>
             <Input id="hotel-lang" value={language} onChange={(e) => setLanguage(e.target.value)} />
+          </div>
+          <div className="rounded-xl border bg-muted/30 p-4">
+            <div className="mb-3 text-sm font-medium">Property profile</div>
+            <PropertyProfileFields value={property} onChange={setProperty} compact />
           </div>
           <Button type="submit" disabled={busy} className="w-full">
             {busy ? (stage || "Creating…") : "Create property"}
@@ -265,15 +286,28 @@ export default function HotelApp() {
       </nav>
 
       <div className="space-y-1 border-t border-white/10 p-3">
-        {pushSupported() && (
+        {(pushSupported() || notificationPermission() !== "unsupported") && (
           <button
             onClick={async () => {
-              try { await enablePush(hotel.id); toast.success("Alerts enabled on this device."); }
-              catch (e: any) { toast.error(e?.message ?? "Couldn't enable alerts"); }
+              try {
+                const { permission } = await enableAlertSounds();
+                if (permission !== "granted") {
+                  toast.error(
+                    permission === "denied"
+                      ? "Notifications are blocked — enable them in browser settings."
+                      : "Couldn't enable alert sounds.",
+                  );
+                  return;
+                }
+                if (pushSupported()) await enablePush(hotel.id);
+                toast.success("Alert sounds & notifications are on for this device.");
+              } catch (e: any) {
+                toast.error(e?.message ?? "Couldn't enable alerts");
+              }
             }}
             className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-white/60 hover:bg-white/5 hover:text-white"
           >
-            <Bell className="h-4 w-4" /> Enable alerts
+            <Bell className="h-4 w-4" /> Enable alert sounds
           </button>
         )}
         <div className="flex items-center gap-2.5 rounded-lg px-3 py-2">
@@ -296,6 +330,8 @@ export default function HotelApp() {
     // Viewport shell: overflow-x-hidden on min-h-screen was computing overflow-y
     // to auto without a max height, so the page couldn't scroll and sticky nav stuck.
     <div data-talkstay className="ts-atmosphere flex h-[100dvh] overflow-hidden">
+      <StaffAlertsHost hotelId={hotel.id} departmentKey={lockedDepartment} />
+
       {/* Desktop sidebar — fixed column, not sticky */}
       <aside className="hidden h-full w-64 shrink-0 md:block print:!hidden">
         {SidebarBody}
@@ -311,6 +347,9 @@ export default function HotelApp() {
 
       {/* Main column — only this pane scrolls */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <div className="shrink-0 print:hidden">
+          <InstallAppBanner hotelId={hotel.id} variant="staff" />
+        </div>
         <header className="z-20 flex min-w-0 shrink-0 items-center gap-3 border-b px-4 py-3 print:hidden md:hidden">
           <button onClick={() => setNavOpen(true)} aria-label="Open menu">
             <Menu className="h-5 w-5" />

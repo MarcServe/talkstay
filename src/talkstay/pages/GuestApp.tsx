@@ -8,6 +8,8 @@ import { toast } from "sonner";
 import { RealtimeChat } from "@/utils/RealtimeChat";
 import { conversationMemory } from "@/utils/ConversationMemory";
 import { pushSupported } from "@/talkstay/lib/push";
+import { alertIncoming } from "@/talkstay/lib/alerts";
+import InstallAppBanner from "@/talkstay/components/InstallAppBanner";
 import {
   fetchContext, sendMessage, fetchMyRequests, submitReview, saveGuestContact,
   confirmRequest, reopenRequest, cancelRequest, nudgeRequest, updateRequest, repeatRequest,
@@ -311,7 +313,16 @@ export default function GuestApp() {
       const last = fresh[fresh.length - 1];
       // Only announce replies that land while the guest is watching (not the
       // initial backfill of messages they've likely already read by email).
-      if (staffSeen.current.size > fresh.length) toast.message(last.staff_label ?? "Message from the team", { description: last.content });
+      if (staffSeen.current.size > fresh.length) {
+        const title = last.staff_label ?? "Message from the team";
+        toast.message(title, { description: last.content });
+        void alertIncoming({
+          title,
+          body: last.content,
+          tag: `staff-msg-${last.id}`,
+          url: typeof window !== "undefined" ? window.location.href : undefined,
+        });
+      }
     };
     poll();
     const iv = setInterval(poll, 7000);
@@ -649,6 +660,9 @@ export default function GuestApp() {
         backgroundPosition: "center",
       } : undefined}
     >
+      <div className="shrink-0">
+        <InstallAppBanner variant="guest" />
+      </div>
       {/* Compact header — keep chat as the largest surface. */}
       <header className="flex shrink-0 items-center gap-2.5 border-b bg-background/80 px-3 py-2 backdrop-blur">
         {logo ? (
@@ -1121,9 +1135,11 @@ function NotifySheet({ hotelSlug, roomId, token, sid, onDone, onClose }: {
     setPushBusy(true);
     try {
       if (next) {
+        const { enableAlertSounds } = await import("@/talkstay/lib/alerts");
+        await enableAlertSounds();
         await enableDevicePush({ hotelSlug, roomId, token, sessionId: sid });
         setPushOn(true);
-        toast.success("You'll be notified on this device.");
+        toast.success("You'll hear and see updates on this device.");
       } else {
         await disableDevicePush({ hotelSlug, roomId, token, sessionId: sid });
         setPushOn(false);

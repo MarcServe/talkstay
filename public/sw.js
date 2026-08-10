@@ -70,12 +70,15 @@ self.addEventListener("push", (event) => {
   event.waitUntil(
     self.registration.showNotification(title, {
       body: data.body || "",
-      icon: "/favicon.ico",
-      badge: "/favicon.ico",
+      icon: "/icons/icon-192.png",
+      badge: "/icons/icon-192.png",
       tag: data.tag || undefined,
       data: { url: data.url || "/app" },
       requireInteraction: !!data.urgent,
-      vibrate: data.urgent ? [200, 100, 200] : undefined,
+      // Explicitly allow the OS notification sound (some browsers default quiet).
+      silent: false,
+      renotify: true,
+      vibrate: data.urgent ? [200, 100, 200] : [120],
     })
   );
 });

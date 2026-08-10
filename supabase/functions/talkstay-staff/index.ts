@@ -139,17 +139,24 @@ serve(async (req) => {
     if (!hotelId) return json({ error: "hotelId required" }, 400);
 
     const { data: hotel } = await admin
-      .from("ts_hotels").select("id, user_id, name, slug, branding").eq("id", hotelId).maybeSingle();
+      .from("ts_hotels").select("id, user_id, name, slug, branding, default_language").eq("id", hotelId).maybeSingle();
     if (!hotel) return json({ error: "Not found" }, 404);
     const isOwner = hotel.user_id === caller.id;
     let isManager = false;
-    if (!isOwner) {
+    let callerStaff: { role: string; status: string; name: string | null; department_key: string | null } | null = null;
+    {
       const { data: me } = await admin
-        .from("ts_staff").select("role, status")
+        .from("ts_staff").select("role, status, name, department_key")
         .eq("hotel_id", hotelId).eq("user_id", caller.id).eq("status", "active").maybeSingle();
+      callerStaff = me ?? null;
       isManager = me?.role === "manager" || me?.role === "owner";
     }
-    if (!isOwner && !isManager) return json({ error: "Forbidden" }, 403);
+    // Department staff can log phone/walk-in orders; other staff actions stay manager/owner.
+    const OPS_STAFF_ACTIONS = new Set(["create_request", "open_for_room"]);
+    const isActiveStaff = isOwner || !!callerStaff;
+    if (!isOwner && !isManager && !(isActiveStaff && OPS_STAFF_ACTIONS.has(String(action)))) {
+      return json({ error: "Forbidden" }, 403);
+    }
 
     const isOwnerRow = async (sid: string) => {
       const { data } = await admin.from("ts_staff").select("user_id").eq("id", sid).eq("hotel_id", hotelId).maybeSingle();
@@ -179,8 +186,6 @@ serve(async (req) => {
       return map;
     };
 
-    const { data: callerStaff } = await admin.from("ts_staff")
-      .select("name").eq("hotel_id", hotelId).eq("user_id", caller.id).maybeSingle();
     const inviterName = callerStaff?.name || caller.email || "A manager";
 
     const inviteOne = async (opts: {
@@ -467,6 +472,138 @@ serve(async (req) => {
       return json({ ok: true, total: results.length, invited, added, failed, results });
     }
 
+    // ------- open_for_room: open tickets for a room (duplicate warning) -------
+    if (action === "open_for_room") {
+      const roomId = String(body.roomId ?? "").trim();
+      if (!roomId) return json({ error: "roomId required" }, 400);
+      let open: any[] | null = null;
+      {
+        const full = await admin.from("ts_service_requests")
+          .select("id, department_key, summary, summary_staff, status, priority, source, created_at, classification_method")
+          .eq("hotel_id", hotelId).eq("room_id", roomId)
+          .in("status", ["new", "accepted", "in_progress", "on_the_way", "reopened", "escalated"])
+          .order("created_at", { ascending: false })
+          .limit(20);
+        if (full.error?.message?.includes("source")) {
+          const legacy = await admin.from("ts_service_requests")
+            .select("id, department_key, summary, summary_staff, status, priority, created_at, classification_method")
+            .eq("hotel_id", hotelId).eq("room_id", roomId)
+            .in("status", ["new", "accepted", "in_progress", "on_the_way", "reopened", "escalated"])
+            .order("created_at", { ascending: false })
+            .limit(20);
+          open = (legacy.data ?? []).map((r: any) => ({ ...r, source: r.classification_method }));
+        } else {
+          open = full.data ?? [];
+        }
+      }
+      return json({ ok: true, open: open ?? [] });
+    }
+
+    // ------- create_request: staff logs phone / walk-in / front-desk order -------
+    if (action === "create_request") {
+      const roomId = String(body.roomId ?? "").trim();
+      const summary = String(body.summary ?? "").trim().slice(0, 500);
+      let dept = normalizeDept(body.departmentKey ?? departmentKey);
+      const sourceRaw = String(body.source ?? "phone").trim().toLowerCase();
+      const SOURCE_OK = new Set(["phone", "walk_in", "front_desk"]);
+      const source = SOURCE_OK.has(sourceRaw) ? sourceRaw : "phone";
+      const priorityRaw = String(body.priority ?? "normal").trim().toLowerCase();
+      const priority = ["low", "normal", "high", "urgent"].includes(priorityRaw) ? priorityRaw : "normal";
+      const force = !!body.force; // allow create even when similar open ticket exists
+
+      if (!roomId) return json({ error: "roomId required" }, 400);
+      if (!summary) return json({ error: "summary required" }, 400);
+
+      // Department staff may only log to their own team (managers/owners: any).
+      if (!isOwner && !isManager) {
+        if (!callerStaff?.department_key) {
+          return json({ error: "Your account has no department — ask a manager to assign one." }, 403);
+        }
+        dept = callerStaff.department_key;
+      }
+      if (!dept) return json({ error: "departmentKey required" }, 400);
+
+      const { data: room } = await admin.from("ts_rooms")
+        .select("id, room_number").eq("id", roomId).eq("hotel_id", hotelId).maybeSingle();
+      if (!room) return json({ error: "Room not found" }, 404);
+
+      // Duplicate warning — same room + same department still open.
+      const { data: openSame } = await admin.from("ts_service_requests")
+        .select("id, department_key, summary, summary_staff, status, source, created_at")
+        .eq("hotel_id", hotelId).eq("room_id", roomId).eq("department_key", dept)
+        .in("status", ["new", "accepted", "in_progress", "on_the_way", "reopened", "escalated"])
+        .order("created_at", { ascending: false })
+        .limit(8);
+
+      if ((openSame?.length ?? 0) > 0 && !force) {
+        return json({
+          ok: false,
+          duplicate: true,
+          error: "This room already has an open order for that team — confirm to log another.",
+          open: openSame,
+        }, 409);
+      }
+
+      const actorLabel = callerStaff?.name || caller.email || "staff";
+      const notePrefix =
+        source === "phone" ? "Phone order"
+        : source === "walk_in" ? "Walk-in order"
+        : "Front desk order";
+
+      const baseRow = {
+        hotel_id: hotelId,
+        room_id: roomId,
+        department_key: dept,
+        intent: "staff_logged",
+        summary,
+        summary_staff: summary,
+        status: "new",
+        priority,
+        is_complaint: false,
+        is_chargeable: false,
+        guest_language: (hotel as any).default_language || "English",
+        session_id: null,
+        classification_method: source,
+        needs_triage: false,
+        assigned_staff_id: caller.id,
+      };
+
+      let reqRow: any = null;
+      let insErr: { message?: string } | null = null;
+      {
+        const first = await admin.from("ts_service_requests").insert({ ...baseRow, source })
+          .select("id, department_key, summary, status, created_at").single();
+        reqRow = first.data;
+        insErr = first.error;
+        // Pre-migration: `source` column may not exist yet — retry without it.
+        if (insErr?.message?.includes("source")) {
+          const second = await admin.from("ts_service_requests").insert(baseRow)
+            .select("id, department_key, summary, status, created_at").single();
+          reqRow = second.data;
+          insErr = second.error;
+        }
+      }
+
+      if (insErr || !reqRow) return json({ error: insErr?.message ?? "Couldn't create order" }, 400);
+
+      await admin.from("ts_request_events").insert({
+        request_id: reqRow.id,
+        status: "new",
+        actor_type: "staff",
+        actor_id: caller.id,
+        note: `${notePrefix} logged by ${actorLabel}`,
+      });
+
+      // Alert the rest of the team (same path as guest-created tickets).
+      admin.functions.invoke("talkstay-notify", { body: { requestId: reqRow.id } }).catch(() => {});
+
+      return json({
+        ok: true,
+        request: reqRow,
+        roomNumber: room.room_number,
+      });
+    }
+
     // ------- update -------
     if (action === "update") {
       if (!staffId) return json({ error: "staffId required" }, 400);
@@ -492,6 +629,63 @@ serve(async (req) => {
       const { error } = await admin.from("ts_staff").delete().eq("id", staffId).eq("hotel_id", hotelId);
       if (error) return json({ error: error.message }, 400);
       return json({ ok: true });
+    }
+
+    // ------- bi_brief: polish Insights BI into a short manager narrative -------
+    if (action === "bi_brief") {
+      const OPENAI_API_KEY = (Deno.env.get("OPENAI_API_KEY") || "").replace(/[^\x21-\x7E]/g, "");
+      if (!OPENAI_API_KEY) return json({ error: "AI not configured" }, 500);
+      const snapshot = body.snapshot;
+      if (!snapshot || typeof snapshot !== "object") return json({ error: "snapshot required" }, 400);
+      const branding = (hotel.branding ?? {}) as Record<string, unknown>;
+      const property = (branding.property ?? {}) as Record<string, unknown>;
+      const system = `You are TalkStay's hotel/Airbnb business intelligence coach.
+Write a VERY short manager brief from the JSON snapshot (already filtered).
+Rules:
+- headline: max 8 words
+- summary: one sentence, max 28 words, numbers only from the snapshot
+- actions: exactly 3 short imperatives (max 18 words each), tailored to property type/scale/location when present
+- Prefer sales language when chargeable volume exists
+- Never invent numbers
+- Return JSON only: {"headline":"...","summary":"...","actions":["..."]}`;
+      const user = JSON.stringify({
+        hotel: hotel.name,
+        property,
+        snapshot,
+      });
+      const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          temperature: 0.4,
+          max_tokens: 500,
+          response_format: { type: "json_object" },
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: user },
+          ],
+        }),
+      });
+      if (!resp.ok) {
+        const t = await resp.text();
+        return json({ error: `AI failed: ${t.slice(0, 200)}` }, 502);
+      }
+      const data = await resp.json();
+      let parsed: { headline?: string; summary?: string; actions?: string[] } = {};
+      try {
+        parsed = JSON.parse(data?.choices?.[0]?.message?.content ?? "{}");
+      } catch {
+        return json({ error: "Bad AI response" }, 502);
+      }
+      const actions = Array.isArray(parsed.actions)
+        ? parsed.actions.map((a) => String(a).trim()).filter(Boolean).slice(0, 6)
+        : [];
+      return json({
+        headline: String(parsed.headline || "").trim() || null,
+        summary: String(parsed.summary || "").trim() || null,
+        actions,
+      });
     }
 
     return json({ error: "Unknown action" }, 400);

@@ -11,11 +11,46 @@ export const DEPARTMENTS: { key: string; display_name: string }[] = [
   { key: "duty_manager", display_name: "Duty Manager" },
 ];
 
+/** What kind of stay this property is — shapes Insights BI advice. */
+export type PropertyType =
+  | "hotel"
+  | "serviced_apartment"
+  | "airbnb"
+  | "bnb"
+  | "hostel"
+  | "other";
+
+export const PROPERTY_TYPES: { key: PropertyType; label: string }[] = [
+  { key: "hotel", label: "Hotel" },
+  { key: "serviced_apartment", label: "Serviced apartment / aparthotel" },
+  { key: "airbnb", label: "Airbnb / short-let" },
+  { key: "bnb", label: "B&B / guest house" },
+  { key: "hostel", label: "Hostel" },
+  { key: "other", label: "Other" },
+];
+
+/** Operator context so Insights can advise for a 10-room Airbnb vs a 200-room hotel. */
+export interface PropertyProfile {
+  type?: PropertyType | null;
+  /** Full street address (used for local / market-aware advice). */
+  address?: string | null;
+  city?: string | null;
+  region?: string | null;
+  country?: string | null;
+  postcode?: string | null;
+  /** Units/rooms at THIS property (optional override; else we count QR rooms). */
+  room_count?: number | null;
+  /** How many properties this operator runs in total (portfolio size). */
+  property_count?: number | null;
+  notes?: string | null;
+}
+
 export interface HotelBranding {
   logo_url?: string | null;
   primary_color?: string | null;
   tagline?: string | null;
   poster?: PosterConfig | null;
+  property?: PropertyProfile | null;
 }
 
 /** In-room printable QR poster. Every text field is editable; sensible defaults
@@ -272,6 +307,38 @@ export async function setHotelWebsite(assistantId: string, url: string): Promise
   return normalized;
 }
 
+export function propertyTypeLabel(t?: PropertyType | null): string {
+  return PROPERTY_TYPES.find((p) => p.key === t)?.label ?? "Property";
+}
+
+/** Merge property profile into branding jsonb (preserves logo/poster/etc.). */
+export async function updatePropertyProfile(
+  hotelId: string,
+  current: HotelBranding | null | undefined,
+  profile: PropertyProfile,
+): Promise<HotelBranding> {
+  const branding: HotelBranding = {
+    ...(current ?? {}),
+    property: {
+      ...(current?.property ?? {}),
+      ...profile,
+      type: profile.type || current?.property?.type || null,
+      address: profile.address?.trim() || null,
+      city: profile.city?.trim() || null,
+      region: profile.region?.trim() || null,
+      country: profile.country?.trim() || null,
+      postcode: profile.postcode?.trim() || null,
+      room_count: profile.room_count != null && profile.room_count > 0 ? Math.round(profile.room_count) : null,
+      property_count: profile.property_count != null && profile.property_count > 0
+        ? Math.round(profile.property_count) : null,
+      notes: profile.notes?.trim() || null,
+    },
+  };
+  const { error } = await supabase.from("ts_hotels").update({ branding }).eq("id", hotelId);
+  if (error) throw error;
+  return branding;
+}
+
 /**
  * Create a hotel + its linked assistant (for voice/KB reuse) + seed the 8
  * departments. All under the owner's session (RLS: user_id = auth.uid()).
@@ -281,6 +348,7 @@ export async function createHotel(input: {
   website_url?: string;
   default_language?: string;
   timezone?: string;
+  property?: PropertyProfile;
 }): Promise<Hotel> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Not signed in");
@@ -304,6 +372,10 @@ export async function createHotel(input: {
     .single();
   if (aErr) throw aErr;
 
+  const branding: HotelBranding = input.property
+    ? { property: input.property }
+    : {};
+
   // 2. Hotel row.
   const { data: hotel, error: hErr } = await supabase
     .from("ts_hotels")
@@ -314,6 +386,7 @@ export async function createHotel(input: {
       slug: slugify(input.name),
       default_language: input.default_language ?? "English",
       timezone: input.timezone ?? "Europe/London",
+      branding,
     })
     .select("*")
     .single();

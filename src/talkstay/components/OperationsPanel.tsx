@@ -8,10 +8,9 @@ import { toast } from "sonner";
 import {
   Loader2, AlertTriangle, RefreshCw, MessageCircle, Send,
   UtensilsCrossed, BedDouble, Wrench, Wine, Shirt, ConciergeBell, KeyRound, ShieldAlert,
-  ArrowDownRight, ArrowUpRight, Clock3,
+  ArrowDownRight, ArrowUpRight, Clock3, Phone,
 } from "lucide-react";
 import { DEPARTMENTS, type Hotel } from "@/talkstay/lib/hotels";
-import { playChime } from "@/talkstay/lib/chime";
 import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
 import type { OpsRequest, OpsTimeRange } from "@/talkstay/lib/data";
 import { OPEN_STATUSES } from "@/talkstay/lib/data";
@@ -20,9 +19,19 @@ import {
 } from "@/talkstay/hooks/useTalkStayQueries";
 import RequestDetailSheet from "@/talkstay/components/RequestDetailSheet";
 import ExportReportButton from "@/talkstay/components/ExportReportButton";
+import LogOrderDialog from "@/talkstay/components/LogOrderDialog";
 import { exportFilenameBase, type TalkStayExportPayload } from "@/talkstay/lib/exportReport";
 import { statusBadge, statusCard, statusLabel } from "@/talkstay/lib/statusStyles";
 import { useDemo } from "@/talkstay/demo/DemoContext";
+
+function channelLabel(source?: string | null) {
+  if (source === "phone") return "Phone";
+  if (source === "walk_in") return "Walk-in";
+  if (source === "front_desk") return "Front desk";
+  if (source === "repeat") return "Ask again";
+  if (source === "pulse") return "Stay feedback";
+  return null; // guest_chat — default, no badge clutter
+}
 
 type Req = OpsRequest;
 
@@ -137,17 +146,8 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
   const [replyOpen, setReplyOpen] = useState<Record<string, boolean>>({});
   const [replyText, setReplyText] = useState<Record<string, string>>({});
   const [replyBusy, setReplyBusy] = useState<Record<string, boolean>>({});
-  const seenIds = useRef<Set<string> | null>(null);
-  // Escalation EVENT ids already seen — separate from seenIds (row ids), since
-  // escalate_request updates an EXISTING row rather than creating a new one,
-  // so it needs its own "is this genuinely new" tracking for the chime.
-  const seenEscalations = useRef<Set<string> | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  // The queue this operator actually watches (locked team, or the dropdown).
-  const watchedDept = lockedDepartment ?? dept;
-  const watchedRef = useRef(watchedDept);
-  watchedRef.current = watchedDept;
-
+  const [logOpen, setLogOpen] = useState(false);
   const { data: queue, isPending, isFetching, isError, error } = useOpsQueue(hotel.id, timeRange);
   useOpsRealtime(hotel.id);
 
@@ -161,69 +161,8 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
     if (isError && error) toast.error(error.message);
   }, [isError, error]);
 
-  // Chime on genuinely new / escalated items (cache updates from realtime or refetch).
-  useEffect(() => {
-    if (!queue) return;
-    const list = queue.requests;
-
-    if (seenIds.current) {
-      const fresh = list.filter(
-        (r) => !seenIds.current!.has(r.id) && r.status === "new" &&
-          (watchedRef.current === "all" || r.department_key === watchedRef.current),
-      );
-      if (fresh.length) {
-        playChime();
-        const r = fresh[0];
-        toast.message(
-          fresh.length === 1
-            ? `New request · ${formatRoomLabel(r.ts_rooms?.room_number)}`
-            : `${fresh.length} new requests`,
-          {
-            description: fresh.length === 1 ? (r.summary_staff || r.summary) : "Open the queue to review them.",
-            duration: 10_000,
-            action: {
-              label: "Open",
-              onClick: () => {
-                setFilter("new");
-                setBoardFocus(null);
-                setSelectedId(r.id);
-              },
-            },
-          },
-        );
-      }
-    }
-    seenIds.current = new Set(list.map((r) => r.id));
-
-    if (seenEscalations.current) {
-      const fresh = queue.escalationEvents.filter((e) => {
-        if (seenEscalations.current!.has(e.id)) return false;
-        const dept = list.find((r) => r.id === e.request_id)?.department_key;
-        return watchedRef.current === "all" || dept === watchedRef.current;
-      });
-      if (fresh.length) {
-        playChime();
-        const e0 = fresh[0];
-        const r0 = list.find((r) => r.id === e0.request_id);
-        toast.message(`Guest followed up · ${formatRoomLabel(r0?.ts_rooms?.room_number)}`, {
-          description: e0.note || r0?.summary_staff || r0?.summary,
-          duration: 12_000,
-          action: {
-            label: "Open",
-            onClick: () => {
-              setFilter("followup");
-              setBoardFocus(null);
-              setSelectedId(e0.request_id);
-              requestAnimationFrame(() => {
-                queueRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-              });
-            },
-          },
-        });
-      }
-    }
-    seenEscalations.current = new Set(queue.escalationEvents.map((e) => e.id));
-  }, [queue]);
+  // New-request chimes + browser notifications live in StaffAlertsHost (app-wide)
+  // so they still fire when the operator is on Insights / Staff / etc.
 
   const refresh = () => { void invalidateOps(qc, hotel.id); };
 
@@ -764,6 +703,11 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
               {DEPARTMENTS.map((d) => <option key={d.key} value={d.key}>{d.display_name}</option>)}
             </select>
           )}
+          {!demo && (
+            <Button size="sm" onClick={() => setLogOpen(true)} title="Log a phone or walk-in order">
+              <Phone className="mr-1.5 h-3.5 w-3.5" /> Log order
+            </Button>
+          )}
           <ExportReportButton
             buildPayload={buildExportPayload}
             disabled={loading || !exportScope.length}
@@ -774,6 +718,15 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
           </Button>
         </div>
       </div>
+
+      {logOpen && (
+        <LogOrderDialog
+          hotel={hotel}
+          lockedDepartment={lockedDepartment}
+          onClose={() => setLogOpen(false)}
+          onCreated={() => refresh()}
+        />
+      )}
 
       {loading ? (
         <div className="flex items-center gap-2 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading queue…</div>
@@ -806,6 +759,11 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-semibold">{formatRoomLabel(r.ts_rooms?.room_number)}</span>
                       <Badge variant="secondary">{deptLabel(r.department_key)}</Badge>
+                      {channelLabel(r.source) && (
+                        <Badge variant="outline" className="border-sky-200 bg-sky-50 text-sky-800">
+                          <Phone className="mr-1 h-3 w-3" />{channelLabel(r.source)}
+                        </Badge>
+                      )}
                       {r.is_complaint && (
                         <Badge className="border border-rose-200 bg-rose-100 text-rose-800"><AlertTriangle className="mr-1 h-3 w-3" />Complaint</Badge>
                       )}

@@ -5,9 +5,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { Loader2, Upload, Mic, Palette, Printer, ImageIcon, X } from "lucide-react";
-import { friendlyImageName, type Hotel, type HotelBranding } from "@/talkstay/lib/hotels";
+import { Loader2, Upload, Mic, Palette, Printer, ImageIcon, X, Building2 } from "lucide-react";
+import {
+  friendlyImageName, updatePropertyProfile,
+  type Hotel, type HotelBranding, type PropertyProfile,
+} from "@/talkstay/lib/hotels";
 import PosterPanel from "@/talkstay/components/PosterPanel";
+import PropertyProfileFields from "@/talkstay/components/PropertyProfileFields";
 
 const DEFAULT_COLOR = "#7c3aed";
 
@@ -19,15 +23,53 @@ export default function BrandingPanel({ hotel, onSaved }: { hotel: Hotel; onSave
     <Tabs defaultValue="identity" className="space-y-6">
       <TabsList>
         <TabsTrigger value="identity"><Palette className="mr-1.5 h-4 w-4" /> Identity</TabsTrigger>
+        <TabsTrigger value="property"><Building2 className="mr-1.5 h-4 w-4" /> Property</TabsTrigger>
         <TabsTrigger value="poster"><Printer className="mr-1.5 h-4 w-4" /> Poster</TabsTrigger>
       </TabsList>
       <TabsContent value="identity">
         <IdentityTab hotel={hotel} onSaved={onSaved} />
       </TabsContent>
+      <TabsContent value="property">
+        <PropertyTab hotel={hotel} onSaved={onSaved} />
+      </TabsContent>
       <TabsContent value="poster">
         <PosterPanel hotel={hotel} onSaved={onSaved} />
       </TabsContent>
     </Tabs>
+  );
+}
+
+function PropertyTab({ hotel, onSaved }: { hotel: Hotel; onSaved?: (b: HotelBranding) => void }) {
+  const [profile, setProfile] = useState<PropertyProfile>(() => ({ ...(hotel.branding?.property ?? {}) }));
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const branding = await updatePropertyProfile(hotel.id, hotel.branding, profile);
+      onSaved?.(branding);
+      toast.success("Property profile saved — Insights will use this for smarter advice.");
+    } catch (err: any) {
+      toast.error(err?.message ?? "Couldn't save property profile");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="max-w-xl space-y-5">
+      <div>
+        <h3 className="text-sm font-medium">Property profile</h3>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Tell TalkStay whether this is a hotel, Airbnb, or B&amp;B — and how many rooms/properties you run.
+          Insights uses this (plus your address) for business intelligence that fits your scale and location.
+        </p>
+      </div>
+      <PropertyProfileFields value={profile} onChange={setProfile} />
+      <Button onClick={save} disabled={saving}>
+        {saving ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null} Save property profile
+      </Button>
+    </div>
   );
 }
 

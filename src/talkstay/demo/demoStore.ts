@@ -28,6 +28,16 @@ export const DEMO_HOTEL: Hotel = {
   branding: {
     primary_color: "#4c2bb8",
     tagline: "Rest easy. We're here for you.",
+    property: {
+      type: "hotel",
+      address: "18 Pier Parade",
+      city: "Brighton",
+      region: "East Sussex",
+      country: "United Kingdom",
+      postcode: "BN2 1TL",
+      room_count: 48,
+      property_count: 1,
+    },
   },
 };
 
@@ -263,9 +273,9 @@ function seedInsights(requests: OpsRequest[]): InsightsData {
   for (let i = 0; i < 28; i++) {
     interactions.push({
       session_id: `demo-sess-${i % 9}`,
-      role: i % 3 === 0 ? "assistant" : "user",
+      role: i % 3 === 0 ? "assistant" : "guest",
       content: i % 3 === 0 ? "Happy to help with that." : "Can you help with my room?",
-      intent: i % 2 === 0 ? "service_request" : "faq",
+      intent: i % 2 === 0 ? "service_request" : "question",
       language: i % 5 === 0 ? "fr" : "en",
       created_at: new Date(now - i * 3_600_000).toISOString(),
     });
@@ -278,6 +288,8 @@ function seedInsights(requests: OpsRequest[]): InsightsData {
     summary: r.summary,
     status: r.status,
     is_complaint: r.is_complaint,
+    is_chargeable: ["kitchen", "bar", "laundry"].includes(r.department_key),
+    price: ["kitchen", "bar", "laundry"].includes(r.department_key) ? 18 + (r.id.length % 40) : null,
     classification_method: "voice",
     session_id: `demo-session-${r.id}`,
     created_at: r.created_at,
@@ -287,13 +299,17 @@ function seedInsights(requests: OpsRequest[]): InsightsData {
 
   // Extra historical completed volume so charts look alive.
   for (let i = 0; i < 14; i++) {
+    const dept = ["housekeeping", "kitchen", "bar", "maintenance", "concierge"][i % 5];
+    const paid = dept === "kitchen" || dept === "bar";
     insightRequests.push({
       id: `demo-hist-${i}`,
       room_id: `demo-room-${100 + i}`,
-      department_key: ["housekeeping", "kitchen", "maintenance", "concierge"][i % 4],
-      summary: "Historical demo request",
+      department_key: dept,
+      summary: paid ? (dept === "bar" ? "Two cocktails to room" : "Club sandwich and fries") : "Historical demo request",
       status: "completed",
       is_complaint: i % 7 === 0,
+      is_chargeable: paid,
+      price: paid ? 22 + i * 3 : null,
       classification_method: "voice",
       session_id: `demo-hist-sess-${i}`,
       created_at: new Date(now - (i + 1) * 8 * 3_600_000).toISOString(),

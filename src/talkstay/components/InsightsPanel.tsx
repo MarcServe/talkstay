@@ -17,6 +17,8 @@ import { Button } from "@/components/ui/button";
 import { DEPARTMENTS, type Hotel } from "@/talkstay/lib/hotels";
 import RequestDetailSheet from "@/talkstay/components/RequestDetailSheet";
 import ExportReportButton from "@/talkstay/components/ExportReportButton";
+import BusinessIntelligenceCard from "@/talkstay/components/BusinessIntelligenceCard";
+import { buildBusinessIntelligence } from "@/talkstay/lib/businessIntelligence";
 import { exportFilenameBase, type TalkStayExportPayload } from "@/talkstay/lib/exportReport";
 import { INTENT_STYLE, statusBadge, statusLabel } from "@/talkstay/lib/statusStyles";
 import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
@@ -44,7 +46,12 @@ const TIME_RANGES: { id: TimeRange; label: string; short: string; ms: number }[]
 ];
 
 interface Interaction { session_id: string | null; role: string; content: string | null; intent: string | null; language: string | null; created_at: string; }
-interface Req { id: string; room_id: string | null; department_key: string; summary: string; status: string; is_complaint: boolean; classification_method: string | null; session_id: string | null; created_at: string; updated_at: string; ts_rooms?: { room_number: string } | null; }
+interface Req {
+  id: string; room_id: string | null; department_key: string; summary: string; status: string;
+  is_complaint: boolean; is_chargeable?: boolean | null; price?: number | null;
+  classification_method: string | null; session_id: string | null; created_at: string; updated_at: string;
+  ts_rooms?: { room_number: string } | null;
+}
 interface Ev { request_id: string; status: string; note: string | null; created_at: string; }
 interface Pulse {
   id: string; body: string; rating: number | null; sentiment: string; severity: string;
@@ -116,6 +123,7 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
   const [deptFilter, setDeptFilter] = useState<string | null>(null);
   const [dayFilter, setDayFilter] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
+  const [qrRoomCount, setQrRoomCount] = useState<number | null>(null);
 
   const revealDrill = (next: Drill, note?: string) => {
     setDrill(next);
@@ -170,6 +178,22 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
   useEffect(() => {
     if (isError && error) toast.error(error.message);
   }, [isError, error]);
+
+  useEffect(() => {
+    if (demo) {
+      setQrRoomCount(demo.state.rooms?.length ?? null);
+      return;
+    }
+    let cancelled = false;
+    void supabase
+      .from("ts_rooms")
+      .select("id", { count: "exact", head: true })
+      .eq("hotel_id", hotel.id)
+      .then(({ count }) => {
+        if (!cancelled) setQrRoomCount(typeof count === "number" ? count : null);
+      });
+    return () => { cancelled = true; };
+  }, [hotel.id, demo]);
 
   // Per-request audit model with timings.
   const audit = useMemo(() => {
@@ -300,6 +324,55 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
     if (drill === "completed") rows = rows.filter((r) => r.isDone);
     return rows;
   }, [rangedAudit, deptFilter, dayFilter, statusFilter, drill]);
+
+  const bi = useMemo(() => {
+    const filterBits: string[] = [];
+    if (deptFilter) filterBits.push(deptLabel(deptFilter));
+    if (dayFilter) filterBits.push(dayFilter.length > 10 ? dayFilter.slice(0, 13).replace("T", " ") : dayFilter);
+    if (statusFilter) filterBits.push(statusFilter.replace(/_/g, " "));
+    if (drill === "completed") filterBits.push("completed only");
+
+    // When charts filter requests, still use overall guest engagement for the period
+    // unless we're looking at a day slice — keep BI tied to the visible request set.
+    const guestTurns = rangedRows.filter((r) => r.role === "guest");
+    const guests = new Set(guestTurns.map((r) => r.session_id).filter(Boolean)).size;
+    const questions = guestTurns.filter((r) => r.intent === "question").length;
+    const avg = rangedRatings.length
+      ? rangedRatings.reduce((a, b) => a + b.rating, 0) / rangedRatings.length
+      : null;
+    const pulseNegRate = rangedPulses.length
+      ? Math.round((rangedPulses.filter((p) => p.sentiment === "negative").length / rangedPulses.length) * 100)
+      : null;
+
+    return buildBusinessIntelligence({
+      periodLabel: rangeMeta.label,
+      rows: filteredAudit.map((a) => ({
+        department_key: a.department_key,
+        status: a.status,
+        is_complaint: a.is_complaint,
+        is_chargeable: (a as Req).is_chargeable,
+        price: (a as Req).price,
+        isDone: a.isDone,
+        toAcceptMin: a.toAcceptMin,
+        toCompleteMin: a.toCompleteMin,
+      })),
+      guests,
+      questions,
+      avgRating: avg,
+      ratingCount: rangedRatings.length,
+      pulseCount: rangedPulses.length,
+      pulseNegRate,
+      profile: hotel.branding?.property ?? null,
+      qrRoomCount,
+      filterNote: filterBits.length ? filterBits.join(" · ") : null,
+    });
+  }, [
+    filteredAudit, rangedRows, rangedRatings, rangedPulses, rangeMeta.label,
+    deptFilter, dayFilter, statusFilter, drill, hotel.branding?.property, qrRoomCount,
+  ]);
+
+  const missingPropertyProfile = !hotel.branding?.property?.type
+    || !(hotel.branding?.property?.address || hotel.branding?.property?.city);
 
   const clearChartFilters = () => {
     setDeptFilter(null);
@@ -482,6 +555,12 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
           </Button>
         </div>
       </div>
+
+      <BusinessIntelligenceCard
+        hotelId={hotel.id}
+        snapshot={bi}
+        missingProfile={missingPropertyProfile}
+      />
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
         <Stat icon={Users} label="Guests engaged" value={m.guests} sub={`last ${rangeMeta.label}`} active={drill === "conversations" && !hasChartFilter} onClick={() => { clearChartFilters(); revealDrill("conversations", "Guest conversations"); }} />
@@ -991,7 +1070,7 @@ function ReviewsList({ reviews, onOpen }: {
   );
 }
 
-/** Top-of-Insights feed — stay pulse + star reviews without opening a drill first. */
+/** Top-of-Insights feed — stay pulse + star reviews, colour-split panels. */
 function LatestFeedback({
   pulses, reviews, rangeLabel, onOpenPulse, onOpenReviews, onOpenRequest,
 }: {
@@ -1002,89 +1081,150 @@ function LatestFeedback({
   onOpenReviews: () => void;
   onOpenRequest: (id: string) => void;
 }) {
-  const items = useMemo(() => {
-    const pulseItems = pulses.map((p) => ({
-      kind: "pulse" as const,
-      id: p.id,
-      at: p.created_at,
-      room: p.ts_rooms?.room_number ?? "—",
-      title: p.issue_label || p.issue_key || "Stay feedback",
-      body: p.body,
-      rating: p.rating,
-      sentiment: p.sentiment,
-      requestId: p.request_id,
-    }));
-    const reviewItems = reviews.map((r) => ({
-      kind: "review" as const,
-      id: r.request_id,
-      at: r.created_at,
-      room: r.room,
-      title: r.summary,
-      body: r.comment,
-      rating: r.rating,
-      sentiment: null as string | null,
-      requestId: r.request_id,
-    }));
-    return [...pulseItems, ...reviewItems]
-      .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
-      .slice(0, 8);
-  }, [pulses, reviews]);
+  const pulseItems = useMemo(() => (
+    [...pulses]
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      .slice(0, 4)
+      .map((p) => ({
+        id: p.id,
+        at: p.created_at,
+        room: p.ts_rooms?.room_number ?? "—",
+        title: p.issue_label || p.issue_key || "Stay feedback",
+        body: p.body,
+        rating: p.rating,
+        sentiment: p.sentiment,
+        requestId: p.request_id,
+      }))
+  ), [pulses]);
+
+  const reviewItems = useMemo(() => (
+    [...reviews]
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      .slice(0, 4)
+      .map((r) => ({
+        id: r.request_id,
+        at: r.created_at,
+        room: r.room,
+        title: r.summary,
+        body: r.comment,
+        rating: r.rating,
+        requestId: r.request_id,
+      }))
+  ), [reviews]);
+
+  const empty = pulseItems.length === 0 && reviewItems.length === 0;
 
   return (
     <div className="rounded-2xl border bg-card p-4 shadow-sm">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h3 className="text-sm font-medium">Latest guest feedback</h3>
-          <p className="text-xs text-muted-foreground">
-            Stay pulse (“How has your stay been?”) and star ratings · last {rangeLabel}
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button type="button" size="sm" variant="outline" onClick={onOpenPulse}>
-            All pulse
-          </Button>
-          <Button type="button" size="sm" variant="outline" onClick={onOpenReviews}>
-            All ratings
-          </Button>
-        </div>
+      <div className="mb-3">
+        <h3 className="text-sm font-medium">Latest guest feedback</h3>
+        <p className="text-xs text-muted-foreground">Last {rangeLabel}</p>
       </div>
-      {items.length === 0 ? (
+
+      {empty ? (
         <p className="text-sm text-muted-foreground">
-          No feedback in this range yet. When a guest answers the stay check or rates a completed request, it shows up here (not in the Operations queue).
+          No feedback in this range yet. Stay checks and request ratings appear here (not in Operations).
         </p>
       ) : (
-        <div className="divide-y rounded-xl border">
-          {items.map((item) => (
-            <button
-              key={`${item.kind}-${item.id}-${item.at}`}
-              type="button"
-              className="block w-full px-3 py-2.5 text-left text-sm transition-colors hover:bg-muted/40"
-              onClick={() => {
-                if (item.requestId) onOpenRequest(item.requestId);
-                else if (item.kind === "pulse") onOpenPulse();
-                else onOpenReviews();
-              }}
-            >
-              <div className="flex flex-wrap items-center gap-2 text-xs">
-                <span className="rounded-full bg-muted px-2 py-0.5 font-medium text-muted-foreground">
-                  {item.kind === "pulse" ? "Stay pulse" : "Request rating"}
-                </span>
-                {item.sentiment && (
-                  <span className={`rounded-full px-2 py-0.5 ${SENTIMENT_STYLE[item.sentiment] ?? SENTIMENT_STYLE.neutral}`}>
-                    {item.sentiment}
-                  </span>
-                )}
-                {item.rating != null && (
-                  <span className="text-yellow-500">{"★".repeat(item.rating)}</span>
-                )}
-                <span className="text-muted-foreground">{formatRoomLabel(item.room)} · {fmtWhen(item.at)}</span>
+        <div className="grid gap-3 md:grid-cols-2">
+          {/* Stay pulse — violet */}
+          <div className="overflow-hidden rounded-xl border border-violet-200/80 bg-violet-50/40">
+            <div className="flex items-center justify-between gap-2 border-b border-violet-200/70 bg-violet-100/50 px-3 py-2">
+              <div className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-violet-500" aria-hidden />
+                <span className="text-xs font-semibold uppercase tracking-wide text-violet-900">Stay pulse</span>
+                <span className="text-[11px] text-violet-700/80">{pulses.length}</span>
               </div>
-              <p className="mt-1 truncate font-medium">{item.title}</p>
-              {item.body && (
-                <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">“{item.body}”</p>
-              )}
-            </button>
-          ))}
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2 text-violet-800 hover:bg-violet-100 hover:text-violet-950"
+                onClick={onOpenPulse}
+              >
+                All
+              </Button>
+            </div>
+            {pulseItems.length === 0 ? (
+              <p className="px-3 py-4 text-xs text-violet-800/70">No stay checks in this range.</p>
+            ) : (
+              <div className="divide-y divide-violet-200/60">
+                {pulseItems.map((item) => (
+                  <button
+                    key={`pulse-${item.id}-${item.at}`}
+                    type="button"
+                    className="block w-full border-l-[3px] border-l-violet-500 px-3 py-2.5 text-left transition-colors hover:bg-violet-100/50"
+                    onClick={() => {
+                      if (item.requestId) onOpenRequest(item.requestId);
+                      else onOpenPulse();
+                    }}
+                  >
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                      {item.sentiment && (
+                        <span className={`rounded-md px-1.5 py-0.5 ${SENTIMENT_STYLE[item.sentiment] ?? SENTIMENT_STYLE.neutral}`}>
+                          {item.sentiment}
+                        </span>
+                      )}
+                      {item.rating != null && (
+                        <span className="font-medium text-violet-800">{item.rating}★</span>
+                      )}
+                      <span className="text-violet-800/70">{formatRoomLabel(item.room)} · {fmtWhen(item.at)}</span>
+                    </div>
+                    <p className="mt-1 truncate text-sm font-medium text-violet-950">{item.title}</p>
+                    {item.body && (
+                      <p className="mt-0.5 line-clamp-2 text-xs text-violet-900/65">“{item.body}”</p>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Request ratings — amber */}
+          <div className="overflow-hidden rounded-xl border border-amber-200/80 bg-amber-50/40">
+            <div className="flex items-center justify-between gap-2 border-b border-amber-200/70 bg-amber-100/50 px-3 py-2">
+              <div className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-amber-500" aria-hidden />
+                <span className="text-xs font-semibold uppercase tracking-wide text-amber-950">Ratings</span>
+                <span className="text-[11px] text-amber-800/80">{reviews.length}</span>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2 text-amber-900 hover:bg-amber-100 hover:text-amber-950"
+                onClick={onOpenReviews}
+              >
+                All
+              </Button>
+            </div>
+            {reviewItems.length === 0 ? (
+              <p className="px-3 py-4 text-xs text-amber-900/70">No request ratings in this range.</p>
+            ) : (
+              <div className="divide-y divide-amber-200/60">
+                {reviewItems.map((item) => (
+                  <button
+                    key={`review-${item.id}-${item.at}`}
+                    type="button"
+                    className="block w-full border-l-[3px] border-l-amber-500 px-3 py-2.5 text-left transition-colors hover:bg-amber-100/50"
+                    onClick={() => onOpenRequest(item.requestId)}
+                  >
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                      <span className="font-semibold tracking-wide text-amber-600">
+                        {"★".repeat(item.rating)}
+                        <span className="text-amber-300">{"★".repeat(Math.max(0, 5 - item.rating))}</span>
+                      </span>
+                      <span className="text-amber-900/70">{formatRoomLabel(item.room)} · {fmtWhen(item.at)}</span>
+                    </div>
+                    <p className="mt-1 truncate text-sm font-medium text-amber-950">{item.title}</p>
+                    {item.body && (
+                      <p className="mt-0.5 line-clamp-2 text-xs text-amber-950/65">“{item.body}”</p>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

@@ -80,6 +80,8 @@ export interface OpsRequest {
   is_complaint: boolean;
   needs_triage: boolean;
   guest_language: string | null;
+  /** guest_chat | phone | walk_in | front_desk | repeat | pulse */
+  source?: string | null;
   created_at: string;
   ts_rooms?: { room_number: string } | null;
 }
@@ -93,33 +95,45 @@ export interface OpsQueueData {
   fetchedAt: number;
 }
 
-const OPS_SELECT =
+const OPS_SELECT_FULL =
+  "id, room_id, department_key, summary, summary_staff, status, priority, is_complaint, needs_triage, guest_language, source, created_at, ts_rooms(room_number)";
+const OPS_SELECT_LEGACY =
   "id, room_id, department_key, summary, summary_staff, status, priority, is_complaint, needs_triage, guest_language, created_at, ts_rooms(room_number)";
 
 export async function fetchOpsQueue(hotelId: string, timeRange: OpsTimeRange): Promise<OpsQueueData> {
   const ms = OPS_TIME_MS[timeRange];
   // Split open vs closed: a single `.limit(200)` on mixed rows hides older open
   // tickets once a busy property has more than 200 matching rows.
-  const openQ = supabase
-    .from("ts_service_requests")
-    .select(OPS_SELECT)
-    .eq("hotel_id", hotelId)
-    .in("status", [...OPEN_STATUSES])
-    .order("created_at", { ascending: false })
-    .limit(500);
+  const load = async (select: string) => {
+    const openQ = supabase
+      .from("ts_service_requests")
+      .select(select)
+      .eq("hotel_id", hotelId)
+      .in("status", [...OPEN_STATUSES])
+      .order("created_at", { ascending: false })
+      .limit(500);
 
-  let closedQ = supabase
-    .from("ts_service_requests")
-    .select(OPS_SELECT)
-    .eq("hotel_id", hotelId)
-    .not("status", "in", `(${OPEN_STATUSES.join(",")})`)
-    .order("created_at", { ascending: false })
-    .limit(150);
-  if (ms != null) {
-    closedQ = closedQ.gte("created_at", new Date(Date.now() - ms).toISOString());
+    let closedQ = supabase
+      .from("ts_service_requests")
+      .select(select)
+      .eq("hotel_id", hotelId)
+      .not("status", "in", `(${OPEN_STATUSES.join(",")})`)
+      .order("created_at", { ascending: false })
+      .limit(150);
+    if (ms != null) {
+      closedQ = closedQ.gte("created_at", new Date(Date.now() - ms).toISOString());
+    }
+    return Promise.all([openQ, closedQ]);
+  };
+
+  let [openRes, closedRes] = await load(OPS_SELECT_FULL);
+  // Before migration 20260810000006 lands, `source` isn't selectable yet.
+  if (
+    openRes.error?.message?.includes("source") ||
+    closedRes.error?.message?.includes("source")
+  ) {
+    [openRes, closedRes] = await load(OPS_SELECT_LEGACY);
   }
-
-  const [openRes, closedRes] = await Promise.all([openQ, closedQ]);
   if (openRes.error) throw openRes.error;
   if (closedRes.error) throw closedRes.error;
 
@@ -279,7 +293,8 @@ export interface InsightsData {
   }[];
   requests: {
     id: string; room_id: string | null; department_key: string; summary: string;
-    status: string; is_complaint: boolean; classification_method: string | null;
+    status: string; is_complaint: boolean; is_chargeable?: boolean | null;
+    price?: number | null; classification_method: string | null;
     session_id: string | null; created_at: string; updated_at: string;
     ts_rooms?: { room_number: string } | null;
   }[];
@@ -312,7 +327,7 @@ export async function fetchInsights(hotelId: string, timeRange: InsightsTimeRang
       .gte("created_at", sinceIso)
       .order("created_at", { ascending: false }).limit(1000),
     supabase.from("ts_service_requests")
-      .select("id, room_id, department_key, summary, status, is_complaint, classification_method, session_id, created_at, updated_at, ts_rooms(room_number)")
+      .select("id, room_id, department_key, summary, status, is_complaint, is_chargeable, price, classification_method, session_id, created_at, updated_at, ts_rooms(room_number)")
       .eq("hotel_id", hotelId)
       .gte("created_at", sinceIso)
       .order("created_at", { ascending: false }).limit(500),
