@@ -662,6 +662,10 @@ export default function GuestApp() {
           <PulseCard
             hotelSlug={hotelSlug} roomId={roomId} token={token} sid={sid} brand={brand}
             onFinished={() => setPulseHidden(true)}
+            onBeforeListen={() => {
+              // Realtime voice holds the mic — release it before feedback dictation.
+              if (voiceState !== "idle") stopVoice(false);
+            }}
           />
         )}
       </div>
@@ -705,9 +709,10 @@ export default function GuestApp() {
 
 /** "How has your stay been?" — asked DURING the stay, so a fixable problem gets
  *  fixed instead of surfacing two weeks later as a public review. */
-function PulseCard({ hotelSlug, roomId, token, sid, brand, onFinished }: {
+function PulseCard({ hotelSlug, roomId, token, sid, brand, onFinished, onBeforeListen }: {
   hotelSlug: string; roomId: string; token: string; sid: string;
   brand: string; onFinished: (state: "done" | "dismissed") => void;
+  onBeforeListen?: () => void;
 }) {
   const [rating, setRating] = useState<number | null>(null);
   const [text, setText] = useState("");
@@ -716,6 +721,7 @@ function PulseCard({ hotelSlug, roomId, token, sid, brand, onFinished }: {
   const [result, setResult] = useState<{ reply: string; notifiedManager: boolean } | null>(null);
   const recogRef = useRef<any>(null);
   const baseTextRef = useRef("");
+  const networkRetryRef = useRef(false);
 
   const speechOk = typeof window !== "undefined" &&
     !!(window.SpeechRecognition || (window as any).webkitSpeechRecognition);
@@ -728,27 +734,45 @@ function PulseCard({ hotelSlug, roomId, token, sid, brand, onFinished }: {
 
   useEffect(() => () => { try { recogRef.current?.stop(); } catch { /* */ } }, []);
 
-  const startListening = () => {
+  const startListening = async () => {
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SR) {
       toast.error("Voice isn't available here — please type instead.");
       return;
     }
+    // Free the mic if Tap-to-Talk / WebRTC still owns it.
+    onBeforeListen?.();
     stopListening();
+    await new Promise((r) => setTimeout(r, 200));
+
     baseTextRef.current = text.trim();
+    networkRetryRef.current = false;
     const r = new SR();
+    // Short feedback phrases — continuous mode is flaky and fights the main mic.
     r.lang = navigator.language || "en-US";
     r.interimResults = true;
-    r.continuous = true;
+    r.continuous = false;
+    r.maxAlternatives = 1;
     r.onstart = () => setListening(true);
     r.onerror = (e: any) => {
-      if (e.error !== "aborted" && e.error !== "no-speech") {
-        toast.error(
-          e.error === "not-allowed"
-            ? "Microphone permission needed to speak your feedback."
-            : "Couldn't hear that — try again or type instead.",
-        );
+      const err = String(e?.error || "");
+      if (err === "aborted" || err === "no-speech") {
+        setListening(false);
+        return;
       }
+      if (err === "network" && !networkRetryRef.current) {
+        networkRetryRef.current = true;
+        try { r.start(); return; } catch { /* fall through */ }
+      }
+      const msg =
+        err === "not-allowed" || err === "service-not-allowed"
+          ? "Microphone permission needed to speak your feedback."
+          : err === "audio-capture"
+            ? "Microphone is busy — end Tap to Talk, then try again (or type)."
+            : err === "network"
+              ? "Voice typing needs a connection — please type instead."
+              : "Couldn't capture that — try again or type instead.";
+      toast.error(msg);
       setListening(false);
     };
     r.onend = () => setListening(false);
@@ -771,7 +795,7 @@ function PulseCard({ hotelSlug, roomId, token, sid, brand, onFinished }: {
     try {
       r.start();
     } catch {
-      toast.error("Couldn't start the microphone.");
+      toast.error("Couldn't start the microphone — please type instead.");
       setListening(false);
     }
   };
@@ -869,7 +893,7 @@ function PulseCard({ hotelSlug, roomId, token, sid, brand, onFinished }: {
             )}
           </div>
           {listening ? (
-            <p className="text-xs" style={{ color: brand }}>Listening… tap the mic when you're done.</p>
+            <p className="text-xs" style={{ color: brand }}>Listening… speak your feedback now.</p>
           ) : speechOk ? (
             <p className="text-xs text-muted-foreground">Or tap the mic and tell us in your own words.</p>
           ) : null}

@@ -1,14 +1,16 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import type { InsightsTimeRange } from "@/talkstay/lib/data";
+import { talkstayKeys } from "@/talkstay/lib/data";
 import { useInsightsData } from "@/talkstay/hooks/useTalkStayQueries";
 import {
   Loader2, MessageSquare, Users, HelpCircle, ClipboardList, CheckCircle2, Star, Timer,
   Heart, TrendingDown, TrendingUp, Minus, BellRing, X, Printer, Download,
 } from "lucide-react";
 import {
-  ResponsiveContainer, AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
+  ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from "recharts";
 import { Button } from "@/components/ui/button";
@@ -16,6 +18,14 @@ import { DEPARTMENTS, type Hotel } from "@/talkstay/lib/hotels";
 import RequestDetailSheet from "@/talkstay/components/RequestDetailSheet";
 import { exportToCSV } from "@/utils/exportAnalytics";
 import { INTENT_STYLE, statusBadge, statusLabel } from "@/talkstay/lib/statusStyles";
+
+/** Recharts click payloads vary by chart type — normalise to the data row. */
+function chartRow(entry: any): Record<string, any> | null {
+  if (!entry) return null;
+  if (entry.payload && typeof entry.payload === "object") return entry.payload;
+  if (typeof entry === "object") return entry;
+  return null;
+}
 
 const CHART_COLORS = ["#0ea5e9", "#14b8a6", "#10b981", "#f59e0b", "#f43f5e", "#64748b", "#0284c7", "#0d9488"];
 
@@ -68,19 +78,33 @@ type Drill = "requests" | "completed" | "questions" | "conversations" | "ratings
 function Stat({ icon: Icon, label, value, sub, active, onClick }: {
   icon: any; label: string; value: string | number; sub?: string; active?: boolean; onClick?: () => void;
 }) {
+  const clickable = !!onClick;
   return (
     <button
+      type="button"
       onClick={onClick}
-      className={`rounded-2xl border p-4 text-left transition-colors ${onClick ? "hover:border-primary/50 hover:bg-muted/40" : ""} ${active ? "border-primary bg-primary/5" : ""}`}
+      disabled={!clickable}
+      className={`rounded-2xl border p-4 text-left transition-all ${
+        clickable
+          ? "cursor-pointer hover:border-teal-400/70 hover:bg-white/50 hover:shadow-md active:scale-[0.99]"
+          : "cursor-default"
+      } ${active ? "border-teal-500 bg-teal-50/80 ring-2 ring-teal-500/20" : ""}`}
     >
       <div className="flex items-center gap-2 text-muted-foreground"><Icon className="h-4 w-4" /><span className="text-xs">{label}</span></div>
       <div className="mt-1 text-2xl font-semibold">{value}</div>
       {sub && <div className="text-xs text-muted-foreground">{sub}</div>}
+      {clickable && (
+        <div className={`mt-2 text-[10px] font-medium uppercase tracking-wide ${active ? "text-teal-700" : "text-muted-foreground/80"}`}>
+          {active ? "Showing below ↓" : "Click to explore"}
+        </div>
+      )}
     </button>
   );
 }
 
 export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
+  const qc = useQueryClient();
+  const drillRef = useRef<HTMLDivElement>(null);
   const [drill, setDrill] = useState<Drill>("requests");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [timeRange, setTimeRange] = useState<TimeRange>("7d");
@@ -88,6 +112,14 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
   const [deptFilter, setDeptFilter] = useState<string | null>(null);
   const [dayFilter, setDayFilter] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
+
+  const revealDrill = (next: Drill, note?: string) => {
+    setDrill(next);
+    if (note) toast.message(note, { duration: 1800 });
+    requestAnimationFrame(() => {
+      drillRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  };
 
   const rangeMeta = TIME_RANGES.find((r) => r.id === timeRange) ?? TIME_RANGES[2];
   const sinceMs = Date.now() - rangeMeta.ms;
@@ -331,7 +363,8 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
       .update({ acknowledged_at: new Date().toISOString(), acknowledged_by: u?.user?.id ?? null })
       .eq("id", id);
     if (error) { toast.error(error.message); return; }
-    setPulses((prev) => prev.map((p) => p.id === id ? { ...p, acknowledged_at: new Date().toISOString() } : p));
+    void qc.invalidateQueries({ queryKey: talkstayKeys.insightsHotel(hotel.id) });
+    toast.success("Marked as seen.");
   };
 
   if (loading) {
@@ -374,58 +407,91 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
       </div>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
-        <Stat icon={Users} label="Guests engaged" value={m.guests} sub={`last ${rangeMeta.label}`} active={drill === "conversations"} onClick={() => { clearChartFilters(); setDrill("conversations"); }} />
-        <Stat icon={MessageSquare} label="Conversations" value={m.conversations} sub="guest messages" active={drill === "conversations"} onClick={() => { clearChartFilters(); setDrill("conversations"); }} />
-        <Stat icon={HelpCircle} label="Questions answered" value={m.questions} active={drill === "questions"} onClick={() => { clearChartFilters(); setDrill("questions"); }} />
-        <Stat icon={ClipboardList} label="Requests" value={m.requestsTotal} active={drill === "requests"} onClick={() => { clearChartFilters(); setDrill("requests"); }} />
-        <Stat icon={CheckCircle2} label="Completed" value={`${m.done} · ${m.completion}%`} active={drill === "completed"} onClick={() => { clearChartFilters(); setDrill("completed"); }} />
-        <Stat icon={Star} label="Avg rating" value={m.avg ? m.avg.toFixed(1) : "—"} sub={m.avg ? `${rangedRatings.length} reviews` : "no reviews yet"} active={drill === "ratings"} onClick={() => { clearChartFilters(); setDrill("ratings"); }} />
+        <Stat icon={Users} label="Guests engaged" value={m.guests} sub={`last ${rangeMeta.label}`} active={drill === "conversations" && !hasChartFilter} onClick={() => { clearChartFilters(); revealDrill("conversations", "Guest conversations"); }} />
+        <Stat icon={MessageSquare} label="Conversations" value={m.conversations} sub="guest messages" active={drill === "conversations" && !hasChartFilter} onClick={() => { clearChartFilters(); revealDrill("conversations", "Guest conversations"); }} />
+        <Stat icon={HelpCircle} label="Questions answered" value={m.questions} active={drill === "questions"} onClick={() => { clearChartFilters(); revealDrill("questions", "Questions answered"); }} />
+        <Stat icon={ClipboardList} label="Requests" value={m.requestsTotal} active={drill === "requests" && !hasChartFilter} onClick={() => { clearChartFilters(); revealDrill("requests", "All requests in this range"); }} />
+        <Stat icon={CheckCircle2} label="Completed" value={`${m.done} · ${m.completion}%`} active={drill === "completed"} onClick={() => { clearChartFilters(); revealDrill("completed", "Completed requests"); }} />
+        <Stat icon={Star} label="Avg rating" value={m.avg ? m.avg.toFixed(1) : "—"} sub={m.avg ? `${rangedRatings.length} reviews` : "no reviews yet"} active={drill === "ratings"} onClick={() => { clearChartFilters(); revealDrill("ratings", "Guest ratings"); }} />
         <Stat
           icon={Heart} label="Caught during the stay"
           value={pulse.caughtInStay}
           sub={`of ${pulse.current.length} pulse checks · last ${PERIOD_DAYS} days`}
-          active={drill === "pulse"} onClick={() => { clearChartFilters(); setDrill("pulse"); }}
+          active={drill === "pulse"} onClick={() => { clearChartFilters(); revealDrill("pulse", "Pulse checks"); }}
         />
-        <Stat icon={Timer} label="Avg accept / complete" value={`${fmtDur(m.avgAccept)} · ${fmtDur(m.avgComplete)}`} sub="request → accept → done" />
+        <Stat
+          icon={Timer} label="Avg accept / complete"
+          value={`${fmtDur(m.avgAccept)} · ${fmtDur(m.avgComplete)}`}
+          sub="request → accept → done"
+          active={drill === "requests" && !hasChartFilter}
+          onClick={() => { clearChartFilters(); revealDrill("requests", "Request timings — open any row for the full trail"); }}
+        />
       </div>
 
-      {/* Interactive BI charts */}
+      {/* Interactive BI charts — bars/slices are the hit targets */}
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="rounded-2xl border bg-card p-4 shadow-sm">
           <div className="mb-3 flex items-center justify-between gap-2">
             <div>
               <h3 className="text-sm font-medium">Request volume</h3>
               <p className="text-xs text-muted-foreground">
-                {charts.hourly ? "Click an hour to filter the table" : "Click a day to filter the table"}
+                {charts.hourly ? "Click a bar (hour) to filter the table" : "Click a bar (day) to filter the table"}
               </p>
             </div>
           </div>
           <div className="h-56">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart
+              <BarChart
                 data={charts.volume}
                 margin={{ top: 8, right: 8, left: -16, bottom: 0 }}
                 style={{ cursor: "pointer" }}
-                onClick={(state: any) => {
-                  const day = state?.activePayload?.[0]?.payload?.day as string | undefined;
-                  if (!day) return;
-                  setDayFilter(day); setDeptFilter(null); setStatusFilter(null); setDrill("requests");
-                }}
               >
-                <defs>
-                  <linearGradient id="tsVol" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#7c3aed" stopOpacity={0.35} />
-                    <stop offset="100%" stopColor="#7c3aed" stopOpacity={0.02} />
-                  </linearGradient>
-                </defs>
                 <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
                 <XAxis dataKey="label" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
                 <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
                 <Tooltip />
                 <Legend />
-                <Area type="monotone" dataKey="requests" name="Requests" stroke="#7c3aed" fill="url(#tsVol)" strokeWidth={2} />
-                <Area type="monotone" dataKey="completed" name="Completed" stroke="#10b981" fill="transparent" strokeWidth={2} />
-              </AreaChart>
+                <Bar
+                  dataKey="requests"
+                  name="Requests"
+                  fill="#0ea5e9"
+                  radius={[4, 4, 0, 0]}
+                  cursor="pointer"
+                  onClick={(entry: any) => {
+                    const row = chartRow(entry);
+                    const day = row?.day as string | undefined;
+                    if (!day) return;
+                    setDayFilter(day);
+                    setDeptFilter(null);
+                    setStatusFilter(null);
+                    revealDrill("requests", charts.hourly ? `Filtered to ${row.label}` : `Filtered to ${row.label}`);
+                  }}
+                >
+                  {charts.volume.map((v) => (
+                    <Cell
+                      key={v.day}
+                      fill="#0ea5e9"
+                      opacity={!dayFilter || v.day === dayFilter ? 1 : 0.28}
+                    />
+                  ))}
+                </Bar>
+                <Bar
+                  dataKey="completed"
+                  name="Completed"
+                  fill="#10b981"
+                  radius={[4, 4, 0, 0]}
+                  cursor="pointer"
+                  onClick={(entry: any) => {
+                    const row = chartRow(entry);
+                    const day = row?.day as string | undefined;
+                    if (!day) return;
+                    setDayFilter(day);
+                    setDeptFilter(null);
+                    setStatusFilter(null);
+                    revealDrill("completed", `Completed on ${row.label}`);
+                  }}
+                />
+              </BarChart>
             </ResponsiveContainer>
           </div>
         </div>
@@ -433,7 +499,7 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
         <div className="rounded-2xl border bg-card p-4 shadow-sm">
           <div className="mb-3">
             <h3 className="text-sm font-medium">By department</h3>
-            <p className="text-xs text-muted-foreground">Click a slice to open that team’s requests</p>
+            <p className="text-xs text-muted-foreground">Click a slice or legend name to open that team’s requests</p>
           </div>
           <div className="h-56">
             {charts.deptPie.length === 0 ? (
@@ -452,9 +518,13 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
                     paddingAngle={2}
                     cursor="pointer"
                     onClick={(entry: any) => {
-                      const key = entry?.key ?? entry?.payload?.key;
+                      const row = chartRow(entry);
+                      const key = (row?.key ?? entry?.key) as string | undefined;
                       if (!key) return;
-                      setDeptFilter(key); setDayFilter(null); setStatusFilter(null); setDrill("requests");
+                      setDeptFilter(key);
+                      setDayFilter(null);
+                      setStatusFilter(null);
+                      revealDrill("requests", `${deptLabel(key)} requests`);
                     }}
                   >
                     {charts.deptPie.map((_, i) => (
@@ -463,7 +533,18 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
                     ))}
                   </Pie>
                   <Tooltip />
-                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <Legend
+                    wrapperStyle={{ fontSize: 11, cursor: "pointer" }}
+                    onClick={(e: any) => {
+                      const name = e?.value as string | undefined;
+                      const hit = charts.deptPie.find((d) => d.name === name);
+                      if (!hit) return;
+                      setDeptFilter(hit.key);
+                      setDayFilter(null);
+                      setStatusFilter(null);
+                      revealDrill("requests", `${hit.name} requests`);
+                    }}
+                  />
                 </PieChart>
               </ResponsiveContainer>
             )}
@@ -488,9 +569,13 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
                   <Bar
                     dataKey="value" name="Requests" radius={[0, 6, 6, 0]} cursor="pointer"
                     onClick={(entry: any) => {
-                      const key = entry?.key ?? entry?.payload?.key;
+                      const row = chartRow(entry);
+                      const key = (row?.key ?? entry?.key) as string | undefined;
                       if (!key) return;
-                      setStatusFilter(key); setDeptFilter(null); setDayFilter(null); setDrill("requests");
+                      setStatusFilter(key);
+                      setDeptFilter(null);
+                      setDayFilter(null);
+                      revealDrill("requests", `Status: ${key.replace(/_/g, " ")}`);
                     }}
                   >
                     {charts.statusBars.map((s, i) => (
@@ -507,7 +592,7 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
         <div className="rounded-2xl border bg-card p-4 shadow-sm">
           <div className="mb-3">
             <h3 className="text-sm font-medium">Guest ratings</h3>
-            <p className="text-xs text-muted-foreground">Star distribution — click Reviews KPI for detail</p>
+            <p className="text-xs text-muted-foreground">Click a star bar to open reviews</p>
           </div>
           <div className="h-56">
             <ResponsiveContainer width="100%" height="100%">
@@ -518,7 +603,7 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
                 <Tooltip />
                 <Bar
                   dataKey="value" name="Reviews" fill="#f59e0b" radius={[6, 6, 0, 0]} cursor="pointer"
-                  onClick={() => { clearChartFilters(); setDrill("ratings"); }}
+                  onClick={() => { clearChartFilters(); revealDrill("ratings", "Guest ratings"); }}
                 />
               </BarChart>
             </ResponsiveContainer>
@@ -526,64 +611,91 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
         </div>
       </div>
 
-      <ImprovementTracker pulse={pulse} />
-
-      {(hasChartFilter || drill === "requests" || drill === "completed") && (
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          <span className="text-muted-foreground">Showing:</span>
-          {dayFilter && (
-            <button type="button" onClick={() => setDayFilter(null)}
-              className="inline-flex items-center gap-1 rounded-full bg-violet-100 px-2.5 py-1 font-medium text-violet-700">
-              Day {new Date(dayFilter).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
-              <X className="h-3 w-3" />
-            </button>
-          )}
-          {deptFilter && (
-            <button type="button" onClick={() => setDeptFilter(null)}
-              className="inline-flex items-center gap-1 rounded-full bg-violet-100 px-2.5 py-1 font-medium text-violet-700">
-              {deptLabel(deptFilter)}
-              <X className="h-3 w-3" />
-            </button>
-          )}
-          {statusFilter && (
-            <button type="button" onClick={() => setStatusFilter(null)}
-              className="inline-flex items-center gap-1 rounded-full bg-violet-100 px-2.5 py-1 font-medium text-violet-700">
-              {statusFilter.replace(/_/g, " ")}
-              <X className="h-3 w-3" />
-            </button>
-          )}
-          {hasChartFilter && (
-            <button type="button" onClick={clearChartFilters} className="text-muted-foreground underline hover:text-foreground">
-              Clear filters
+      {/* Drill-down sits directly under charts so clicks feel instant */}
+      <div ref={drillRef} className="scroll-mt-4 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold tracking-tight">
+            {drill === "requests" && "Requests"}
+            {drill === "completed" && "Completed requests"}
+            {drill === "ratings" && "Guest ratings"}
+            {drill === "pulse" && "Pulse checks"}
+            {drill === "questions" && "Questions"}
+            {drill === "conversations" && "Conversations"}
+          </h3>
+          {(hasChartFilter || drill !== "requests") && (
+            <button
+              type="button"
+              onClick={() => { clearChartFilters(); revealDrill("requests"); }}
+              className="text-xs text-muted-foreground underline hover:text-foreground"
+            >
+              Reset view
             </button>
           )}
         </div>
-      )}
 
-      {/* Drill-down */}
-      {(drill === "requests" || drill === "completed") ? (
-        <AuditTable
-          rows={filteredAudit}
-          onOpen={(id) => setSelectedId(id)}
-        />
-      ) : drill === "ratings" ? (
-        <ReviewsList
-          audit={rangedAudit.filter((a) => a.rating != null)}
-          onOpen={(id) => setSelectedId(id)}
-        />
-      ) : drill === "pulse" ? (
-        <PulseFeed
-          pulses={pulse.all}
-          onAcknowledge={acknowledge}
-          onOpenRequest={(id) => setSelectedId(id)}
-        />
-      ) : (
-        <ActivityFeed
-          feed={drill === "questions" ? m.feed.filter((f) => f.intent === "question") : m.feed}
-          requests={reqs}
-          onOpen={(id) => setSelectedId(id)}
-        />
-      )}
+        {(hasChartFilter || drill === "requests" || drill === "completed") && (
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="text-muted-foreground">Showing:</span>
+            {dayFilter && (
+              <button type="button" onClick={() => setDayFilter(null)}
+                className="inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-100 px-2.5 py-1 font-medium text-sky-800">
+                {charts.hourly
+                  ? charts.volume.find((v) => v.day === dayFilter)?.label ?? dayFilter
+                  : new Date(dayFilter.length <= 10 ? `${dayFilter}T12:00:00` : dayFilter).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                <X className="h-3 w-3" />
+              </button>
+            )}
+            {deptFilter && (
+              <button type="button" onClick={() => setDeptFilter(null)}
+                className="inline-flex items-center gap-1 rounded-full border border-teal-200 bg-teal-100 px-2.5 py-1 font-medium text-teal-900">
+                {deptLabel(deptFilter)}
+                <X className="h-3 w-3" />
+              </button>
+            )}
+            {statusFilter && (
+              <button type="button" onClick={() => setStatusFilter(null)}
+                className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-100 px-2.5 py-1 font-medium text-amber-900">
+                {statusFilter.replace(/_/g, " ")}
+                <X className="h-3 w-3" />
+              </button>
+            )}
+            {hasChartFilter && (
+              <button type="button" onClick={clearChartFilters} className="text-muted-foreground underline hover:text-foreground">
+                Clear filters
+              </button>
+            )}
+            <span className="text-muted-foreground">
+              · {filteredAudit.length} row{filteredAudit.length === 1 ? "" : "s"}
+            </span>
+          </div>
+        )}
+
+        {(drill === "requests" || drill === "completed") ? (
+          <AuditTable
+            rows={filteredAudit}
+            onOpen={(id) => setSelectedId(id)}
+          />
+        ) : drill === "ratings" ? (
+          <ReviewsList
+            audit={rangedAudit.filter((a) => a.rating != null)}
+            onOpen={(id) => setSelectedId(id)}
+          />
+        ) : drill === "pulse" ? (
+          <PulseFeed
+            pulses={pulse.all}
+            onAcknowledge={acknowledge}
+            onOpenRequest={(id) => setSelectedId(id)}
+          />
+        ) : (
+          <ActivityFeed
+            feed={drill === "questions" ? m.feed.filter((f) => f.intent === "question") : m.feed}
+            requests={reqs}
+            onOpen={(id) => setSelectedId(id)}
+          />
+        )}
+      </div>
+
+      <ImprovementTracker pulse={pulse} />
 
       <RequestDetailSheet
         requestId={selectedId}
@@ -718,10 +830,10 @@ function PulseFeed({ pulses, onAcknowledge, onOpenRequest }: {
 }
 
 function AuditTable({ rows, onOpen }: { rows: any[]; onOpen: (id: string) => void }) {
-  if (rows.length === 0) return <p className="text-sm text-muted-foreground">No requests yet.</p>;
+  if (rows.length === 0) return <p className="text-sm text-muted-foreground">No requests match this view — try clearing filters.</p>;
   return (
     <div>
-      <h3 className="mb-2 text-sm font-medium">Request audit ({rows.length})</h3>
+      <p className="mb-2 text-xs text-muted-foreground">Click any row for the full chat and timeline.</p>
       <div className="overflow-x-auto rounded-2xl border">
         <table className="w-full min-w-[720px] text-sm">
           <thead className="bg-muted/50 text-left text-xs text-muted-foreground">
@@ -736,12 +848,12 @@ function AuditTable({ rows, onOpen }: { rows: any[]; onOpen: (id: string) => voi
             {rows.map((r) => (
               <tr
                 key={r.id}
-                className="cursor-pointer border-t align-top transition-colors hover:bg-muted/40"
+                className="cursor-pointer border-t align-top transition-colors hover:bg-sky-50/80"
                 onClick={() => onOpen(r.id)}
               >
                 <td className="px-3 py-2 font-medium">{r.room}</td>
                 <td className="px-3 py-2 text-muted-foreground">{deptLabel(r.department_key)}</td>
-                <td className="px-3 py-2 max-w-[220px] truncate text-violet-700">{r.summary}{r.is_complaint ? " ⚠️" : ""}</td>
+                <td className="px-3 py-2 max-w-[220px] truncate font-medium text-teal-800">{r.summary}{r.is_complaint ? " ⚠️" : ""}</td>
                 <td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusBadge(r.status)}`}>{statusLabel(r.status)}</span></td>
                 <td className="px-3 py-2 whitespace-nowrap text-xs text-muted-foreground">{fmtWhen(r.created_at)}</td>
                 <td className="px-3 py-2 whitespace-nowrap">{fmtDur(r.toAcceptMin)}</td>
