@@ -94,6 +94,12 @@ function DemoVideo({ videoId }: { videoId: string }) {
 // (readable on mobile); only the scan photo stays as an image.
 const IMG = {
   hero: "/marketing/hero.jpg",
+  heroWebp: "/marketing/hero.webp",
+  heroWebpSrcSet: "/marketing/hero-720.webp 720w, /marketing/hero.webp 1024w",
+  heroSizes: "(min-width: 1024px) 45vw, min(100vw, 40rem)",
+  // Tiny blurred stand-in so the hero frame never looks empty while bytes arrive.
+  heroLqip:
+    "data:image/jpeg;base64,/9j/2wBDABQUFBQVFBcZGRcfIh4iHy4rJycrLkYyNjI2MkZqQk5CQk5Cal5yXVZdcl6phXZ2hanDpJukw+zT0+z/////////2wBDARQUFBQVFBcZGRcfIh4iHy4rJycrLkYyNjI2MkZqQk5CQk5Cal5yXVZdcl6phXZ2hanDpJukw+zT0+z/////////wgARCAAQABgDASIAAhEBAxEB/8QAFwAAAwEAAAAAAAAAAAAAAAAAAAMFAf/EABQBAQAAAAAAAAAAAAAAAAAAAAP/2gAMAwEAAhADEAAAAIFdCSdhgh//xAAhEAADAAICAAcAAAAAAAAAAAABAgMEEQASEyEiMUGRov/aAAgBAQABPwDCm9NlV2R5AKB25VkwKGbbsaS9nOuvM/BugtkPRD6l/XJ4izQLKoDg7JI49pZFKLag6gbHwSRy+X40qr1I2Q31z//EABkRAAIDAQAAAAAAAAAAAAAAAAABESEikf/aAAgBAgEBPwB6kaiq6f/EABcRAAMBAAAAAAAAAAAAAAAAAAABEYH/2gAIAQMBAT8AkSMP/9k=",
   howItWorks: "/marketing/how-it-works.jpg",
   guestSquare: "/marketing/guest-square.jpg",
   hospitality: "/marketing/hospitality-icon.png",
@@ -107,17 +113,51 @@ const AUDIENCES = [
 ] as const;
 
 /** Image with a graceful, on-brand fallback so a missing file never breaks. */
-function Photo({ src, alt, className = "", eager = false, fit = "cover" }: {
+function Photo({ src, alt, className = "", eager = false, fit = "cover",
+  webp, webpSrcSet, sizes, lqip, width, height,
+}: {
   src: string; alt: string; className?: string; eager?: boolean;
   fit?: "cover" | "contain";
+  webp?: string; webpSrcSet?: string; sizes?: string; lqip?: string;
+  width?: number; height?: number;
 }) {
   const [failed, setFailed] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const imgClass = `h-full w-full transition-opacity duration-300 ${
+    fit === "contain" ? "object-contain" : "object-cover"
+  } ${eager && !loaded ? "opacity-0" : "opacity-100"}`;
   return (
-    <div className={`relative overflow-hidden bg-gradient-to-br from-violet-600 via-indigo-600 to-[#2e1065] ${className}`}>
+    <div
+      className={`relative overflow-hidden bg-gradient-to-br from-violet-600 via-indigo-600 to-[#2e1065] ${className}`}
+      style={lqip ? { backgroundImage: `url(${lqip})`, backgroundSize: "cover", backgroundPosition: "center" } : undefined}
+    >
       {!failed ? (
-        <img src={src} alt={alt} loading={eager ? "eager" : "lazy"}
-          onError={() => setFailed(true)}
-          className={`h-full w-full ${fit === "contain" ? "object-contain" : "object-cover"}`} />
+        <picture>
+          {webp || webpSrcSet ? (
+            <source
+              type="image/webp"
+              srcSet={webpSrcSet ?? webp}
+              sizes={sizes}
+            />
+          ) : null}
+          <img
+            src={src}
+            alt={alt}
+            width={width}
+            height={height}
+            sizes={sizes}
+            loading={eager ? "eager" : "lazy"}
+            decoding={eager ? "sync" : "async"}
+            fetchPriority={eager ? "high" : "auto"}
+            ref={(el) => {
+              // Cached images can be complete before React attaches onLoad.
+              if (el?.complete && el.naturalWidth > 0) setLoaded(true);
+            }}
+            onLoad={() => setLoaded(true)}
+            onError={() => setFailed(true)}
+            className={imgClass}
+          />
+        </picture>
       ) : (
         <div className="flex h-full w-full items-center justify-center">
           <TalkStayLogo size={44} className="opacity-60" />
@@ -172,6 +212,12 @@ function Hero({ signedIn }: { signedIn: boolean }) {
 
         <Photo
           src={IMG.hero}
+          webp={IMG.heroWebp}
+          webpSrcSet={IMG.heroWebpSrcSet}
+          sizes={IMG.heroSizes}
+          lqip={IMG.heroLqip}
+          width={1024}
+          height={682}
           alt="Guest scanning a TalkStay room QR code — scan to speak with TalkStay"
           eager
           fit="contain"

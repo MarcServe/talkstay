@@ -7,7 +7,7 @@ import { talkstayKeys } from "@/talkstay/lib/data";
 import { useInsightsData } from "@/talkstay/hooks/useTalkStayQueries";
 import {
   Loader2, MessageSquare, Users, HelpCircle, ClipboardList, CheckCircle2, Star, Timer,
-  Heart, TrendingDown, TrendingUp, Minus, BellRing, X, Printer, Download,
+  Heart, TrendingDown, TrendingUp, Minus, BellRing, X, Printer,
 } from "lucide-react";
 import {
   ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell,
@@ -16,7 +16,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { DEPARTMENTS, type Hotel } from "@/talkstay/lib/hotels";
 import RequestDetailSheet from "@/talkstay/components/RequestDetailSheet";
-import { exportToCSV } from "@/utils/exportAnalytics";
+import ExportReportButton from "@/talkstay/components/ExportReportButton";
+import { exportFilenameBase, type TalkStayExportPayload } from "@/talkstay/lib/exportReport";
 import { INTENT_STYLE, statusBadge, statusLabel } from "@/talkstay/lib/statusStyles";
 
 /** Recharts click payloads vary by chart type — normalise to the data row. */
@@ -283,27 +284,73 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
     setStatusFilter(null);
   };
 
-  const saveCsv = () => {
-    const rows = filteredAudit.map((a) => ({
+  const buildExportPayload = (): TalkStayExportPayload | null => {
+    // Full report for the selected time range (chart filters only narrow the on-screen table).
+    const requestRows = rangedAudit.map((a) => ({
       Room: a.room,
       Department: deptLabel(a.department_key),
       Request: a.summary,
-      Status: a.status,
-      Created: fmtWhen(a.created_at),
+      Status: statusLabel(a.status),
+      Created: new Date(a.created_at).toLocaleString(),
+      Accepted: a.acceptedAt ? new Date(a.acceptedAt).toLocaleString() : "",
       "To accept": fmtDur(a.toAcceptMin),
+      Completed: a.completedAt ? new Date(a.completedAt).toLocaleString() : "",
       "To complete": fmtDur(a.toCompleteMin),
       "Handled by": a.acceptedBy ?? "",
       Rating: a.rating ?? "",
       Comment: a.comment ?? "",
       Complaint: a.is_complaint ? "yes" : "",
+      "Classifier": a.classification_method ?? "",
     }));
-    if (!rows.length) {
-      toast.error("Nothing to save for this range and filter.");
-      return;
-    }
-    const slug = (hotel.slug || hotel.name || "property").replace(/\s+/g, "-").toLowerCase();
-    exportToCSV(rows, `talkstay-${slug}-insights-${timeRange}`);
-    toast.success(`Saved ${rows.length} request rows as CSV.`);
+    const pulseRows = pulses
+      .filter((p) => new Date(p.created_at).getTime() >= sinceMs)
+      .map((p) => ({
+        When: new Date(p.created_at).toLocaleString(),
+        Room: p.ts_rooms?.room_number ?? "—",
+        Sentiment: p.sentiment,
+        Severity: p.severity,
+        Department: p.department_key ? deptLabel(p.department_key) : "",
+        Issue: p.issue_label || p.issue_key,
+        Rating: p.rating ?? "",
+        Feedback: p.body,
+        Acknowledged: p.acknowledged_at ? new Date(p.acknowledged_at).toLocaleString() : "",
+      }));
+    const ratingRows = rangedRatings.map((r) => ({
+      "Request ID": r.request_id,
+      Rating: r.rating,
+      Comment: r.comment ?? "",
+    }));
+    return {
+      propertyName: hotel.name,
+      title: "Insights report",
+      subtitle: "Full dashboard export for the selected range",
+      rangeLabel: rangeMeta.label,
+      filenameBase: exportFilenameBase(hotel.slug || hotel.name, "insights", timeRange),
+      metrics: [
+        { label: "Guests engaged", value: m.guests },
+        { label: "Conversations (guest messages)", value: m.conversations },
+        { label: "Questions answered", value: m.questions },
+        { label: "Requests", value: m.requestsTotal },
+        { label: "Completed", value: `${m.done} (${m.completion}%)` },
+        { label: "Avg rating", value: m.avg ? m.avg.toFixed(1) : "—" },
+        { label: "Avg time to accept", value: fmtDur(m.avgAccept) },
+        { label: "Avg time to complete", value: fmtDur(m.avgComplete) },
+        { label: "Guest pulse responses", value: pulseRows.length },
+      ],
+      tables: [
+        { title: "Service requests", rows: requestRows },
+        { title: "Guest pulse", rows: pulseRows },
+        { title: "Ratings", rows: ratingRows },
+        {
+          title: "Volume by department",
+          rows: charts.deptPie.map((d) => ({ Department: d.name, Requests: d.value })),
+        },
+        {
+          title: "Status breakdown",
+          rows: charts.statusBars.map((s) => ({ Status: s.name, Count: s.value })),
+        },
+      ],
+    };
   };
 
   // Improvement tracking: the same issue, this period vs the one before it.
@@ -397,9 +444,11 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
               </button>
             ))}
           </div>
-          <Button size="sm" variant="outline" onClick={saveCsv}>
-            <Download className="mr-1.5 h-3.5 w-3.5" /> Save CSV
-          </Button>
+          <ExportReportButton
+            buildPayload={buildExportPayload}
+            disabled={loading}
+            label="Export"
+          />
           <Button size="sm" variant="outline" onClick={() => window.print()}>
             <Printer className="mr-1.5 h-3.5 w-3.5" /> Print
           </Button>

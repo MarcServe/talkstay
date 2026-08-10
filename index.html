@@ -19,6 +19,17 @@
     <meta name="description" content="Guests scan a room QR code and speak naturally to request room service, housekeeping, laundry, maintenance or front-desk help. Every request is routed, tracked and reviewed. Scan. Speak. Consider it done." />
     <meta name="author" content="TalkWeb" />
 
+    <!-- Start LCP hero fetch before the JS bundle parses. -->
+    <link
+      rel="preload"
+      as="image"
+      type="image/webp"
+      imagesrcset="/marketing/hero-720.webp 720w, /marketing/hero.webp 1024w"
+      imagesizes="(min-width: 1024px) 45vw, min(100vw, 40rem)"
+      href="/marketing/hero.webp"
+      fetchpriority="high"
+    />
+
     <meta property="og:type" content="website" />
     <meta property="og:title" content="TalkStay by TalkWeb" />
     <meta property="og:description" content="The voice-first guest-service platform for hotels and serviced stays. Scan. Speak. Consider it done." />

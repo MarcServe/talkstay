@@ -18,6 +18,8 @@ import {
   invalidateOps, useOpsQueue, useOpsRealtime,
 } from "@/talkstay/hooks/useTalkStayQueries";
 import RequestDetailSheet from "@/talkstay/components/RequestDetailSheet";
+import ExportReportButton from "@/talkstay/components/ExportReportButton";
+import { exportFilenameBase, type TalkStayExportPayload } from "@/talkstay/lib/exportReport";
 import { statusBadge, statusCard, statusLabel } from "@/talkstay/lib/statusStyles";
 
 type Req = OpsRequest;
@@ -248,6 +250,13 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
     [reqs, filter, dept, escalations, timeRange]
   );
 
+  /** Full export scope: current department + time window (all statuses). */
+  const exportScope = useMemo(
+    () => reqs.filter((r) => inDept(r) && inTime(r)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [reqs, dept, timeRange],
+  );
+
   // Counts shown on each pill reflect the current department + time scope.
   const counts = useMemo(() => {
     const scoped = reqs.filter((r) => inDept(r) && inTime(r));
@@ -308,6 +317,65 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reqs, dept, ack]);
+
+  const buildExportPayload = (): TalkStayExportPayload | null => {
+    const range = TIME_RANGES.find((t) => t.id === timeRange);
+    const deptName = dept === "all" ? "All departments" : deptLabel(dept);
+    const open = exportScope.filter((r) =>
+      (OPEN_STATUSES as readonly string[]).includes(r.status),
+    );
+    const done = exportScope.filter((r) =>
+      ["completed", "guest_confirmed", "cancelled"].includes(r.status),
+    );
+    const urgent = exportScope.filter((r) => r.priority === "urgent" || r.is_complaint);
+    const followups = exportScope.filter((r) => !!escalations[r.id]);
+    return {
+      propertyName: hotel.name,
+      title: "Operations report",
+      subtitle: `Department: ${deptName}`,
+      rangeLabel: range?.short === "All"
+        ? "All time (open always included)"
+        : `Closed within ${range?.short ?? timeRange}; open always included`,
+      filenameBase: exportFilenameBase(hotel.slug || hotel.name, "operations", timeRange),
+      metrics: [
+        { label: "Requests in export", value: exportScope.length },
+        { label: "Open", value: open.length },
+        { label: "Closed", value: done.length },
+        { label: "Urgent / complaint", value: urgent.length },
+        { label: "Guest follow-ups", value: followups.length },
+        { label: "Avg time to accept (today)", value: bi.avgAcceptLabel },
+        { label: "Total requests today", value: bi.totalToday },
+        { label: "Completed today", value: bi.completedToday },
+      ],
+      tables: [
+        {
+          title: "Service requests",
+          rows: exportScope.map((r) => ({
+            Room: r.ts_rooms?.room_number ?? "—",
+            Department: deptLabel(r.department_key),
+            Request: r.summary_staff || r.summary,
+            Status: statusLabel(r.status),
+            Priority: r.priority,
+            Complaint: r.is_complaint ? "yes" : "",
+            Triage: r.needs_triage ? "yes" : "",
+            Language: r.guest_language ?? "",
+            Created: new Date(r.created_at).toLocaleString(),
+            "Accepted by": ack[r.id]?.by ?? "",
+            "Accepted at": ack[r.id] ? new Date(ack[r.id].at).toLocaleString() : "",
+            "Follow-up": escalations[r.id]?.note ?? "",
+          })),
+        },
+        {
+          title: "Requests by department (today)",
+          rows: bi.deptRows.map((d) => ({
+            Department: d.label,
+            Count: d.count,
+            Share: `${Math.round((d.count / bi.deptTotal) * 100)}%`,
+          })),
+        },
+      ],
+    };
+  };
 
   return (
     <div className="min-w-0 space-y-4 overflow-x-hidden">
@@ -476,6 +544,11 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
               {DEPARTMENTS.map((d) => <option key={d.key} value={d.key}>{d.display_name}</option>)}
             </select>
           )}
+          <ExportReportButton
+            buildPayload={buildExportPayload}
+            disabled={loading || !exportScope.length}
+            label="Export"
+          />
           <Button size="sm" variant="ghost" onClick={refresh} disabled={isFetching} title="Refresh queue">
             <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
           </Button>
