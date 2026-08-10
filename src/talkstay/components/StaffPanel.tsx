@@ -9,6 +9,7 @@ import {
 import { toast } from "sonner";
 import { Loader2, Trash2, UserPlus, Upload, FileSpreadsheet, Download } from "lucide-react";
 import { DEPARTMENTS, type Hotel } from "@/talkstay/lib/hotels";
+import LiveShareCard from "@/talkstay/components/LiveShareCard";
 
 interface StaffRow {
   id: string;
@@ -345,6 +346,7 @@ export default function StaffPanel({ hotel }: { hotel: Hotel }) {
 
   return (
     <div className="space-y-6">
+      <LiveShareCard hotel={hotel} />
       <form onSubmit={invite} className="flex flex-wrap items-end gap-3">
         <div className="min-w-[140px]">
           <label className="mb-1 block text-xs text-muted-foreground">Name</label>

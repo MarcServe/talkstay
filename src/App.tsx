@@ -11,6 +11,7 @@ import Landing from "@/talkstay/pages/Landing";
 const GuestApp = lazy(() => import("@/talkstay/pages/GuestApp"));
 const HotelApp = lazy(() => import("@/talkstay/pages/HotelApp"));
 const DemoApp = lazy(() => import("@/talkstay/pages/DemoApp"));
+const LiveView = lazy(() => import("@/talkstay/pages/LiveView"));
 const NotFound = lazy(() => import("@/talkstay/pages/NotFound"));
 
 const queryClient = new QueryClient({
@@ -52,6 +53,9 @@ const App = () => (
               {/* Marketing sandbox — no auth, no Supabase writes */}
               <Route path="/demo" element={<DemoApp />} />
               <Route path="/demo/*" element={<DemoApp />} />
+
+              {/* Read-only live ops share — token-gated, no signup */}
+              <Route path="/live/:token" element={<LiveView />} />
 
               <Route path="*" element={<NotFound />} />
             </Routes>
