@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { REQUEST_STATUS, statusLabel } from "@/talkstay/lib/statusStyles";
 
 export interface GuestRequest {
   id: string;
@@ -256,14 +257,8 @@ export async function submitPulse(args: {
   return data as { reply: string; notifiedManager: boolean };
 }
 
-export const STATUS_LABEL: Record<string, string> = {
-  new: "Request received",
-  accepted: "Being prepared",
-  in_progress: "Being prepared",
-  on_the_way: "On the way",
-  completed: "Completed",
-  guest_confirmed: "Confirmed",
-  reopened: "Reopened",
-  escalated: "Escalated to manager",
-  cancelled: "Cancelled",
-};
+/** Guest-facing labels — same source as staff dashboard chips. */
+export const STATUS_LABEL: Record<string, string> = Object.fromEntries(
+  Object.entries(REQUEST_STATUS).map(([k, v]) => [k, v.label]),
+);
+export { statusLabel };

@@ -512,15 +512,10 @@ serve(async (req) => {
 
     // ---- context: greeting + room info ----
     if (action === "context") {
-      // Only offer the pulse check when the property wants it and this stay
-      // hasn't answered yet — asking twice is worse than not asking.
-      let pulseAsk = ctx.pulseEnabled;
-      if (pulseAsk && sessionId) {
-        const { count } = await admin
-          .from("ts_guest_pulse").select("id", { count: "exact", head: true })
-          .eq("hotel_id", ctx.hotelId).eq("session_id", sessionId);
-        pulseAsk = (count ?? 0) === 0;
-      }
+      // Property switch only. The guest client remembers "done" in localStorage so
+      // we don't re-prompt after an answer; counting DB rows here permanently
+      // killed the prompt for sticky test sessions after a single submit.
+      const pulseAsk = ctx.pulseEnabled;
       return json({
         hotelName: ctx.hotelName, roomNumber: ctx.roomNumber, language: ctx.language,
         departments: ctx.departments, branding: ctx.branding, pulseAsk,

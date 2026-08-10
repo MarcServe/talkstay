@@ -76,7 +76,7 @@ function GoogleIcon() {
 /** Full-viewport split: dark patterned form panel + hospitality photo. */
 function AuthShell({ children, brand }: { children: React.ReactNode; brand: PropertyBrand | null }) {
   return (
-    <div className="flex min-h-screen">
+    <div data-talkstay className="flex min-h-screen">
       {/* Form panel */}
       <div
         className="relative flex w-full flex-col justify-center px-6 py-12 sm:px-10 lg:w-[46%] lg:px-14"

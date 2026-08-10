@@ -12,18 +12,7 @@ import { Loader2, MessageCircle, Send } from "lucide-react";
 import { DEPARTMENTS } from "@/talkstay/lib/hotels";
 import { talkstayKeys, type RequestDetailData } from "@/talkstay/lib/data";
 import { useRequestDetail } from "@/talkstay/hooks/useTalkStayQueries";
-
-const STATUS_STYLE: Record<string, string> = {
-  new: "bg-blue-500/15 text-blue-600",
-  accepted: "bg-amber-500/15 text-amber-600",
-  in_progress: "bg-amber-500/15 text-amber-600",
-  on_the_way: "bg-violet-500/15 text-violet-600",
-  completed: "bg-green-500/15 text-green-600",
-  guest_confirmed: "bg-green-600/20 text-green-700",
-  reopened: "bg-orange-500/15 text-orange-600",
-  escalated: "bg-red-500/15 text-red-600",
-  cancelled: "bg-muted text-muted-foreground",
-};
+import { statusAccent, statusBadge, statusLabel } from "@/talkstay/lib/statusStyles";
 
 const deptLabel = (k: string) => DEPARTMENTS.find((d) => d.key === k)?.display_name ?? k;
 const fmtWhen = (iso: string) =>
@@ -105,7 +94,7 @@ export default function RequestDetailSheet({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="flex w-full flex-col gap-0 overflow-y-auto p-0 sm:max-w-lg">
+      <SheetContent side="right" className="ts-glass-strong flex w-full flex-col gap-0 overflow-y-auto border-l p-0 sm:max-w-lg">
         <SheetHeader className="border-b px-6 py-5 text-left">
           <SheetTitle>
             {req ? `Room ${req.ts_rooms?.room_number ?? "—"}` : "Request"}
@@ -124,12 +113,12 @@ export default function RequestDetailSheet({
         ) : (
           <div className="space-y-6 px-6 py-5">
             <div className="flex flex-wrap items-center gap-2">
-              <span className={`rounded-full px-2 py-0.5 text-xs ${STATUS_STYLE[req.status] ?? "bg-muted"}`}>
-                {req.status.replace(/_/g, " ")}
+              <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${statusBadge(req.status)}`}>
+                {statusLabel(req.status)}
               </span>
-              {req.priority === "urgent" && <Badge className="bg-red-500/15 text-red-600">Urgent</Badge>}
-              {req.is_complaint && <Badge className="bg-red-500/15 text-red-600">Complaint</Badge>}
-              {req.needs_triage && <Badge className="bg-amber-500/15 text-amber-600">Check routing</Badge>}
+              {req.priority === "urgent" && <Badge className="border border-rose-200 bg-rose-100 text-rose-800">Urgent</Badge>}
+              {req.is_complaint && <Badge className="border border-rose-200 bg-rose-100 text-rose-800">Complaint</Badge>}
+              {req.needs_triage && <Badge className="border border-amber-200 bg-amber-100 text-amber-900">Check routing</Badge>}
               {req.guest_language && (
                 <Badge variant="secondary">{req.guest_language}</Badge>
               )}
@@ -160,9 +149,11 @@ export default function RequestDetailSheet({
                 <ol className="space-y-2 border-l-2 border-muted pl-4">
                   {events.map((e) => (
                     <li key={e.id} className="relative text-sm">
-                      <span className="absolute -left-[21px] top-1.5 h-2.5 w-2.5 rounded-full bg-violet-500" />
+                      <span className={`absolute -left-[21px] top-1.5 h-2.5 w-2.5 rounded-full ${statusAccent(e.status)}`} />
                       <div className="flex flex-wrap items-baseline gap-x-2">
-                        <span className="font-medium">{e.status.replace(/_/g, " ")}</span>
+                        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusBadge(e.status)}`}>
+                          {statusLabel(e.status)}
+                        </span>
                         <span className="text-xs text-muted-foreground">{fmtWhen(e.created_at)}</span>
                       </div>
                       {(e.note || e.actor_type) && (

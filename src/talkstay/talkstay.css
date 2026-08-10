@@ -1,0 +1,154 @@
+/**
+ * TalkStay — premium glass surfaces.
+ * Scoped to [data-talkstay] so TalkWeb’s flat SaaS chrome stays untouched.
+ */
+
+:root {
+  --ts-glass-fill: linear-gradient(
+    155deg,
+    hsl(0 0% 100% / 0.78) 0%,
+    hsl(0 0% 100% / 0.55) 42%,
+    hsl(38 45% 98% / 0.42) 100%
+  );
+  --ts-glass-fill-strong: linear-gradient(
+    155deg,
+    hsl(0 0% 100% / 0.88) 0%,
+    hsl(0 0% 100% / 0.68) 50%,
+    hsl(40 40% 99% / 0.58) 100%
+  );
+  --ts-glass-border: hsl(0 0% 100% / 0.62);
+  --ts-glass-shadow:
+    0 1px 0 hsl(0 0% 100% / 0.85) inset,
+    0 -0.5px 0 hsl(220 25% 30% / 0.04) inset,
+    0 10px 40px hsl(220 30% 18% / 0.07),
+    0 2px 10px hsl(220 25% 20% / 0.04);
+}
+
+[data-talkstay] {
+  --ts-ink: 222 28% 14%;
+  color: hsl(var(--ts-ink));
+}
+
+/* Atmospheric stage — soft limestone + mist, not flat white / not purple glow */
+[data-talkstay].ts-atmosphere,
+[data-talkstay] .ts-atmosphere {
+  position: relative;
+  isolation: isolate;
+  background-color: hsl(36 22% 95%);
+  background-image:
+    radial-gradient(ellipse 90% 70% at 8% -8%, hsl(32 48% 86% / 0.9), transparent 58%),
+    radial-gradient(ellipse 75% 55% at 96% 4%, hsl(198 38% 88% / 0.75), transparent 52%),
+    radial-gradient(ellipse 65% 45% at 60% 108%, hsl(168 22% 88% / 0.5), transparent 48%),
+    linear-gradient(165deg, hsl(38 26% 97%) 0%, hsl(210 20% 94.5%) 52%, hsl(200 16% 93%) 100%);
+  background-attachment: fixed;
+}
+
+/* Fine film grain — reads as material, not a flat fill */
+[data-talkstay].ts-atmosphere::before,
+[data-talkstay] .ts-atmosphere::before {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  opacity: 0.04;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* Frosted glass utilities */
+.ts-glass {
+  background-color: transparent !important;
+  background-image: var(--ts-glass-fill) !important;
+  backdrop-filter: blur(20px) saturate(1.45);
+  -webkit-backdrop-filter: blur(20px) saturate(1.45);
+  border-color: var(--ts-glass-border) !important;
+  box-shadow: var(--ts-glass-shadow);
+}
+
+.ts-glass-strong {
+  background-color: hsl(0 0% 100% / 0.72) !important;
+  background-image: var(--ts-glass-fill-strong) !important;
+  backdrop-filter: blur(24px) saturate(1.5);
+  -webkit-backdrop-filter: blur(24px) saturate(1.5);
+  border-color: var(--ts-glass-border) !important;
+  box-shadow: var(--ts-glass-shadow);
+}
+
+/* Auto-frost common TalkStay surfaces inside the shell */
+[data-talkstay] .bg-card {
+  background-color: transparent !important;
+  background-image: var(--ts-glass-fill) !important;
+  backdrop-filter: blur(20px) saturate(1.45);
+  -webkit-backdrop-filter: blur(20px) saturate(1.45);
+  border-color: var(--ts-glass-border);
+  box-shadow: var(--ts-glass-shadow);
+}
+
+[data-talkstay] .bg-muted\/20,
+[data-talkstay] .bg-muted\/30,
+[data-talkstay] .bg-muted\/40,
+[data-talkstay] .bg-muted\/50 {
+  background-color: hsl(0 0% 100% / 0.28) !important;
+  backdrop-filter: blur(12px) saturate(1.2);
+  -webkit-backdrop-filter: blur(12px) saturate(1.2);
+}
+
+[data-talkstay] header.border-b,
+[data-talkstay] .sticky.border-b {
+  background-color: hsl(0 0% 100% / 0.45) !important;
+  background-image: linear-gradient(
+    180deg,
+    hsl(0 0% 100% / 0.55),
+    hsl(0 0% 100% / 0.28)
+  ) !important;
+  backdrop-filter: blur(18px) saturate(1.35);
+  -webkit-backdrop-filter: blur(18px) saturate(1.35);
+  border-color: hsl(0 0% 100% / 0.5);
+}
+
+/* Border panels without a status left-rail get the glass fill */
+[data-talkstay] main .rounded-2xl.border:not([class*="border-l-"]),
+[data-talkstay] main .rounded-3xl.border:not([class*="border-l-"]),
+[data-talkstay] .ts-atmosphere .rounded-2xl.border:not([class*="border-l-"]),
+[data-talkstay] .ts-atmosphere .rounded-3xl.border:not([class*="border-l-"]) {
+  background-color: transparent;
+  background-image: var(--ts-glass-fill);
+  backdrop-filter: blur(18px) saturate(1.4);
+  -webkit-backdrop-filter: blur(18px) saturate(1.4);
+  border-color: var(--ts-glass-border);
+  box-shadow: var(--ts-glass-shadow);
+}
+
+/* Status / scope rails — tinted wash over frost */
+[data-talkstay] [class*="border-l-"][class*="rounded-2xl"] {
+  backdrop-filter: blur(16px) saturate(1.3);
+  -webkit-backdrop-filter: blur(16px) saturate(1.3);
+  box-shadow: var(--ts-glass-shadow);
+}
+
+/* Inputs / selects feel inset in glass, not chalky white blocks */
+[data-talkstay] input:not([type="file"]):not([type="checkbox"]):not([type="radio"]),
+[data-talkstay] textarea,
+[data-talkstay] select {
+  background-color: hsl(0 0% 100% / 0.55) !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-color: hsl(220 20% 80% / 0.55);
+  box-shadow: 0 1px 0 hsl(0 0% 100% / 0.6) inset;
+}
+
+[data-talkstay] input:focus-visible,
+[data-talkstay] textarea:focus-visible,
+[data-talkstay] select:focus-visible {
+  box-shadow:
+    0 0 0 2px hsl(0 0% 100% / 0.5),
+    0 0 0 4px hsl(198 45% 42% / 0.28);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-talkstay].ts-atmosphere,
+  [data-talkstay] .ts-atmosphere {
+    background-attachment: scroll;
+  }
+}

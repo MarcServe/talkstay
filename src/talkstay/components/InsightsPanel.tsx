@@ -15,8 +15,9 @@ import { Button } from "@/components/ui/button";
 import { DEPARTMENTS, type Hotel } from "@/talkstay/lib/hotels";
 import RequestDetailSheet from "@/talkstay/components/RequestDetailSheet";
 import { exportToCSV } from "@/utils/exportAnalytics";
+import { INTENT_STYLE, statusBadge, statusLabel } from "@/talkstay/lib/statusStyles";
 
-const CHART_COLORS = ["#7c3aed", "#6366f1", "#0ea5e9", "#10b981", "#f59e0b", "#f43f5e", "#8b5cf6", "#64748b"];
+const CHART_COLORS = ["#0ea5e9", "#14b8a6", "#10b981", "#f59e0b", "#f43f5e", "#64748b", "#0284c7", "#0d9488"];
 
 type TimeRange = InsightsTimeRange;
 const DAY_MS = 86_400_000;
@@ -42,12 +43,14 @@ interface Pulse {
 const PERIOD_DAYS = 30;
 
 const SENTIMENT_STYLE: Record<string, string> = {
-  positive: "bg-green-500/15 text-green-600",
-  neutral: "bg-muted text-muted-foreground",
-  negative: "bg-red-500/15 text-red-600",
+  positive: "border border-emerald-200 bg-emerald-100 text-emerald-800",
+  neutral: "border border-slate-200 bg-slate-100 text-slate-600",
+  negative: "border border-rose-200 bg-rose-100 text-rose-800",
 };
 const SEVERITY_STYLE: Record<string, string> = {
-  high: "bg-red-500/15 text-red-600", medium: "bg-amber-500/15 text-amber-600", low: "bg-muted text-muted-foreground",
+  high: "border border-rose-200 bg-rose-100 text-rose-800",
+  medium: "border border-amber-200 bg-amber-100 text-amber-900",
+  low: "border border-slate-200 bg-slate-100 text-slate-600",
 };
 
 const deptLabel = (k: string) => DEPARTMENTS.find((d) => d.key === k)?.display_name ?? k;
@@ -59,17 +62,6 @@ const fmtDur = (min: number | null) => {
   return m ? `${h}h ${m}m` : `${h}h`;
 };
 const fmtWhen = (iso: string) => new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-
-const INTENT_STYLE: Record<string, string> = {
-  question: "bg-blue-500/15 text-blue-600", request: "bg-violet-500/15 text-violet-600",
-  complaint: "bg-red-500/15 text-red-600", other: "bg-muted text-muted-foreground",
-};
-const STATUS_STYLE: Record<string, string> = {
-  new: "bg-blue-500/15 text-blue-600", accepted: "bg-amber-500/15 text-amber-600",
-  in_progress: "bg-amber-500/15 text-amber-600", on_the_way: "bg-violet-500/15 text-violet-600",
-  completed: "bg-green-500/15 text-green-600", guest_confirmed: "bg-green-600/20 text-green-700",
-  escalated: "bg-red-500/15 text-red-600", cancelled: "bg-muted text-muted-foreground",
-};
 
 type Drill = "requests" | "completed" | "questions" | "conversations" | "ratings" | "pulse";
 
@@ -750,7 +742,7 @@ function AuditTable({ rows, onOpen }: { rows: any[]; onOpen: (id: string) => voi
                 <td className="px-3 py-2 font-medium">{r.room}</td>
                 <td className="px-3 py-2 text-muted-foreground">{deptLabel(r.department_key)}</td>
                 <td className="px-3 py-2 max-w-[220px] truncate text-violet-700">{r.summary}{r.is_complaint ? " ⚠️" : ""}</td>
-                <td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 text-xs ${STATUS_STYLE[r.status] ?? "bg-muted"}`}>{r.status.replace(/_/g, " ")}</span></td>
+                <td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusBadge(r.status)}`}>{statusLabel(r.status)}</span></td>
                 <td className="px-3 py-2 whitespace-nowrap text-xs text-muted-foreground">{fmtWhen(r.created_at)}</td>
                 <td className="px-3 py-2 whitespace-nowrap">{fmtDur(r.toAcceptMin)}</td>
                 <td className="px-3 py-2 whitespace-nowrap">{fmtDur(r.toCompleteMin)}</td>
@@ -823,7 +815,7 @@ function ActivityFeed({ feed, requests, onOpen }: {
                 rid ? "cursor-pointer transition-colors hover:bg-muted/40" : "cursor-default opacity-90"
               }`}
             >
-              <span className={`rounded-full px-2 py-0.5 text-xs ${INTENT_STYLE[r.intent ?? "other"] ?? INTENT_STYLE.other}`}>{r.intent ?? "other"}</span>
+              <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${INTENT_STYLE[r.intent ?? "other"] ?? INTENT_STYLE.other}`}>{r.intent ?? "other"}</span>
               <span className={`min-w-0 flex-1 truncate ${rid ? "text-violet-700" : "text-muted-foreground"}`}>{r.content}</span>
               <span className="whitespace-nowrap text-xs text-muted-foreground">{fmtWhen(r.created_at)}</span>
             </button>

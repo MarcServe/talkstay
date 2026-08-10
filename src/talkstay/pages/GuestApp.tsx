@@ -13,8 +13,22 @@ import {
   fetchStaffMessages, enableDevicePush, disableDevicePush,
   getSessionId, getDeviceId, loadHistory, saveHistory, getNotifyChoice, setNotifyChoice,
   submitPulse, getPulseState, setPulseState,
-  STATUS_LABEL, type ChatMsg, type GuestCard, type GuestRequest, type GuestBranding,
+  type ChatMsg, type GuestCard, type GuestRequest, type GuestBranding,
 } from "@/talkstay/lib/guest";
+import { statusBadge, statusDot, statusLabel } from "@/talkstay/lib/statusStyles";
+
+/** Guest My-requests card washes — kept in this file so Tailwind always emits them. */
+const GUEST_REQ_CARD: Record<string, string> = {
+  new: "border-sky-300/80 bg-sky-100/90 border-l-4 border-l-sky-500 shadow-[0_8px_28px_rgba(14,165,233,0.12)]",
+  accepted: "border-amber-300/80 bg-amber-100/90 border-l-4 border-l-amber-500 shadow-[0_8px_28px_rgba(245,158,11,0.12)]",
+  in_progress: "border-amber-300/80 bg-amber-100/90 border-l-4 border-l-amber-500 shadow-[0_8px_28px_rgba(245,158,11,0.12)]",
+  on_the_way: "border-teal-300/80 bg-teal-100/90 border-l-4 border-l-teal-500 shadow-[0_8px_28px_rgba(20,184,166,0.12)]",
+  completed: "border-emerald-300/80 bg-emerald-100/90 border-l-4 border-l-emerald-500 shadow-[0_8px_28px_rgba(16,185,129,0.12)]",
+  guest_confirmed: "border-emerald-400/80 bg-emerald-100/95 border-l-4 border-l-emerald-600 shadow-[0_8px_28px_rgba(16,185,129,0.14)]",
+  reopened: "border-orange-300/80 bg-orange-100/90 border-l-4 border-l-orange-500 shadow-[0_8px_28px_rgba(249,115,22,0.12)]",
+  escalated: "border-rose-300/80 bg-rose-100/90 border-l-4 border-l-rose-500 shadow-[0_8px_28px_rgba(244,63,94,0.12)]",
+  cancelled: "border-slate-300/90 bg-slate-200/80 border-l-4 border-l-slate-400 shadow-[0_8px_28px_rgba(100,116,139,0.1)]",
+};
 
 type Ctx = {
   hotelName: string; roomNumber: string; greeting: string;
@@ -382,14 +396,18 @@ export default function GuestApp() {
   const toggleVoice = () => (voiceState === "idle" ? startVoice() : stopVoice());
 
   // Pulse check eligibility — never interrupt someone mid-request or mid-type.
-  // Needs a real exchange, a settled assistant turn, and a calm pause first.
+  // One real guest turn + a settled assistant reply is enough; then a short calm pause.
+  // Server may omit pulseAsk on older deploys — treat missing as "ask" (only false opts out).
+  // localStorage "done" = already answered; accidental dismiss is this visit only.
   const pulseEligible = useMemo(() => {
-    if (!ctx?.pulseAsk || pulseHidden || getPulseState(sid)) return false;
-    if (busy || voiceState !== "idle" || notifyOpen || requestsOpen) return false;
+    if (ctx?.pulseAsk === false || pulseHidden || getPulseState(sid) === "done") return false;
+    if (busy || notifyOpen || requestsOpen) return false;
+    // Voice can stay "connected" for minutes — only block while actively talking.
+    if (voiceState === "connecting" || isListening || isSpeaking) return false;
     if (input.trim()) return false; // still composing
 
     const userTurns = msgs.filter((m) => m.role === "user");
-    if (userTurns.length < 2) return false;
+    if (userTurns.length < 1) return false;
 
     // Walk from the end: last conversational turn must be an assistant reply
     // (not the guest waiting, not a just-filed request chip).
@@ -401,24 +419,35 @@ export default function GuestApp() {
       if (m.role === "assistant") break;
     }
 
-    // If a request was filed in the last two transcript items, give them space.
+    // If a request was filed in the last few transcript items, give them space.
     const tail = msgs.slice(-3);
     if (tail.some((m) => m.role === "request")) return false;
 
     return true;
-  }, [ctx?.pulseAsk, pulseHidden, sid, busy, voiceState, notifyOpen, requestsOpen, input, msgs]);
+  }, [ctx?.pulseAsk, pulseHidden, sid, busy, voiceState, isListening, isSpeaking, notifyOpen, requestsOpen, input, msgs]);
 
   useEffect(() => {
     if (!pulseEligible) {
       setPulseReady(false);
       return;
     }
-    // Quiet pause after things settle — short if they've chatted a bit, longer early on.
+    // Quiet pause after the assistant finishes. Do NOT depend on msgs.length —
+    // staff polls / notices were resetting the timer forever.
     const userTurns = msgs.filter((m) => m.role === "user").length;
-    const waitMs = userTurns >= 4 ? 35_000 : 55_000;
+    const waitMs = userTurns >= 3 ? 8_000 : 12_000;
     const t = window.setTimeout(() => setPulseReady(true), waitMs);
     return () => window.clearTimeout(t);
-  }, [pulseEligible, msgs.length]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-arm when eligibility flips
+  }, [pulseEligible]);
+
+  // When the card mounts, scroll it into view (msgs effect won't fire).
+  useEffect(() => {
+    if (!pulseEligible || !pulseReady) return;
+    const t = window.setTimeout(() => {
+      scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: "smooth" });
+    }, 50);
+    return () => window.clearTimeout(t);
+  }, [pulseEligible, pulseReady]);
 
   if (checkedOut) {
     return (
@@ -503,8 +532,13 @@ export default function GuestApp() {
 
   return (
     <div
-      className="mx-auto flex h-[100dvh] max-w-md flex-col bg-background bg-cover bg-center"
-      style={bgPhoto ? { backgroundImage: `linear-gradient(rgba(255,255,255,.93), rgba(255,255,255,.93)), url(${bgPhoto})` } : undefined}
+      data-talkstay
+      className="ts-atmosphere mx-auto flex h-[100dvh] max-w-md flex-col bg-cover bg-center"
+      style={bgPhoto ? {
+        backgroundImage: `linear-gradient(hsla(38,26%,97%,.82), hsla(210,20%,94%,.88)), url(${bgPhoto})`,
+        backgroundSize: "cover",
+        backgroundPosition: "center",
+      } : undefined}
     >
       {/* Header — TalkWeb widget style */}
       <header className="border-b px-4 pb-3 pt-4 text-center">
@@ -526,8 +560,8 @@ export default function GuestApp() {
       <div ref={scroller} className="relative flex-1 overflow-y-auto">
       {/* Voice orb — copied from TalkWeb's SimplifiedVoiceInterface */}
       <div
-        className="sticky top-0 z-20 flex flex-col items-center gap-3 border-b py-6 bg-background/80 backdrop-blur-md"
-        style={{ backgroundImage: `linear-gradient(180deg, ${brand}14, transparent)` }}
+        className="sticky top-0 z-20 flex flex-col items-center gap-3 border-b py-6"
+        style={{ backgroundImage: `linear-gradient(180deg, ${brand}18, transparent)` }}
       >
         <div className="relative">
           {isSpeaking && (
@@ -585,8 +619,8 @@ export default function GuestApp() {
         {msgs.map((m, i) =>
           m.role === "request" ? (
             <div key={i} className="flex justify-center">
-              <span className="inline-flex items-center gap-1.5 rounded-full border bg-muted/60 px-3 py-1 text-xs text-muted-foreground">
-                <Check className="h-3.5 w-3.5 text-green-600" /> Sent to the team — {m.content}
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-sky-200 bg-sky-100 px-3 py-1 text-xs text-sky-800">
+                <Check className="h-3.5 w-3.5 text-sky-700" /> Sent to the team — {m.content}
               </span>
             </div>
           ) : m.role === "notice" ? (
@@ -779,7 +813,7 @@ function PulseCard({ hotelSlug, roomId, token, sid, brand, onFinished }: {
     <div className="rounded-2xl border p-4" style={{ borderColor: `${brand}55` }}>
       <div className="flex items-start justify-between gap-2">
         <p className="text-sm font-semibold">How has your stay been so far?</p>
-        <button onClick={() => { stopListening(); setPulseState(sid, "dismissed"); onFinished("dismissed"); }}
+        <button onClick={() => { stopListening(); onFinished("dismissed"); }}
           aria-label="Dismiss" className="-mr-1 -mt-1 rounded-full p-1 text-muted-foreground hover:bg-muted">
           <X className="h-4 w-4" />
         </button>
@@ -898,7 +932,7 @@ function NotifySheet({ hotelSlug, roomId, token, sid, onDone, onClose }: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40" onClick={onClose}>
-      <div className="w-full max-w-md rounded-t-2xl bg-card p-5" onClick={(e) => e.stopPropagation()}>
+      <div className="ts-glass-strong w-full max-w-md rounded-t-2xl border border-b-0 p-5" onClick={(e) => e.stopPropagation()}>
         <p className="mb-1 font-medium">Your request has been sent.</p>
         <p className="mb-4 text-sm text-muted-foreground">How would you like updates? Choose as many as you like.</p>
 
@@ -945,20 +979,6 @@ function NotifySheet({ hotelSlug, roomId, token, sid, onDone, onClose }: {
     </div>
   );
 }
-
-// Coloured status dot for the "My requests" list — greys while pending,
-// ambers while in flight, greens when done.
-const STATUS_DOT: Record<string, string> = {
-  new: "bg-slate-400",
-  accepted: "bg-amber-400",
-  in_progress: "bg-amber-400",
-  on_the_way: "bg-violet-500",
-  completed: "bg-green-500",
-  guest_confirmed: "bg-green-500",
-  reopened: "bg-orange-500",
-  escalated: "bg-red-500",
-  cancelled: "bg-slate-300",
-};
 
 function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
   hotelSlug: string; roomId: string; token: string; sid: string; onClose: () => void;
@@ -1110,8 +1130,17 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/40" onClick={onClose}>
-      <div className="h-full w-full max-w-md overflow-y-auto bg-card p-6" onClick={(e) => e.stopPropagation()}>
+    <div data-talkstay className="fixed inset-0 z-50 flex justify-end bg-black/45 backdrop-blur-[2px]" onClick={onClose}>
+      <div
+        className="ts-glass-strong flex h-full w-full max-w-md flex-col overflow-y-auto border-l border-white/50 p-6"
+        style={{
+          backgroundImage: "linear-gradient(165deg, rgba(255,255,255,0.92) 0%, rgba(255,255,255,0.72) 45%, rgba(245,248,250,0.68) 100%)",
+          backdropFilter: "blur(22px) saturate(1.45)",
+          WebkitBackdropFilter: "blur(22px) saturate(1.45)",
+          boxShadow: "-12px 0 40px rgba(15,23,42,0.12), inset 1px 0 0 rgba(255,255,255,0.7)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="mb-5 flex items-center justify-between">
           <h2 className="text-lg font-semibold tracking-tight">My requests</h2>
           <Button variant="ghost" size="icon" onClick={onClose}><X className="h-5 w-5" /></Button>
@@ -1138,12 +1167,18 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
               const isOpen = ["new", "accepted", "in_progress", "on_the_way", "reopened"].includes(effStatus);
               const busy = busyId === r.id;
               const isEditing = editingId === r.id;
+              const cardTone = GUEST_REQ_CARD[effStatus] ?? GUEST_REQ_CARD.new;
               return (
-                <div key={r.id} className="rounded-2xl border p-4 shadow-sm">
+                <div
+                  key={r.id}
+                  className={`rounded-2xl border p-4 backdrop-blur-md ${cardTone}`}
+                >
                   <div className="text-[15px] font-medium leading-snug">{r.summary}</div>
-                  <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
-                    <span className={`h-2 w-2 shrink-0 rounded-full ${STATUS_DOT[effStatus] ?? "bg-slate-400"}`} />
-                    {STATUS_LABEL[effStatus] ?? effStatus}
+                  <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${statusBadge(effStatus)}`}>
+                      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDot(effStatus)}`} />
+                      {statusLabel(effStatus)}
+                    </span>
                   </div>
 
                   {/* Staff marked it done — the guest gets the final say. */}

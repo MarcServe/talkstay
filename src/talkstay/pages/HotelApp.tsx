@@ -87,8 +87,8 @@ function CreateHotel({ onCreated }: { onCreated: (h: Hotel) => void }) {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-muted/20 px-4">
-      <div className="w-full max-w-md rounded-2xl border bg-card p-8 shadow-sm">
+    <div data-talkstay className="ts-atmosphere flex min-h-screen items-center justify-center px-4">
+      <div className="ts-glass-strong w-full max-w-md rounded-2xl border p-8">
         <div className="mb-1 text-lg font-semibold">TalkStay</div>
         <h1 className="text-2xl font-semibold tracking-tight">Create your property</h1>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -121,7 +121,7 @@ function CreateHotel({ onCreated }: { onCreated: (h: Hotel) => void }) {
 
 function NoAccess({ email }: { email?: string | null }) {
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-3 px-6 text-center">
+    <div data-talkstay className="ts-atmosphere flex min-h-screen flex-col items-center justify-center gap-3 px-6 text-center">
       <h1 className="text-xl font-semibold">You're signed in, but not on a property team yet</h1>
       <p className="max-w-sm text-sm text-muted-foreground">
         Ask your property manager to add your email under <strong>Staff</strong>. Once they do,
@@ -244,7 +244,7 @@ export default function HotelApp() {
         <ChevronDown className="h-4 w-4 shrink-0 text-white/40" />
       </div>
 
-      <nav className="flex-1 space-y-1 px-3">
+      <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3">
         {visibleNav.map(({ key, label, icon: Icon }) => (
           <button
             key={key}
@@ -288,10 +288,12 @@ export default function HotelApp() {
   );
 
   return (
-    <div className="flex min-h-screen overflow-x-hidden bg-muted/20">
-      {/* Desktop sidebar */}
-      <aside className="hidden w-64 shrink-0 print:hidden md:block">
-        <div className="sticky top-0 h-screen">{SidebarBody}</div>
+    // Viewport shell: overflow-x-hidden on min-h-screen was computing overflow-y
+    // to auto without a max height, so the page couldn't scroll and sticky nav stuck.
+    <div data-talkstay className="ts-atmosphere flex h-[100dvh] overflow-hidden">
+      {/* Desktop sidebar — fixed column, not sticky */}
+      <aside className="hidden h-full w-64 shrink-0 print:hidden md:block">
+        {SidebarBody}
       </aside>
 
       {/* Mobile drawer */}
@@ -302,18 +304,15 @@ export default function HotelApp() {
         </>
       )}
 
-      {/* Main column */}
-      <div className="flex min-w-0 flex-1 flex-col overflow-x-hidden">
-        {/* Compact top bar — only carries the mobile menu button + hotel context.
-            The real page title/subtitle live in the page header below, so every
-            tab gets the same designed heading Operations has in the mockup. */}
-        <header className="sticky top-0 z-20 flex min-w-0 items-center gap-3 border-b bg-background/95 px-4 py-3 backdrop-blur print:hidden md:hidden">
+      {/* Main column — only this pane scrolls */}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <header className="z-20 flex min-w-0 shrink-0 items-center gap-3 border-b px-4 py-3 print:hidden md:hidden">
           <button onClick={() => setNavOpen(true)} aria-label="Open menu">
             <Menu className="h-5 w-5" />
           </button>
           <span className="min-w-0 truncate text-sm font-medium">{hotel.name}</span>
         </header>
-        <main className="min-w-0 flex-1 overflow-x-hidden p-4 md:p-8 print:p-0">
+        <main className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-8 print:overflow-visible print:p-0">
           <div className="mx-auto min-w-0 max-w-5xl print:max-w-none">
             <div className="mb-6 min-w-0 print:mb-4">
               <h1 className="text-2xl font-bold tracking-tight">{activeLabel}</h1>

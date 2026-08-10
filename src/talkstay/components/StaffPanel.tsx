@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import * as XLSX from "xlsx";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,6 +31,28 @@ James Wright,james@hotel.com,front_desk,manager
 
 const DEPT_KEYS = new Set(DEPARTMENTS.map((d) => d.key));
 
+const isExcelFile = (file: File) =>
+  /\.(xlsx|xls|xlsm)$/i.test(file.name)
+  || /spreadsheet|excel|ms-excel/i.test(file.type);
+
+/** First sheet → CSV text so Excel and CSV share one parser. */
+async function excelFileToCsv(file: File): Promise<string> {
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, { type: "array", cellDates: true });
+  const sheetName = wb.SheetNames[0];
+  if (!sheetName) throw new Error("That workbook has no sheets.");
+  const sheet = wb.Sheets[sheetName];
+  // Prefer the densest sheet if the first is a cover tab.
+  let best = sheet;
+  let bestRows = XLSX.utils.sheet_to_json(sheet, { header: 1 }).length;
+  for (const name of wb.SheetNames.slice(1)) {
+    const s = wb.Sheets[name];
+    const n = XLSX.utils.sheet_to_json(s, { header: 1 }).length;
+    if (n > bestRows) { best = s; bestRows = n; }
+  }
+  return XLSX.utils.sheet_to_csv(best);
+}
+
 /** Parse CSV or paste lines: name,email,department,role (header optional). */
 function parseStaffRoster(raw: string): { rows: BulkRow[]; errors: string[] } {
   const errors: string[] = [];
@@ -59,17 +82,26 @@ function parseStaffRoster(raw: string): { rows: BulkRow[]; errors: string[] } {
     return cells.map((c) => c.replace(/^"|"$/g, "").trim());
   };
 
+  const headerMatch = (h: string, ...keys: string[]) =>
+    keys.some((k) => h === k || h.replace(/[_\s]+/g, " ") === k || h.includes(k));
+
   let start = 0;
-  let cols = { name: 0, email: 1, department: 2, role: 3 };
-  const header = splitLine(lines[0]).map((h) => h.toLowerCase());
-  if (header.some((h) => h.includes("email"))) {
+  let cols = { name: 0, email: 1, department: 2, role: 3, first: -1, last: -1 };
+  const header = splitLine(lines[0]).map((h) => h.toLowerCase().trim());
+  if (header.some((h) => h.includes("email") || h.includes("e-mail"))) {
     cols = {
-      name: header.findIndex((h) => h === "name" || h === "full name" || h === "full_name"),
-      email: header.findIndex((h) => h === "email" || h === "e-mail"),
-      department: header.findIndex((h) => h === "department" || h === "dept" || h === "department_key" || h === "team"),
-      role: header.findIndex((h) => h === "role" || h === "access"),
+      name: header.findIndex((h) =>
+        headerMatch(h, "name", "full name", "full_name", "employee", "employee name", "staff name", "colleague")),
+      email: header.findIndex((h) =>
+        headerMatch(h, "email", "e-mail", "email address", "e-mail address", "work email")),
+      department: header.findIndex((h) =>
+        headerMatch(h, "department", "dept", "department_key", "team", "outlet", "section")),
+      role: header.findIndex((h) =>
+        headerMatch(h, "role", "access", "job title", "title", "position")),
+      first: header.findIndex((h) => headerMatch(h, "first name", "firstname", "given name")),
+      last: header.findIndex((h) => headerMatch(h, "last name", "lastname", "surname", "family name")),
     };
-    if (cols.email < 0) cols.email = header.findIndex((h) => h.includes("email"));
+    if (cols.email < 0) cols.email = header.findIndex((h) => h.includes("email") || h.includes("e-mail"));
     start = 1;
   }
 
@@ -80,6 +112,10 @@ function parseStaffRoster(raw: string): { rows: BulkRow[]; errors: string[] } {
     // Support "email only" or "name <email>" paste
     let email = cols.email >= 0 ? (cells[cols.email] ?? "") : "";
     let name = cols.name >= 0 ? (cells[cols.name] ?? "") : "";
+    if (!name.trim() && (cols.first >= 0 || cols.last >= 0)) {
+      name = [cols.first >= 0 ? cells[cols.first] : "", cols.last >= 0 ? cells[cols.last] : ""]
+        .map((p) => (p ?? "").trim()).filter(Boolean).join(" ");
+    }
     let department = cols.department >= 0 ? (cells[cols.department] ?? "") : "";
     let role = cols.role >= 0 ? (cells[cols.role] ?? "staff") : "staff";
 
@@ -235,17 +271,27 @@ export default function StaffPanel({ hotel }: { hotel: Hotel }) {
     }
   };
 
-  const onCsvFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const onRosterFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
     try {
-      const text = await file.text();
+      let text: string;
+      if (isExcelFile(file)) {
+        text = await excelFileToCsv(file);
+      } else {
+        text = await file.text();
+      }
       setBulkText(text);
       setBulkOpen(true);
-      toast.message(`Loaded ${file.name}`, { description: "Review the preview, then send invites." });
-    } catch {
-      toast.error("Couldn't read that file.");
+      const preview = parseStaffRoster(text);
+      toast.message(`Loaded ${file.name}`, {
+        description: preview.rows.length
+          ? `${preview.rows.length} staff ready to invite — review, then send.`
+          : "Check the columns match name / email / department / role.",
+      });
+    } catch (err: any) {
+      toast.error(err?.message ?? "Couldn't read that file. Try .xlsx, .xls, or CSV.");
     }
   };
 
@@ -341,20 +387,28 @@ export default function StaffPanel({ hotel }: { hotel: Hotel }) {
         <div className="space-y-3 rounded-2xl border p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h3 className="text-sm font-semibold">Import team (CSV or paste)</h3>
+              <h3 className="text-sm font-semibold">Import team (Excel, CSV or paste)</h3>
               <p className="mt-0.5 text-xs text-muted-foreground">
-                Columns: <code className="text-[11px]">name, email, department, role</code>.
+                Upload your hotel roster as <strong>.xlsx</strong> / <strong>.xls</strong>, or CSV.
+                Columns: <code className="text-[11px]">name, email, department, role</code>
+                {" "}(also recognises First name / Last name, Dept, Team, Outlet).
                 Departments: housekeeping, laundry, kitchen, bar, maintenance, concierge, front_desk, duty_manager.
                 Role: staff or manager. Max 100 per import — each person gets an invite email.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <input ref={fileRef} type="file" accept=".csv,text/csv,text/plain" className="hidden" onChange={onCsvFile} />
+              <input
+                ref={fileRef}
+                type="file"
+                accept=".xlsx,.xls,.xlsm,.csv,text/csv,text/plain,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                className="hidden"
+                onChange={onRosterFile}
+              />
               <Button type="button" size="sm" variant="outline" onClick={downloadSample}>
                 <Download className="mr-1 h-3.5 w-3.5" /> Sample CSV
               </Button>
               <Button type="button" size="sm" variant="outline" onClick={() => fileRef.current?.click()}>
-                <Upload className="mr-1 h-3.5 w-3.5" /> Upload CSV
+                <Upload className="mr-1 h-3.5 w-3.5" /> Upload Excel / CSV
               </Button>
             </div>
           </div>
@@ -369,7 +423,7 @@ export default function StaffPanel({ hotel }: { hotel: Hotel }) {
             <p className="text-xs text-muted-foreground">
               {bulkText.trim()
                 ? `${parsedPreview.rows.length} ready${parsedPreview.errors.length ? ` · ${parsedPreview.errors.length} line issue(s)` : ""}`
-                : "Paste a roster or upload a CSV to preview."}
+                : "Upload an Excel roster, a CSV, or paste rows to preview."}
             </p>
             <Button type="button" disabled={bulkBusy || !parsedPreview.rows.length} onClick={runBulk}>
               {bulkBusy ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <UserPlus className="mr-1 h-4 w-4" />}

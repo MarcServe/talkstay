@@ -9,6 +9,7 @@ import {
   regenerateCheckinCode, sendCheckinCodeEmail, type Hotel, type Room,
 } from "@/talkstay/lib/hotels";
 import { getPublicBaseUrl } from "@/config/environment";
+import { OCCUPANCY_STYLE } from "@/talkstay/lib/statusStyles";
 
 function guestUrl(hotel: Hotel, room: Room, token: string): string {
   // Always the canonical production URL — a printed QR must resolve on a guest's
@@ -18,6 +19,9 @@ function guestUrl(hotel: Hotel, room: Room, token: string): string {
 
 export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?: (h: Hotel) => void }) {
   const [rooms, setRooms] = useState<Room[]>([]);
+  /** Prefetched guest tokens so Preview can be a real <a target="_blank"> —
+   *  mobile Safari blocks window.open() after await / with noopener. */
+  const [tokens, setTokens] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [num, setNum] = useState("");
   const [floor, setFloor] = useState("");
@@ -71,7 +75,21 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
   const refresh = async () => {
     setLoading(true);
     try {
-      setRooms(await listRooms(hotel.id));
+      const list = await listRooms(hotel.id);
+      setRooms(list);
+      const entries = await Promise.all(
+        list.map(async (r) => {
+          try {
+            const token = await getRoomToken(r.id);
+            return token ? ([r.id, token] as const) : null;
+          } catch {
+            return null;
+          }
+        }),
+      );
+      const map: Record<string, string> = {};
+      for (const e of entries) if (e) map[e[0]] = e[1];
+      setTokens(map);
     } catch (e: any) {
       toast.error(e?.message ?? "Failed to load rooms");
     } finally {
@@ -107,18 +125,21 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
     }
   };
 
-  const preview = async (room: Room) => {
-    // Open the tab SYNCHRONOUSLY (still inside the click gesture) and fill in
-    // its URL once the token resolves — iOS/iPadOS Safari silently blocks
-    // window.open() called after an `await`, since by then it's no longer
-    // considered part of the user gesture that triggered it.
-    const win = window.open("", "_blank", "noopener");
+  /** Fallback when a token wasn't prefetched — open blank WITHOUT noopener so
+   *  we keep a Window handle (noopener makes window.open return null, which
+   *  forces a post-await open that mobile Safari blocks). */
+  const previewFallback = async (room: Room) => {
+    const win = window.open("about:blank", "_blank");
     try {
-      const token = await getRoomToken(room.id);
+      if (win) win.opener = null;
+      const token = tokens[room.id] ?? await getRoomToken(room.id);
       if (!token) { win?.close(); toast.error("No active token for this room"); return; }
       const url = guestUrl(hotel, room, token);
       if (win) win.location.href = url;
-      else window.open(url, "_blank", "noopener"); // pre-open itself was blocked — last resort
+      else {
+        // Last resort: same-tab navigate so staff still reach the guest view.
+        window.location.assign(url);
+      }
     } catch (e: any) {
       win?.close();
       toast.error(e?.message ?? "Failed to open preview");
@@ -233,10 +254,8 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
                       title={r.occupancy_status === "vacant"
                         ? "Vacant — the QR is disabled. Click to check a guest in."
                         : "Occupied — click to check out (disables saved links)."}
-                      className={`rounded-full px-2 py-0.5 text-xs transition-colors ${
-                        r.occupancy_status === "vacant"
-                          ? "bg-muted text-muted-foreground hover:bg-muted/70"
-                          : "bg-green-500/15 text-green-600 hover:bg-green-500/25"
+                      className={`rounded-full px-2 py-0.5 text-xs font-medium transition-opacity hover:opacity-80 ${
+                        OCCUPANCY_STYLE[r.occupancy_status] ?? OCCUPANCY_STYLE.vacant
                       }`}
                     >
                       {r.occupancy_status === "vacant" ? "Vacant · check in" : "Occupied · check out"}
@@ -268,9 +287,25 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
                         these were previously size="sm" (32px) with only 4px gap, which was
                         too small/cramped to tap reliably on phones and iPads. */}
                     <div className="flex justify-end gap-2">
-                      <Button size="icon" variant="ghost" className="h-10 w-10" onClick={() => preview(r)} title="Preview this room's assistant">
-                        <ExternalLink className="h-4 w-4" />
-                      </Button>
+                      {tokens[r.id] ? (
+                        <Button size="icon" variant="ghost" className="h-10 w-10" asChild title="Preview this room's assistant">
+                          <a
+                            href={guestUrl(hotel, r, tokens[r.id])}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            <ExternalLink className="h-4 w-4" />
+                          </a>
+                        </Button>
+                      ) : (
+                        <Button
+                          size="icon" variant="ghost" className="h-10 w-10"
+                          onClick={() => previewFallback(r)}
+                          title="Preview this room's assistant"
+                        >
+                          <ExternalLink className="h-4 w-4" />
+                        </Button>
+                      )}
                       <Button size="icon" variant="outline" className="h-10 w-10" onClick={() => showQr(r)} title="Show QR code">
                         <QrCode className="h-4 w-4" />
                       </Button>

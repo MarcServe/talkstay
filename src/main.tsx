@@ -1,6 +1,7 @@
 import { createRoot } from 'react-dom/client'
 import App from './App.tsx'
 import './index.css'
+import './talkstay/talkstay.css'
 
 // Auto-recover from stale chunk errors after a redeploy.
 // When the browser has a cached index.js referencing a hashed chunk that no

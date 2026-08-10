@@ -18,6 +18,7 @@ import {
   invalidateOps, useOpsQueue, useOpsRealtime,
 } from "@/talkstay/hooks/useTalkStayQueries";
 import RequestDetailSheet from "@/talkstay/components/RequestDetailSheet";
+import { statusBadge, statusCard, statusLabel } from "@/talkstay/lib/statusStyles";
 
 type Req = OpsRequest;
 
@@ -44,18 +45,6 @@ const NEXT: Record<string, { to: string; label: string } | null> = {
   guest_confirmed: null,
   // Guest said the completed work wasn't done — let staff pick it back up.
   reopened: { to: "on_the_way", label: "Pick back up" },
-};
-
-const STATUS_STYLE: Record<string, string> = {
-  new: "bg-blue-500/15 text-blue-600",
-  accepted: "bg-amber-500/15 text-amber-600",
-  in_progress: "bg-amber-500/15 text-amber-600",
-  on_the_way: "bg-violet-500/15 text-violet-600",
-  completed: "bg-green-500/15 text-green-600",
-  guest_confirmed: "bg-green-600/20 text-green-700",
-  reopened: "bg-orange-500/15 text-orange-600",
-  escalated: "bg-red-500/15 text-red-600",
-  cancelled: "bg-muted text-muted-foreground",
 };
 
 const deptLabel = (k: string) => DEPARTMENTS.find((d) => d.key === k)?.display_name ?? k;
@@ -394,8 +383,8 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
                       {deptLabel(r.department_key)} · {timeAgo(r.created_at)}
                     </p>
                   </div>
-                  <span className={`max-w-[40%] shrink-0 truncate rounded-full px-2 py-0.5 text-[10px] ${STATUS_STYLE[r.status] ?? "bg-muted"}`}>
-                    {r.status.replace(/_/g, " ")}
+                  <span className={`max-w-[40%] shrink-0 truncate rounded-full px-2 py-0.5 text-[10px] font-medium ${statusBadge(r.status)}`}>
+                    {statusLabel(r.status)}
                   </span>
                 </button>
               </li>
@@ -498,12 +487,15 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
             const visual = DEPT_VISUAL[r.department_key] ?? { Icon: ConciergeBell, tint: "bg-muted text-muted-foreground" };
             const DeptIcon = visual.Icon;
             return (
-              <div key={r.id} className={`min-w-0 overflow-hidden rounded-2xl border bg-card p-4 shadow-sm ${
-                r.is_complaint || overdue ? "border-red-400/50 bg-red-500/5" : ""}`}>
+              <div key={r.id} className={`min-w-0 overflow-hidden rounded-2xl border p-4 shadow-sm ${
+                r.is_complaint || overdue
+                  ? "border-rose-300/50 bg-rose-100/35 border-l-[3px] border-l-rose-500"
+                  : statusCard(r.status)
+              }`}>
                 <button
                   type="button"
                   onClick={() => setSelectedId(r.id)}
-                  className="flex w-full min-w-0 items-start justify-between gap-2 rounded-xl text-left transition-colors hover:bg-muted/30 sm:gap-3"
+                  className="flex w-full min-w-0 items-start justify-between gap-2 rounded-xl text-left transition-colors hover:bg-white/40 sm:gap-3"
                 >
                   <div className={`hidden h-11 w-11 shrink-0 items-center justify-center rounded-xl sm:flex ${visual.tint}`}>
                     <DeptIcon className="h-5 w-5" />
@@ -513,13 +505,13 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
                       <span className="font-semibold">Room {r.ts_rooms?.room_number ?? "—"}</span>
                       <Badge variant="secondary">{deptLabel(r.department_key)}</Badge>
                       {r.is_complaint && (
-                        <Badge className="bg-red-500/15 text-red-600"><AlertTriangle className="mr-1 h-3 w-3" />Complaint</Badge>
+                        <Badge className="border border-rose-200 bg-rose-100 text-rose-800"><AlertTriangle className="mr-1 h-3 w-3" />Complaint</Badge>
                       )}
-                      {r.priority === "urgent" && <Badge className="bg-red-500/15 text-red-600">Urgent</Badge>}
-                      {overdue && <Badge className="bg-red-500/15 text-red-600">Overdue</Badge>}
-                      {r.needs_triage && <Badge className="bg-amber-500/15 text-amber-600">Check routing</Badge>}
+                      {r.priority === "urgent" && <Badge className="border border-rose-200 bg-rose-100 text-rose-800">Urgent</Badge>}
+                      {overdue && <Badge className="border border-rose-200 bg-rose-100 text-rose-800">Overdue</Badge>}
+                      {r.needs_triage && <Badge className="border border-amber-200 bg-amber-100 text-amber-900">Check routing</Badge>}
                       {escalation && (
-                        <Badge className="bg-red-500/15 text-red-600"><MessageCircle className="mr-1 h-3 w-3" />Follow-up</Badge>
+                        <Badge className="border border-rose-200 bg-rose-100 text-rose-800"><MessageCircle className="mr-1 h-3 w-3" />Follow-up</Badge>
                       )}
                     </div>
                     <p className="mt-1 break-words text-sm">{r.summary_staff || r.summary}</p>
@@ -528,19 +520,19 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
                     )}
                     <p className="mt-1 text-xs text-muted-foreground">
                       {timeAgo(r.created_at)}{r.guest_language ? ` · ${r.guest_language}` : ""}
-                      <span className="ml-2 text-violet-600">View details</span>
+                      <span className="ml-2 font-medium text-teal-700">View details</span>
                     </p>
                     {acked && (
-                      <p className="mt-1 text-xs text-green-600">✓ Accepted by {acked.by} · {timeAgo(acked.at)}</p>
+                      <p className="mt-1 text-xs text-emerald-700">✓ Accepted by {acked.by} · {timeAgo(acked.at)}</p>
                     )}
                     {escalation && (
-                      <p className="mt-1 break-words text-xs text-red-600">
+                      <p className="mt-1 break-words text-xs text-rose-700">
                         ⚠ Guest followed up{escalation.note ? ` — "${escalation.note}"` : ""} · {timeAgo(escalation.at)}
                       </p>
                     )}
                   </div>
-                  <span className={`max-w-[35%] shrink-0 truncate rounded-full px-2 py-1 text-xs sm:max-w-none sm:whitespace-nowrap ${STATUS_STYLE[r.status] ?? "bg-muted"}`}>
-                    {r.status.replace(/_/g, " ")}
+                  <span className={`max-w-[35%] shrink-0 truncate rounded-full px-2 py-1 text-xs sm:max-w-none sm:whitespace-nowrap ${statusBadge(r.status)}`}>
+                    {statusLabel(r.status)}
                   </span>
                 </button>
                 <div className="mt-3 flex flex-wrap items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>

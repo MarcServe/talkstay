@@ -268,7 +268,7 @@ export default function Landing() {
   const { user } = useAuth();
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div data-talkstay className="ts-atmosphere min-h-screen text-foreground">
       <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
         <Link to="/" className="flex items-center gap-2.5 transition-opacity hover:opacity-80">
           <TalkStayLogo size={30} />
@@ -357,7 +357,7 @@ export default function Landing() {
           </div>
           <div className="mt-10 grid gap-5 md:grid-cols-2 lg:grid-cols-3">
             {cases.map((c) => (
-              <div key={c.title} className="flex flex-col rounded-2xl border bg-card p-6 shadow-sm">
+              <div key={c.title} className="ts-glass flex flex-col rounded-2xl border p-6">
                 <h3 className="text-base font-semibold leading-snug">{c.title}</h3>
                 <div className="mt-4 space-y-3 text-sm">
                   <div>
@@ -381,7 +381,7 @@ export default function Landing() {
             <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">Built for hotels and short stays alike</h2>
           </div>
           <div className="mt-10 grid gap-6 md:grid-cols-2">
-            <div className="rounded-3xl border bg-card p-8 shadow-sm">
+            <div className="ts-glass rounded-3xl border p-8">
               <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-violet-100">
                 <Hotel className="h-5 w-5 text-violet-600" />
               </div>
@@ -392,7 +392,7 @@ export default function Landing() {
                 is free for real guest service.
               </p>
             </div>
-            <div className="rounded-3xl border bg-card p-8 shadow-sm">
+            <div className="ts-glass rounded-3xl border p-8">
               <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-violet-100">
                 <House className="h-5 w-5 text-violet-600" />
               </div>

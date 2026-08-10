@@ -17,6 +17,7 @@ import { DEPARTMENTS, listRooms, friendlyImageName, type Hotel, type Room } from
 import ContentPanel from "@/talkstay/components/ContentPanel";
 import type { GuestCard } from "@/talkstay/lib/guest";
 import { cn } from "@/lib/utils";
+import { KB_SCOPE_CARD, KB_SCOPE_STYLE } from "@/talkstay/lib/statusStyles";
 
 // "site" = the hotel's website & uploaded documents (TalkWeb Content section);
 // the other three are TalkStay's layered, access-controlled entries.
@@ -725,7 +726,18 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
     <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-2">
         {(["site", "general", "department", "room"] as Scope[]).map((s) => (
-          <Button key={s} size="sm" variant={scope === s ? "default" : "outline"} onClick={() => setScope(s)}>
+          <Button
+            key={s}
+            size="sm"
+            variant="outline"
+            onClick={() => setScope(s)}
+            className={cn(
+              "border",
+              scope === s
+                ? KB_SCOPE_STYLE[s]
+                : "border-transparent bg-transparent text-muted-foreground hover:bg-muted/50",
+            )}
+          >
             {SCOPE_LABEL[s]}
           </Button>
         ))}
@@ -753,7 +765,7 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
         {scope === "room" && "Info only for this room's guest — photo scan or type."}
       </p>
 
-      <div className="space-y-3 rounded-2xl border p-4">
+      <div className={`space-y-3 rounded-2xl border p-4 ${KB_SCOPE_CARD[scope] ?? ""}`}>
         <input
           ref={scanRef}
           type="file"
@@ -770,7 +782,7 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
           type="button"
           disabled={busy || scanBusy || imgBusy}
           onClick={() => scanRef.current?.click()}
-          className="flex w-full items-center gap-3 rounded-xl border border-dashed bg-muted/30 px-4 py-3 text-left transition hover:bg-muted/50 disabled:opacity-60"
+          className="flex w-full items-center gap-3 rounded-xl border border-dashed bg-white/50 px-4 py-3 text-left transition hover:bg-white/80 disabled:opacity-60"
         >
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-background shadow-sm">
             {scanBusy ? <Loader2 className="h-5 w-5 animate-spin" /> : <Camera className="h-5 w-5" />}
@@ -880,7 +892,7 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
           {filtered.length === 0 ? (
             <p className="text-sm text-muted-foreground">No cards match "{search}".</p>
           ) : (
-            <div className="divide-y rounded-2xl border">
+            <div className={`divide-y rounded-2xl border ${KB_SCOPE_CARD[scope] ?? ""}`}>
               {filtered.map((e) => {
                 const extras = storedMedia(e);
                 const preview = stripCardMeta(e.content);
@@ -911,15 +923,20 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
                   ) : (
                     <div className="flex items-start gap-3">
                       <button className="min-w-0 flex-1 text-left" onClick={() => startEdit(e)} title="Click to edit">
+                        <div className="mb-1 flex flex-wrap items-center gap-1.5">
+                          <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${KB_SCOPE_STYLE[e.scope] ?? KB_SCOPE_STYLE.general}`}>
+                            {SCOPE_LABEL[e.scope as Scope] ?? e.scope}
+                          </span>
+                        </div>
                         {e.title && (
                           <div className="text-sm font-medium">{highlightText(e.title, q)}</div>
                         )}
                         <div className="line-clamp-2 text-sm text-muted-foreground">{highlightText(preview, q)}</div>
                         {extras ? (
                           <div className="mt-1 flex flex-wrap gap-1.5 text-[10px] text-muted-foreground">
-                            {extras.sections?.some((s) => s.title || s.items.length) && <span className="rounded bg-muted px-1.5 py-0.5">sections</span>}
-                            {!!extras.images?.length && <span className="rounded bg-muted px-1.5 py-0.5">{extras.images.length} photo{extras.images.length === 1 ? "" : "s"}</span>}
-                            {!!extras.links?.length && <span className="rounded bg-muted px-1.5 py-0.5">{extras.links.length} link{extras.links.length === 1 ? "" : "s"}</span>}
+                            {extras.sections?.some((s) => s.title || s.items.length) && <span className="rounded bg-white/70 px-1.5 py-0.5">sections</span>}
+                            {!!extras.images?.length && <span className="rounded bg-white/70 px-1.5 py-0.5">{extras.images.length} photo{extras.images.length === 1 ? "" : "s"}</span>}
+                            {!!extras.links?.length && <span className="rounded bg-white/70 px-1.5 py-0.5">{extras.links.length} link{extras.links.length === 1 ? "" : "s"}</span>}
                           </div>
                         ) : null}
                       </button>
