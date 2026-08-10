@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -11,7 +12,14 @@ import {
 } from "lucide-react";
 import { DEPARTMENTS, type Hotel } from "@/talkstay/lib/hotels";
 import { playChime } from "@/talkstay/lib/chime";
+import type { OpsRequest, OpsTimeRange } from "@/talkstay/lib/data";
+import { OPEN_STATUSES } from "@/talkstay/lib/data";
+import {
+  invalidateOps, useOpsQueue, useOpsRealtime,
+} from "@/talkstay/hooks/useTalkStayQueries";
 import RequestDetailSheet from "@/talkstay/components/RequestDetailSheet";
+
+type Req = OpsRequest;
 
 // Each department gets a distinct icon + soft tint, so staff can scan the
 // queue by shape/colour instead of reading every card's department label.
@@ -25,21 +33,6 @@ const DEPT_VISUAL: Record<string, { Icon: typeof Wrench; tint: string }> = {
   front_desk: { Icon: KeyRound, tint: "bg-indigo-100 text-indigo-600" },
   duty_manager: { Icon: ShieldAlert, tint: "bg-red-100 text-red-600" },
 };
-
-interface Req {
-  id: string;
-  room_id: string | null;
-  department_key: string;
-  summary: string;
-  summary_staff: string | null;
-  status: string;
-  priority: string;
-  is_complaint: boolean;
-  needs_triage: boolean;
-  guest_language: string | null;
-  created_at: string;
-  ts_rooms?: { room_number: string } | null;
-}
 
 // Next lifecycle action per status.
 const NEXT: Record<string, { to: string; label: string } | null> = {
@@ -80,7 +73,7 @@ const FILTER_LABEL: Record<Filter, string> = {
   all: "All", new: "New", active: "Active", done: "Done", followup: "Follow-up",
 };
 
-type TimeRange = "24h" | "3d" | "7d" | "30d" | "all";
+type TimeRange = OpsTimeRange;
 const DAY_MS = 86_400_000;
 const HOUR_MS = 3_600_000;
 const TIME_RANGES: { id: TimeRange; short: string; ms: number | null }[] = [
@@ -90,8 +83,6 @@ const TIME_RANGES: { id: TimeRange; short: string; ms: number | null }[] = [
   { id: "30d", short: "30d", ms: 30 * DAY_MS },
   { id: "all", short: "All", ms: null },
 ];
-/** Still-open statuses — never hidden by the time window. */
-const OPEN_STATUSES = ["new", "accepted", "in_progress", "on_the_way", "reopened", "escalated"];
 
 const OVERDUE_MIN = 5; // a 'new' request older than this is flagged overdue
 const minsSince = (iso: string) => (Date.now() - new Date(iso).getTime()) / 60000;
@@ -99,10 +90,7 @@ const minsSince = (iso: string) => (Date.now() - new Date(iso).getTime()) / 6000
 export default function OperationsPanel({ hotel, lockedDepartment = null }: {
   hotel: Hotel; lockedDepartment?: string | null;
 }) {
-  const [reqs, setReqs] = useState<Req[]>([]);
-  const [ack, setAck] = useState<Record<string, { by: string; at: string }>>({});
-  const [escalations, setEscalations] = useState<Record<string, { note: string | null; at: string }>>({});
-  const [loading, setLoading] = useState(true);
+  const qc = useQueryClient();
   const [filter, setFilter] = useState<Filter>("active");
   // Cap history so Done/All don't drown the board; open work always stays visible.
   const [timeRange, setTimeRange] = useState<TimeRange>("3d");
@@ -123,29 +111,28 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
   const watchedRef = useRef(watchedDept);
   watchedRef.current = watchedDept;
 
-  const refresh = async () => {
-    const range = TIME_RANGES.find((r) => r.id === timeRange) ?? TIME_RANGES[1];
-    let q = supabase
-      .from("ts_service_requests")
-      .select("id, room_id, department_key, summary, summary_staff, status, priority, is_complaint, needs_triage, guest_language, created_at, ts_rooms(room_number)")
-      .eq("hotel_id", hotel.id)
-      .order("created_at", { ascending: false })
-      .limit(200);
-    // Recent rows OR anything still open (so a stuck request never disappears).
-    if (range.ms != null) {
-      const sinceIso = new Date(Date.now() - range.ms).toISOString();
-      // Quote the ISO timestamp — colons break unquoted PostgREST .or() values.
-      q = q.or(`created_at.gte."${sinceIso}",status.in.(${OPEN_STATUSES.join(",")})`);
-    }
-    const { data, error } = await q;
-    if (error) toast.error(error.message);
-    const list = (data as any as Req[]) ?? [];
+  const { data: queue, isPending, isFetching, isError, error } = useOpsQueue(hotel.id, timeRange);
+  useOpsRealtime(hotel.id);
 
-    // Chime + toast when a genuinely NEW request lands in the watched queue.
+  const reqs = queue?.requests ?? [];
+  const ack = queue?.ack ?? {};
+  const escalations = queue?.escalations ?? {};
+  // Only block the first paint when we have nothing cached yet.
+  const loading = isPending && !queue;
+
+  useEffect(() => {
+    if (isError && error) toast.error(error.message);
+  }, [isError, error]);
+
+  // Chime on genuinely new / escalated items (cache updates from realtime or refetch).
+  useEffect(() => {
+    if (!queue) return;
+    const list = queue.requests;
+
     if (seenIds.current) {
       const fresh = list.filter(
         (r) => !seenIds.current!.has(r.id) && r.status === "new" &&
-          (watchedRef.current === "all" || r.department_key === watchedRef.current)
+          (watchedRef.current === "all" || r.department_key === watchedRef.current),
       );
       if (fresh.length) {
         playChime();
@@ -154,71 +141,31 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
           fresh.length === 1
             ? `New request · Room ${r.ts_rooms?.room_number ?? "—"}`
             : `${fresh.length} new requests`,
-          { description: fresh.length === 1 ? (r.summary_staff || r.summary) : undefined }
+          { description: fresh.length === 1 ? (r.summary_staff || r.summary) : undefined },
         );
       }
     }
     seenIds.current = new Set(list.map((r) => r.id));
 
-    setReqs(list);
-    setLoading(false);
-
-    // Acknowledgement (latest 'accepted' event) + follow-up escalations
-    // (latest 'escalated' event — the guest chased something mid-conversation
-    // and talkstay-guest-chat's escalate_request flagged it, per request_id).
-    const ids = list.map((r) => r.id);
-    if (ids.length) {
-      const { data: ev } = await supabase
-        .from("ts_request_events")
-        .select("id, request_id, status, note, created_at")
-        .in("request_id", ids).in("status", ["accepted", "escalated"])
-        .order("created_at", { ascending: false });
-
-      const ackMap: Record<string, { by: string; at: string }> = {};
-      const escMap: Record<string, { note: string | null; at: string }> = {};
-      (ev ?? []).forEach((e: any) => {
-        if (e.status === "accepted" && !ackMap[e.request_id]) ackMap[e.request_id] = { by: e.note || "staff", at: e.created_at };
-        if (e.status === "escalated" && !escMap[e.request_id]) escMap[e.request_id] = { note: e.note, at: e.created_at };
+    if (seenEscalations.current) {
+      const fresh = queue.escalationEvents.filter((e) => {
+        if (seenEscalations.current!.has(e.id)) return false;
+        const dept = list.find((r) => r.id === e.request_id)?.department_key;
+        return watchedRef.current === "all" || dept === watchedRef.current;
       });
-      setAck(ackMap);
-      setEscalations(escMap);
-
-      // Chime + toast when a NEW escalation event appears in the watched queue
-      // — this fires on a follow-up even though the request row itself isn't new.
-      const escalationEvents = (ev ?? []).filter((e: any) => e.status === "escalated");
-      if (seenEscalations.current) {
-        const fresh = escalationEvents.filter((e: any) => {
-          if (seenEscalations.current!.has(e.id)) return false;
-          const dept = list.find((r) => r.id === e.request_id)?.department_key;
-          return watchedRef.current === "all" || dept === watchedRef.current;
+      if (fresh.length) {
+        playChime();
+        const e0 = fresh[0];
+        const r0 = list.find((r) => r.id === e0.request_id);
+        toast.message(`Guest followed up · Room ${r0?.ts_rooms?.room_number ?? "—"}`, {
+          description: e0.note || r0?.summary_staff || r0?.summary,
         });
-        if (fresh.length) {
-          playChime();
-          const e0 = fresh[0];
-          const r0 = list.find((r) => r.id === e0.request_id);
-          toast.message(`Guest followed up · Room ${r0?.ts_rooms?.room_number ?? "—"}`, {
-            description: e0.note || r0?.summary_staff || r0?.summary,
-          });
-        }
       }
-      seenEscalations.current = new Set(escalationEvents.map((e: any) => e.id));
     }
-  };
+    seenEscalations.current = new Set(queue.escalationEvents.map((e) => e.id));
+  }, [queue]);
 
-  useEffect(() => {
-    setLoading(true);
-    refresh();
-    const channel = supabase
-      .channel(`ts-ops-${hotel.id}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "ts_service_requests", filter: `hotel_id=eq.${hotel.id}` },
-        () => refresh()
-      )
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-    // eslint-disable-next-line
-  }, [hotel.id, timeRange]);
+  const refresh = () => { void invalidateOps(qc, hotel.id); };
 
   // Resolve the current user's display identity for this hotel: "Name · Department".
   const actorLabel = async (userId?: string, email?: string | null): Promise<string> => {
@@ -273,7 +220,8 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
     setReplyBusy((p) => ({ ...p, [r.id]: true }));
     const { data, error } = await supabase.functions.invoke("talkstay-reply", { body: { requestId: r.id, body: text } });
     setReplyBusy((p) => ({ ...p, [r.id]: false }));
-    if (error || (data as any)?.error) { toast.error((data as any)?.error ?? error?.message ?? "Couldn't send"); return; }
+    const invokeErr = (data as { error?: string } | null)?.error;
+    if (error || invokeErr) { toast.error(invokeErr ?? error?.message ?? "Couldn't send"); return; }
     setReplyText((p) => ({ ...p, [r.id]: "" }));
     setReplyOpen((p) => ({ ...p, [r.id]: false }));
     toast.success("Reply sent to the guest.");
@@ -364,40 +312,42 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
   }, [reqs, dept, ack]);
 
   return (
-    <div className="space-y-4">
+    <div className="min-w-0 space-y-4 overflow-x-hidden">
       {/* BI strip — today's pulse for the watched queue */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <div className="rounded-2xl border bg-card p-4 shadow-sm">
+        <div className="min-w-0 rounded-2xl border bg-card p-3 shadow-sm sm:p-4">
           <div className="text-xs text-muted-foreground">Total requests today</div>
           <div className="mt-1 text-2xl font-semibold">{bi.totalToday}</div>
-          <div className="mt-1 inline-flex items-center gap-1 text-xs text-muted-foreground">
-            <ArrowUpRight className="h-3.5 w-3.5 text-violet-600" /> live queue scope
+          <div className="mt-1 inline-flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+            <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-violet-600" />
+            <span className="truncate">live queue scope</span>
           </div>
         </div>
-        <div className="rounded-2xl border bg-card p-4 shadow-sm">
+        <div className="min-w-0 rounded-2xl border bg-card p-3 shadow-sm sm:p-4">
           <div className="text-xs text-muted-foreground">In progress</div>
           <div className="mt-1 text-2xl font-semibold">{bi.inProgress}</div>
           <div className="mt-1 text-xs text-violet-600">Active now</div>
         </div>
-        <div className="rounded-2xl border bg-card p-4 shadow-sm">
+        <div className="min-w-0 rounded-2xl border bg-card p-3 shadow-sm sm:p-4">
           <div className="text-xs text-muted-foreground">Completed today</div>
           <div className="mt-1 text-2xl font-semibold">{bi.completedToday}</div>
-          <div className="mt-1 inline-flex items-center gap-1 text-xs text-green-600">
-            <ArrowDownRight className="h-3.5 w-3.5" /> closed same day
+          <div className="mt-1 inline-flex min-w-0 items-center gap-1 text-xs text-green-600">
+            <ArrowDownRight className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">closed same day</span>
           </div>
         </div>
-        <div className="rounded-2xl border bg-card p-4 shadow-sm">
+        <div className="min-w-0 rounded-2xl border bg-card p-3 shadow-sm sm:p-4">
           <div className="text-xs text-muted-foreground">Avg. time to accept</div>
           <div className="mt-1 flex items-center gap-2 text-2xl font-semibold">
-            <Clock3 className="h-5 w-5 text-muted-foreground" />
+            <Clock3 className="h-5 w-5 shrink-0 text-muted-foreground" />
             {bi.avgAcceptLabel}
           </div>
-          <div className="mt-1 text-xs text-muted-foreground">request → staff accepted</div>
+          <div className="mt-1 truncate text-xs text-muted-foreground">request → staff accepted</div>
         </div>
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-3">
-        <div className="rounded-2xl border bg-card p-4 shadow-sm lg:col-span-1">
+      <div className="grid min-w-0 gap-3 lg:grid-cols-3">
+        <div className="min-w-0 overflow-hidden rounded-2xl border bg-card p-4 shadow-sm lg:col-span-1">
           <h3 className="text-sm font-medium">Requests by department today</h3>
           {bi.deptRows.length === 0 ? (
             <p className="mt-3 text-sm text-muted-foreground">No requests yet today.</p>
@@ -406,13 +356,13 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
               {bi.deptRows.slice(0, 6).map((d) => {
                 const pct = Math.round((d.count / bi.deptTotal) * 100);
                 return (
-                  <li key={d.key}>
-                    <div className="mb-1 flex items-center justify-between text-xs">
-                      <span className="truncate font-medium">{d.label}</span>
-                      <span className="text-muted-foreground">{d.count} · {pct}%</span>
+                  <li key={d.key} className="min-w-0">
+                    <div className="mb-1 flex min-w-0 items-center justify-between gap-2 text-xs">
+                      <span className="min-w-0 truncate font-medium">{d.label}</span>
+                      <span className="shrink-0 text-muted-foreground">{d.count} · {pct}%</span>
                     </div>
-                    <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-                      <div className="h-full rounded-full bg-violet-500" style={{ width: `${pct}%` }} />
+                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                      <div className="h-full max-w-full rounded-full bg-violet-500" style={{ width: `${pct}%` }} />
                     </div>
                   </li>
                 );
@@ -421,10 +371,10 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
           )}
         </div>
 
-        <div className="rounded-2xl border bg-card p-4 shadow-sm">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-medium">Recent requests</h3>
-            <button type="button" className="text-xs text-violet-600 hover:underline" onClick={() => setFilter("all")}>
+        <div className="min-w-0 overflow-hidden rounded-2xl border bg-card p-4 shadow-sm">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="min-w-0 truncate text-sm font-medium">Recent requests</h3>
+            <button type="button" className="shrink-0 text-xs text-violet-600 hover:underline" onClick={() => setFilter("all")}>
               View all
             </button>
           </div>
@@ -432,19 +382,19 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
             {bi.recent.length === 0 ? (
               <li className="py-4 text-sm text-muted-foreground">Nothing yet.</li>
             ) : bi.recent.map((r) => (
-              <li key={r.id}>
+              <li key={r.id} className="min-w-0">
                 <button
                   type="button"
                   onClick={() => setSelectedId(r.id)}
-                  className="flex w-full items-start gap-2 py-2.5 text-left transition-colors hover:bg-muted/40"
+                  className="flex w-full min-w-0 items-start gap-2 py-2.5 text-left transition-colors hover:bg-muted/40"
                 >
-                  <div className="min-w-0 flex-1">
+                  <div className="min-w-0 flex-1 overflow-hidden">
                     <p className="truncate text-sm font-medium">{r.summary_staff || r.summary}</p>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="truncate text-xs text-muted-foreground">
                       {deptLabel(r.department_key)} · {timeAgo(r.created_at)}
                     </p>
                   </div>
-                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] ${STATUS_STYLE[r.status] ?? "bg-muted"}`}>
+                  <span className={`max-w-[40%] shrink-0 truncate rounded-full px-2 py-0.5 text-[10px] ${STATUS_STYLE[r.status] ?? "bg-muted"}`}>
                     {r.status.replace(/_/g, " ")}
                   </span>
                 </button>
@@ -453,10 +403,10 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
           </ul>
         </div>
 
-        <div className="rounded-2xl border bg-card p-4 shadow-sm">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-medium">Live requests</h3>
-            <button type="button" className="text-xs text-violet-600 hover:underline" onClick={() => setFilter("active")}>
+        <div className="min-w-0 overflow-hidden rounded-2xl border bg-card p-4 shadow-sm">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="min-w-0 truncate text-sm font-medium">Live requests</h3>
+            <button type="button" className="shrink-0 text-xs text-violet-600 hover:underline" onClick={() => setFilter("active")}>
               View all
             </button>
           </div>
@@ -464,16 +414,16 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
             {bi.live.length === 0 ? (
               <li className="py-4 text-sm text-muted-foreground">Queue is clear.</li>
             ) : bi.live.map((r) => (
-              <li key={r.id}>
+              <li key={r.id} className="min-w-0">
                 <button
                   type="button"
                   onClick={() => setSelectedId(r.id)}
-                  className="flex w-full items-center gap-3 py-2.5 text-left transition-colors hover:bg-muted/40"
+                  className="flex w-full min-w-0 items-center gap-3 py-2.5 text-left transition-colors hover:bg-muted/40"
                 >
                   <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-xs font-semibold text-violet-700">
                     {r.ts_rooms?.room_number ?? "—"}
                   </div>
-                  <div className="min-w-0 flex-1">
+                  <div className="min-w-0 flex-1 overflow-hidden">
                     <p className="truncate text-sm font-medium">Room {r.ts_rooms?.room_number ?? "—"}</p>
                     <p className="truncate text-xs text-muted-foreground">
                       {deptLabel(r.department_key)} · {timeAgo(r.created_at)}
@@ -528,7 +478,9 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
               {DEPARTMENTS.map((d) => <option key={d.key} value={d.key}>{d.display_name}</option>)}
             </select>
           )}
-          <Button size="sm" variant="ghost" onClick={refresh}><RefreshCw className="h-4 w-4" /></Button>
+          <Button size="sm" variant="ghost" onClick={refresh} disabled={isFetching} title="Refresh queue">
+            <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
+          </Button>
         </div>
       </div>
 
@@ -546,17 +498,17 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
             const visual = DEPT_VISUAL[r.department_key] ?? { Icon: ConciergeBell, tint: "bg-muted text-muted-foreground" };
             const DeptIcon = visual.Icon;
             return (
-              <div key={r.id} className={`rounded-2xl border bg-card p-4 shadow-sm ${
+              <div key={r.id} className={`min-w-0 overflow-hidden rounded-2xl border bg-card p-4 shadow-sm ${
                 r.is_complaint || overdue ? "border-red-400/50 bg-red-500/5" : ""}`}>
                 <button
                   type="button"
                   onClick={() => setSelectedId(r.id)}
-                  className="flex w-full items-start justify-between gap-3 rounded-xl text-left transition-colors hover:bg-muted/30"
+                  className="flex w-full min-w-0 items-start justify-between gap-2 rounded-xl text-left transition-colors hover:bg-muted/30 sm:gap-3"
                 >
                   <div className={`hidden h-11 w-11 shrink-0 items-center justify-center rounded-xl sm:flex ${visual.tint}`}>
                     <DeptIcon className="h-5 w-5" />
                   </div>
-                  <div className="min-w-0 flex-1">
+                  <div className="min-w-0 flex-1 overflow-hidden">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-semibold">Room {r.ts_rooms?.room_number ?? "—"}</span>
                       <Badge variant="secondary">{deptLabel(r.department_key)}</Badge>
@@ -570,9 +522,9 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
                         <Badge className="bg-red-500/15 text-red-600"><MessageCircle className="mr-1 h-3 w-3" />Follow-up</Badge>
                       )}
                     </div>
-                    <p className="mt-1 text-sm">{r.summary_staff || r.summary}</p>
+                    <p className="mt-1 break-words text-sm">{r.summary_staff || r.summary}</p>
                     {r.summary_staff && r.summary_staff !== r.summary && (
-                      <p className="mt-0.5 text-xs text-muted-foreground italic">{r.summary}</p>
+                      <p className="mt-0.5 break-words text-xs text-muted-foreground italic">{r.summary}</p>
                     )}
                     <p className="mt-1 text-xs text-muted-foreground">
                       {timeAgo(r.created_at)}{r.guest_language ? ` · ${r.guest_language}` : ""}
@@ -582,12 +534,12 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
                       <p className="mt-1 text-xs text-green-600">✓ Accepted by {acked.by} · {timeAgo(acked.at)}</p>
                     )}
                     {escalation && (
-                      <p className="mt-1 text-xs text-red-600">
+                      <p className="mt-1 break-words text-xs text-red-600">
                         ⚠ Guest followed up{escalation.note ? ` — "${escalation.note}"` : ""} · {timeAgo(escalation.at)}
                       </p>
                     )}
                   </div>
-                  <span className={`whitespace-nowrap rounded-full px-2 py-1 text-xs ${STATUS_STYLE[r.status] ?? "bg-muted"}`}>
+                  <span className={`max-w-[35%] shrink-0 truncate rounded-full px-2 py-1 text-xs sm:max-w-none sm:whitespace-nowrap ${STATUS_STYLE[r.status] ?? "bg-muted"}`}>
                     {r.status.replace(/_/g, " ")}
                   </span>
                 </button>

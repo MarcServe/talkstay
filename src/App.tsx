@@ -12,7 +12,17 @@ const GuestApp = lazy(() => import("@/talkstay/pages/GuestApp"));
 const HotelApp = lazy(() => import("@/talkstay/pages/HotelApp"));
 const NotFound = lazy(() => import("@/talkstay/pages/NotFound"));
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      // Dashboard data: prefer cached paint, refresh quietly in the background.
+      staleTime: 15_000,
+      gcTime: 15 * 60_000,
+      refetchOnWindowFocus: true,
+      retry: 1,
+    },
+  },
+});
 
 const PageFallback = () => (
   <div className="min-h-screen flex items-center justify-center text-muted-foreground">

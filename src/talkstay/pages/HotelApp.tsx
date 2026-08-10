@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -20,7 +21,11 @@ import DepartmentsPanel from "@/talkstay/components/DepartmentsPanel";
 import KnowledgePanel from "@/talkstay/components/KnowledgePanel";
 import StaffPanel from "@/talkstay/components/StaffPanel";
 import BrandingPanel from "@/talkstay/components/BrandingPanel";
-import { createHotel, getMyAccess, ingestHotelWebsite, DEPARTMENTS, type Hotel, type HotelAccess } from "@/talkstay/lib/hotels";
+import { createHotel, ingestHotelWebsite, DEPARTMENTS, type Hotel } from "@/talkstay/lib/hotels";
+import { talkstayKeys } from "@/talkstay/lib/data";
+import {
+  useHotelAccess, usePrefetchHotelData,
+} from "@/talkstay/hooks/useTalkStayQueries";
 
 const NAV = [
   // `admin: true` = owner/manager only. Department staff see just Operations.
@@ -143,21 +148,25 @@ function Panel({ active, hotel, onHotel, departmentKey }: {
 
 export default function HotelApp() {
   const { user, loading } = useAuth();
+  const qc = useQueryClient();
+  const { data: access, isPending: loadingHotel, isError, error, refetch: refetchAccess } =
+    useHotelAccess(!!user);
   const [hotel, setHotel] = useState<Hotel | null>(null);
-  const [access, setAccess] = useState<HotelAccess | null>(null);
-  const [loadingHotel, setLoadingHotel] = useState(true);
+  usePrefetchHotelData(hotel?.id);
+
   const [active, setActive] = useState<NavKey>("operations");
   const [navOpen, setNavOpen] = useState(false);
 
   useEffect(() => {
-    if (!user) { setLoadingHotel(false); return; }
-    setLoadingHotel(true);
-    getMyAccess()
-      .then((a) => { setAccess(a); return a.hotel; })
-      .then(setHotel)
-      .catch((e) => toast.error(e?.message ?? "Failed to load property"))
-      .finally(() => setLoadingHotel(false));
-  }, [user]);
+    if (isError && error) toast.error(error.message ?? "Failed to load property");
+  }, [isError, error]);
+
+  // Keep local hotel in sync with cached access (create / login), without
+  // wiping in-session edits until access actually changes.
+  useEffect(() => {
+    if (access?.hotel) setHotel(access.hotel);
+    else if (!loadingHotel) setHotel(null);
+  }, [access?.hotel, loadingHotel]);
 
   // A password-reset or team-invite link exchanges its code into a real
   // session immediately — but the person hasn't chosen a password yet. Keep
@@ -165,7 +174,7 @@ export default function HotelApp() {
   // dashboard render underneath them just because `user` is now truthy.
   if (isPasswordSetupUrl()) return <AuthPage />;
 
-  if (loading || (user && loadingHotel)) {
+  if (loading || (user && loadingHotel && !access)) {
     return (
       <div className="flex min-h-screen items-center justify-center text-muted-foreground">
         <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading…
@@ -177,7 +186,15 @@ export default function HotelApp() {
   // hotel membership is shown a clear "ask your manager" message instead.
   if (!hotel) {
     if (access && !access.isOwner) return <NoAccess />;
-    return <CreateHotel onCreated={setHotel} />;
+    return (
+      <CreateHotel
+        onCreated={(h) => {
+          setHotel(h);
+          void qc.invalidateQueries({ queryKey: talkstayKeys.access() });
+          void refetchAccess();
+        }}
+      />
+    );
   }
 
   const isAdmin = access?.isOwner || access?.role === "manager" || access?.role === "owner";
@@ -200,7 +217,7 @@ export default function HotelApp() {
   const SidebarBody = (
     <div className="flex h-full flex-col bg-[#15111f] text-white/70">
       <div className="flex items-center justify-between px-5 py-4">
-        <Link to="/app" className="flex min-w-0 items-center gap-2.5 transition-opacity hover:opacity-80" title="Dashboard home">
+        <Link to="/" className="flex min-w-0 items-center gap-2.5 transition-opacity hover:opacity-80" title="TalkStay home">
           <TalkStayLogo size={30} />
           <div className="min-w-0 font-semibold tracking-tight text-white">TalkStay</div>
         </Link>
@@ -261,7 +278,7 @@ export default function HotelApp() {
   );
 
   return (
-    <div className="flex min-h-screen bg-muted/20">
+    <div className="flex min-h-screen overflow-x-hidden bg-muted/20">
       {/* Desktop sidebar */}
       <aside className="hidden w-64 shrink-0 print:hidden md:block">
         <div className="sticky top-0 h-screen">{SidebarBody}</div>
@@ -276,19 +293,19 @@ export default function HotelApp() {
       )}
 
       {/* Main column */}
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col overflow-x-hidden">
         {/* Compact top bar — only carries the mobile menu button + hotel context.
             The real page title/subtitle live in the page header below, so every
             tab gets the same designed heading Operations has in the mockup. */}
-        <header className="sticky top-0 z-20 flex items-center gap-3 border-b bg-background/95 px-4 py-3 backdrop-blur print:hidden md:hidden">
+        <header className="sticky top-0 z-20 flex min-w-0 items-center gap-3 border-b bg-background/95 px-4 py-3 backdrop-blur print:hidden md:hidden">
           <button onClick={() => setNavOpen(true)} aria-label="Open menu">
             <Menu className="h-5 w-5" />
           </button>
-          <span className="truncate text-sm font-medium">{hotel.name}</span>
+          <span className="min-w-0 truncate text-sm font-medium">{hotel.name}</span>
         </header>
-        <main className="flex-1 p-4 md:p-8 print:p-0">
-          <div className="mx-auto max-w-5xl print:max-w-none">
-            <div className="mb-6 print:mb-4">
+        <main className="min-w-0 flex-1 overflow-x-hidden p-4 md:p-8 print:p-0">
+          <div className="mx-auto min-w-0 max-w-5xl print:max-w-none">
+            <div className="mb-6 min-w-0 print:mb-4">
               <h1 className="text-2xl font-bold tracking-tight">{activeLabel}</h1>
               {activeDesc && <p className="mt-1 text-sm text-muted-foreground print:hidden">{activeDesc}</p>}
               <p className="mt-1 hidden text-sm text-muted-foreground print:block">

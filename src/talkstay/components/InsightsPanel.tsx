@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import type { InsightsTimeRange } from "@/talkstay/lib/data";
+import { useInsightsData } from "@/talkstay/hooks/useTalkStayQueries";
 import {
   Loader2, MessageSquare, Users, HelpCircle, ClipboardList, CheckCircle2, Star, Timer,
   Heart, TrendingDown, TrendingUp, Minus, BellRing, X, Printer, Download,
@@ -16,7 +18,7 @@ import { exportToCSV } from "@/utils/exportAnalytics";
 
 const CHART_COLORS = ["#7c3aed", "#6366f1", "#0ea5e9", "#10b981", "#f59e0b", "#f43f5e", "#8b5cf6", "#64748b"];
 
-type TimeRange = "24h" | "3d" | "7d" | "30d" | "90d";
+type TimeRange = InsightsTimeRange;
 const DAY_MS = 86_400_000;
 const HOUR_MS = 3_600_000;
 const TIME_RANGES: { id: TimeRange; label: string; short: string; ms: number }[] = [
@@ -87,12 +89,6 @@ function Stat({ icon: Icon, label, value, sub, active, onClick }: {
 }
 
 export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
-  const [rows, setRows] = useState<Interaction[]>([]);
-  const [reqs, setReqs] = useState<Req[]>([]);
-  const [events, setEvents] = useState<Ev[]>([]);
-  const [ratings, setRatings] = useState<{ request_id: string; rating: number; comment: string | null }[]>([]);
-  const [pulses, setPulses] = useState<Pulse[]>([]);
-  const [loading, setLoading] = useState(true);
   const [drill, setDrill] = useState<Drill>("requests");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [timeRange, setTimeRange] = useState<TimeRange>("7d");
@@ -104,42 +100,30 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
   const rangeMeta = TIME_RANGES.find((r) => r.id === timeRange) ?? TIME_RANGES[2];
   const sinceMs = Date.now() - rangeMeta.ms;
 
+  const { data: insight, isPending, isError, error } = useInsightsData(hotel.id, timeRange);
+  const rows = useMemo(
+    () => (insight?.interactions as Interaction[] | undefined) ?? [],
+    [insight?.interactions],
+  );
+  const reqs = useMemo(
+    () => (insight?.requests as Req[] | undefined) ?? [],
+    [insight?.requests],
+  );
+  const events = useMemo(
+    () => (insight?.events as Ev[] | undefined) ?? [],
+    [insight?.events],
+  );
+  const ratings = useMemo(() => insight?.ratings ?? [], [insight?.ratings]);
+  const pulses = useMemo(
+    () => (insight?.pulses as Pulse[] | undefined) ?? [],
+    [insight?.pulses],
+  );
+  // Keep prior range on screen while the next range loads.
+  const loading = isPending && !insight;
+
   useEffect(() => {
-    (async () => {
-      setLoading(true);
-      const sinceIso = new Date(Date.now() - rangeMeta.ms).toISOString();
-      const [{ data: ix }, { data: rq }, { data: rv }, { data: pl }] = await Promise.all([
-        supabase.from("ts_interactions").select("session_id, role, content, intent, language, created_at")
-          .eq("hotel_id", hotel.id)
-          .gte("created_at", sinceIso)
-          .order("created_at", { ascending: false }).limit(1000),
-        supabase.from("ts_service_requests")
-          .select("id, room_id, department_key, summary, status, is_complaint, classification_method, session_id, created_at, updated_at, ts_rooms(room_number)")
-          .eq("hotel_id", hotel.id)
-          .gte("created_at", sinceIso)
-          .order("created_at", { ascending: false }).limit(500),
-        supabase.from("ts_request_reviews").select("request_id, rating, comment").eq("hotel_id", hotel.id).limit(1000),
-        // Two full periods so "this month vs last month" is always computable.
-        supabase.from("ts_guest_pulse")
-          .select("id, body, rating, sentiment, severity, department_key, issue_key, issue_label, request_id, acknowledged_at, created_at, ts_rooms(room_number)")
-          .eq("hotel_id", hotel.id)
-          .gte("created_at", new Date(Date.now() - PERIOD_DAYS * 2 * DAY_MS).toISOString())
-          .order("created_at", { ascending: false }).limit(1000),
-      ]);
-      const reqList = (rq as any as Req[]) ?? [];
-      setRows((ix as Interaction[]) ?? []);
-      setReqs(reqList);
-      setRatings((rv as any[]) ?? []);
-      setPulses((pl as any as Pulse[]) ?? []);
-      const ids = reqList.map((r) => r.id);
-      if (ids.length) {
-        const { data: ev } = await supabase.from("ts_request_events")
-          .select("request_id, status, note, created_at").in("request_id", ids).order("created_at", { ascending: true });
-        setEvents((ev as Ev[]) ?? []);
-      } else setEvents([]);
-      setLoading(false);
-    })();
-  }, [hotel.id, timeRange, rangeMeta.ms]);
+    if (isError && error) toast.error(error.message);
+  }, [isError, error]);
 
   // Per-request audit model with timings.
   const audit = useMemo(() => {

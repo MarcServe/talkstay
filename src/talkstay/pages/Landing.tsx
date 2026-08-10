@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import {
   PlayCircle, Hotel, House, ArrowRight, Volume2, VolumeX,
-  Building2, KeyRound,
+  Building2, KeyRound, Mic, Route, CheckCircle2, Languages,
 } from "lucide-react";
 import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
 import { useAuth } from "@/hooks/useAuth";
@@ -107,15 +107,17 @@ const AUDIENCES = [
 ] as const;
 
 /** Image with a graceful, on-brand fallback so a missing file never breaks. */
-function Photo({ src, alt, className = "", eager = false }: {
+function Photo({ src, alt, className = "", eager = false, fit = "cover" }: {
   src: string; alt: string; className?: string; eager?: boolean;
+  fit?: "cover" | "contain";
 }) {
   const [failed, setFailed] = useState(false);
   return (
     <div className={`relative overflow-hidden bg-gradient-to-br from-violet-600 via-indigo-600 to-[#2e1065] ${className}`}>
       {!failed ? (
         <img src={src} alt={alt} loading={eager ? "eager" : "lazy"}
-          onError={() => setFailed(true)} className="h-full w-full object-cover" />
+          onError={() => setFailed(true)}
+          className={`h-full w-full ${fit === "contain" ? "object-contain" : "object-cover"}`} />
       ) : (
         <div className="flex h-full w-full items-center justify-center">
           <TalkStayLogo size={44} className="opacity-60" />
@@ -125,18 +127,73 @@ function Photo({ src, alt, className = "", eager = false }: {
   );
 }
 
-/** Full hero artwork + hospitality strip underneath. */
-function HeroBanner() {
-  return (
-    <div className="overflow-hidden rounded-3xl border bg-white shadow-xl">
-      <Photo
-        src={IMG.hero}
-        alt="TalkStay voice-first guest service — scan and speak from any device, in any language"
-        eager
-        className="aspect-[3/2] w-full sm:aspect-[16/10] lg:aspect-[2/1]"
-      />
+const HERO_PILLS = [
+  { label: "Scan & speak", sub: "No app, no login", Icon: Mic },
+  { label: "Auto-routed", sub: "Right team, instantly", Icon: Route },
+  { label: "Tracked to done", sub: "Updates in real time", Icon: CheckCircle2 },
+  { label: "Every language", sub: "Multi-language support", Icon: Languages },
+] as const;
 
-      <div className="bg-gradient-to-r from-[#1e1458] via-[#2d1b69] to-[#3b2178] px-5 py-5 text-white sm:px-8">
+/** Split hero: design copy on the left, lifestyle/product photo on the right. */
+function Hero({ signedIn }: { signedIn: boolean }) {
+  return (
+    <div className="space-y-8">
+      <div className="grid items-center gap-10 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] lg:gap-12">
+        <div className="text-center lg:text-left">
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-violet-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-violet-700">
+            <Mic className="h-3.5 w-3.5" />
+            Voice-first guest service
+          </span>
+          <h1 className="mt-5 text-4xl font-bold tracking-tight text-foreground sm:text-5xl lg:text-[3.25rem] lg:leading-[1.1]">
+            Guest requests.
+            <br />
+            Handled{" "}
+            <span className="bg-gradient-to-r from-violet-600 to-indigo-500 bg-clip-text font-serif italic text-transparent">
+              beautifully.
+            </span>
+          </h1>
+          <p className="mt-2 text-center font-serif text-xs italic tracking-wide text-violet-600/80 lg:text-left">
+            from anywhere
+          </p>
+          <p className="mx-auto mt-5 max-w-xl text-base leading-relaxed text-muted-foreground sm:text-lg lg:mx-0">
+            TalkStay lets guests speak naturally to request room service, housekeeping,
+            maintenance, property information and more. Every request is routed, tracked and
+            completed with care.
+          </p>
+          <div className="mt-8 flex flex-wrap items-center justify-center gap-3 lg:justify-start">
+            <Button asChild size="lg" className="bg-violet-600 hover:bg-violet-700">
+              <Link to="/app">{signedIn ? "Open dashboard" : "Get started"}</Link>
+            </Button>
+            <Button asChild size="lg" variant="outline">
+              <a href="#how"><PlayCircle className="mr-1.5 h-4 w-4 text-violet-600" /> See how it works</a>
+            </Button>
+          </div>
+        </div>
+
+        <Photo
+          src={IMG.hero}
+          alt="Guest scanning a TalkStay room QR code — scan to speak with TalkStay"
+          eager
+          fit="contain"
+          className="aspect-[1024/682] w-full rounded-3xl bg-[#1a1035] shadow-xl ring-1 ring-black/5"
+        />
+      </div>
+
+      <ul className="grid grid-cols-2 gap-4 sm:grid-cols-4 sm:gap-6">
+        {HERO_PILLS.map(({ label, sub, Icon }) => (
+          <li key={label} className="flex items-start gap-2.5 text-left">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-violet-100 text-violet-700">
+              <Icon className="h-4 w-4" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold tracking-tight">{label}</p>
+              <p className="text-xs text-muted-foreground">{sub}</p>
+            </div>
+          </li>
+        ))}
+      </ul>
+
+      <div className="overflow-hidden rounded-3xl bg-gradient-to-r from-[#1e1458] via-[#2d1b69] to-[#3b2178] px-5 py-5 text-white shadow-xl sm:px-8">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-start gap-3 sm:items-center">
             <img
@@ -213,7 +270,7 @@ export default function Landing() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
-        <Link to={user ? "/app" : "/"} className="flex items-center gap-2.5 transition-opacity hover:opacity-80">
+        <Link to="/" className="flex items-center gap-2.5 transition-opacity hover:opacity-80">
           <TalkStayLogo size={30} />
           <span className="text-lg font-semibold tracking-tight">TalkStay</span>
           <span className="hidden rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground sm:inline">by TalkWeb</span>
@@ -243,21 +300,9 @@ export default function Landing() {
       </header>
 
       <main>
-        {/* Hero — photo stays; headline + hospitality bar are live text (mobile-readable). */}
+        {/* Hero — design copy (left) + product photo (right), matching the TalkStay board. */}
         <section className="mx-auto max-w-6xl px-6 pt-6 sm:pt-10">
-          <HeroBanner />
-          <p className="mx-auto mt-8 max-w-2xl text-center text-lg text-muted-foreground">
-            Guests speak naturally in their own language. TalkStay understands, routes to the right
-            team, and tracks every request to completion — no app required.
-          </p>
-          <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-            <Button asChild size="lg" className="bg-violet-600 hover:bg-violet-700">
-              <Link to="/app">{user ? "Open dashboard" : "Get started"}</Link>
-            </Button>
-            <Button asChild size="lg" variant="outline">
-              <a href="#demo"><PlayCircle className="mr-1.5 h-4 w-4" /> Watch demo</a>
-            </Button>
-          </div>
+          <Hero signedIn={!!user} />
         </section>
 
         {/* The positioning line. */}
@@ -390,7 +435,7 @@ export default function Landing() {
 
       <footer className="border-t">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-6 py-8 text-sm text-muted-foreground">
-          <Link to={user ? "/app" : "/"} className="flex items-center gap-2 transition-colors hover:text-foreground">
+          <Link to="/" className="flex items-center gap-2 transition-colors hover:text-foreground">
             <TalkStayLogo size={22} />
             <span>© {new Date().getFullYear()} TalkStay by TalkWeb</span>
           </Link>

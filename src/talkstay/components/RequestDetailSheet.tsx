@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,6 +10,8 @@ import {
 import { toast } from "sonner";
 import { Loader2, MessageCircle, Send } from "lucide-react";
 import { DEPARTMENTS } from "@/talkstay/lib/hotels";
+import { talkstayKeys, type RequestDetailData } from "@/talkstay/lib/data";
+import { useRequestDetail } from "@/talkstay/hooks/useTalkStayQueries";
 
 const STATUS_STYLE: Record<string, string> = {
   new: "bg-blue-500/15 text-blue-600",
@@ -26,50 +29,6 @@ const deptLabel = (k: string) => DEPARTMENTS.find((d) => d.key === k)?.display_n
 const fmtWhen = (iso: string) =>
   new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 
-interface RequestRow {
-  id: string;
-  hotel_id: string;
-  room_id: string | null;
-  department_key: string;
-  intent: string | null;
-  summary: string;
-  summary_staff: string | null;
-  status: string;
-  priority: string;
-  is_complaint: boolean;
-  needs_triage: boolean;
-  guest_language: string | null;
-  session_id: string | null;
-  conversation: unknown;
-  created_at: string;
-  updated_at: string;
-  ts_rooms?: { room_number: string } | null;
-}
-
-interface EventRow {
-  id: string;
-  status: string;
-  actor_type: string | null;
-  note: string | null;
-  created_at: string;
-}
-
-interface MsgRow {
-  id: string;
-  sender: string;
-  staff_label: string | null;
-  body: string;
-  body_guest: string | null;
-  created_at: string;
-}
-
-interface ChatTurn {
-  role: string;
-  content: string;
-  at?: string;
-  intent?: string | null;
-}
-
 /** Full request dossier: summary, lifecycle timeline, staff replies, guest chat. */
 export default function RequestDetailSheet({
   requestId, open, onOpenChange, onChanged,
@@ -79,144 +38,54 @@ export default function RequestDetailSheet({
   onOpenChange: (open: boolean) => void;
   onChanged?: () => void;
 }) {
-  const [loading, setLoading] = useState(false);
-  const [req, setReq] = useState<RequestRow | null>(null);
-  const [events, setEvents] = useState<EventRow[]>([]);
-  const [messages, setMessages] = useState<MsgRow[]>([]);
-  const [chat, setChat] = useState<ChatTurn[]>([]);
+  const qc = useQueryClient();
+  const { data, isPending, isFetching, isPlaceholderData, isError, error, refetch } =
+    useRequestDetail(requestId, open);
+
+  const req = data?.request ?? null;
+  const events = data?.events ?? [];
+  const messages = data?.messages ?? [];
+  const chat = data?.chat ?? [];
+  // Instant header from ops cache; only blank when nothing is cached yet.
+  const loading = isPending && !req;
+
   const [reply, setReply] = useState("");
   const [replyBusy, setReplyBusy] = useState(false);
 
   useEffect(() => {
-    if (!open || !requestId) return;
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      setReq(null);
-      setEvents([]);
-      setMessages([]);
-      setChat([]);
-      setReply("");
-
-      const { data: row, error } = await supabase
-        .from("ts_service_requests")
-        .select("id, hotel_id, room_id, department_key, intent, summary, summary_staff, status, priority, is_complaint, needs_triage, guest_language, session_id, conversation, created_at, updated_at, ts_rooms(room_number)")
-        .eq("id", requestId)
-        .maybeSingle();
-      if (cancelled) return;
-      if (error || !row) {
-        toast.error(error?.message ?? "Couldn't load that request.");
-        setLoading(false);
-        return;
-      }
-      const r = row as any as RequestRow;
-      setReq(r);
-
-      const [{ data: ev }, { data: msgs }] = await Promise.all([
-        supabase.from("ts_request_events")
-          .select("id, status, actor_type, note, created_at")
-          .eq("request_id", requestId)
-          .order("created_at", { ascending: true }),
-        supabase.from("ts_request_messages")
-          .select("id, sender, staff_label, body, body_guest, created_at")
-          .eq("request_id", requestId)
-          .order("created_at", { ascending: true }),
-      ]);
-      if (cancelled) return;
-      setEvents((ev as EventRow[]) ?? []);
-      setMessages((msgs as MsgRow[]) ?? []);
-
-      // One stay = one session_id, so the full session transcript is shared by
-      // every request from that guest. Scope chat to THIS request's window
-      // (after the previous request → before the next), else use the snapshot
-      // saved on the request row at create time.
-      let turns: ChatTurn[] = [];
-      if (r.session_id) {
-        const { data: siblings } = await supabase
-          .from("ts_service_requests")
-          .select("id, created_at")
-          .eq("hotel_id", r.hotel_id)
-          .eq("session_id", r.session_id)
-          .order("created_at", { ascending: true });
-        const list = siblings ?? [];
-        const idx = list.findIndex((s) => s.id === r.id);
-        // Include a short lead-in before this request so staff see what triggered it.
-        const createdMs = new Date(r.created_at).getTime();
-        const prevEnd = idx > 0 ? new Date(list[idx - 1].created_at).getTime() : 0;
-        const windowStartIso = new Date(
-          Math.max(prevEnd, createdMs - 20 * 60_000), // max 20 min before this request
-        ).toISOString();
-        const windowEndIso = idx >= 0 && idx < list.length - 1
-          ? list[idx + 1].created_at
-          : new Date(createdMs + 2 * 60 * 60_000).toISOString(); // 2h after if last
-
-        let q = supabase
-          .from("ts_interactions")
-          .select("role, content, intent, created_at")
-          .eq("hotel_id", r.hotel_id)
-          .eq("session_id", r.session_id)
-          .gte("created_at", windowStartIso)
-          .lt("created_at", windowEndIso)
-          .order("created_at", { ascending: true })
-          .limit(100);
-        const { data: ix } = await q;
-        if (ix?.length) {
-          turns = ix
-            .filter((t: any) => t.content)
-            .map((t: any) => ({
-              role: t.role, content: t.content as string,
-              at: t.created_at, intent: t.intent,
-            }));
-        }
-      }
-      if (!turns.length && Array.isArray(r.conversation)) {
-        turns = (r.conversation as any[])
-          .filter((t) => t?.content || t?.text)
-          .map((t) => ({
-            role: String(t.role === "user" ? "guest" : (t.role ?? "guest")),
-            content: String(t.content ?? t.text ?? ""),
-            at: t.at ?? t.created_at,
-          }));
-      }
-      if (!cancelled) {
-        setChat(turns);
-        setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
+    if (!open) setReply("");
   }, [open, requestId]);
+
+  useEffect(() => {
+    if (open && isError && error) toast.error(error.message);
+  }, [open, isError, error]);
 
   const sendReply = async () => {
     if (!req || !reply.trim()) return;
     setReplyBusy(true);
-    const { data, error } = await supabase.functions.invoke("talkstay-reply", {
+    const { data: res, error: err } = await supabase.functions.invoke("talkstay-reply", {
       body: { requestId: req.id, body: reply.trim() },
     });
     setReplyBusy(false);
-    if (error || (data as any)?.error) {
-      toast.error((data as any)?.error ?? error?.message ?? "Couldn't send");
+    const invokeErr = (res as { error?: string } | null)?.error;
+    if (err || invokeErr) {
+      toast.error(invokeErr ?? err?.message ?? "Couldn't send");
       return;
     }
     setReply("");
     toast.success("Reply sent to the guest.");
-    // Refresh messages in-place.
-    const { data: msgs } = await supabase
-      .from("ts_request_messages")
-      .select("id, sender, staff_label, body, body_guest, created_at")
-      .eq("request_id", req.id)
-      .order("created_at", { ascending: true });
-    setMessages((msgs as MsgRow[]) ?? []);
+    await refetch();
     onChanged?.();
   };
 
   const closeAs = async (to: "completed" | "cancelled") => {
     if (!req) return;
     const { data: { user } } = await supabase.auth.getUser();
-    const { error } = await supabase
+    const { error: err } = await supabase
       .from("ts_service_requests")
       .update({ status: to, assigned_staff_id: user?.id ?? null })
       .eq("id", req.id);
-    if (error) { toast.error(error.message); return; }
+    if (err) { toast.error(err.message); return; }
     await supabase.from("ts_request_events").insert({
       request_id: req.id, status: to, actor_type: "staff", actor_id: user?.id ?? null,
       note: user?.email ?? "staff",
@@ -225,7 +94,10 @@ export default function RequestDetailSheet({
       body: { requestId: req.id, event: to },
     }).then(() => {}, () => {});
     toast.success(to === "completed" ? "Marked complete — guest notified." : "Cancelled — guest notified.");
-    setReq({ ...req, status: to });
+    qc.setQueryData<RequestDetailData>(talkstayKeys.request(req.id), (prev) =>
+      prev ? { ...prev, request: { ...prev.request, status: to } } : prev,
+    );
+    await refetch();
     onChanged?.();
   };
 
@@ -240,7 +112,7 @@ export default function RequestDetailSheet({
           </SheetTitle>
           <SheetDescription>
             {req
-              ? `${deptLabel(req.department_key)} · ${fmtWhen(req.created_at)}`
+              ? `${deptLabel(req.department_key)} · ${fmtWhen(req.created_at)}${isPlaceholderData && isFetching ? " · loading details…" : ""}`
               : "Loading full request details…"}
           </SheetDescription>
         </SheetHeader>
