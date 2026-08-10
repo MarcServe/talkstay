@@ -283,7 +283,13 @@ export interface InsightsData {
     session_id: string | null; created_at: string; updated_at: string;
     ts_rooms?: { room_number: string } | null;
   }[];
-  ratings: { request_id: string; rating: number; comment: string | null }[];
+  ratings: {
+    request_id: string; rating: number; comment: string | null; created_at: string;
+    ts_service_requests?: {
+      summary: string; room_id: string | null;
+      ts_rooms?: { room_number: string } | null;
+    } | null;
+  }[];
   pulses: {
     id: string; body: string; rating: number | null; sentiment: string; severity: string;
     department_key: string | null; issue_key: string; issue_label: string | null;
@@ -297,6 +303,7 @@ const PERIOD_DAYS = 30;
 
 export async function fetchInsights(hotelId: string, timeRange: InsightsTimeRange): Promise<InsightsData> {
   const sinceIso = new Date(Date.now() - INSIGHTS_TIME_MS[timeRange]).toISOString();
+  // Pulses need a longer window for “are we improving?” (current 30d vs prior 30d).
   const pulseSince = new Date(Date.now() - PERIOD_DAYS * 2 * DAY_MS).toISOString();
 
   const [{ data: ix }, { data: rq }, { data: rv }, { data: pl }] = await Promise.all([
@@ -309,10 +316,12 @@ export async function fetchInsights(hotelId: string, timeRange: InsightsTimeRang
       .eq("hotel_id", hotelId)
       .gte("created_at", sinceIso)
       .order("created_at", { ascending: false }).limit(500),
-    // Time-bound reviews — all-time pulls grow forever and skew KPIs.
-    supabase.from("ts_request_reviews").select("request_id, rating, comment, created_at")
+    // Reviews by when the guest rated — not when the request was opened.
+    supabase.from("ts_request_reviews")
+      .select("request_id, rating, comment, created_at, ts_service_requests(summary, room_id, ts_rooms(room_number))")
       .eq("hotel_id", hotelId)
       .gte("created_at", sinceIso)
+      .order("created_at", { ascending: false })
       .limit(1000),
     supabase.from("ts_guest_pulse")
       .select("id, body, rating, sentiment, severity, department_key, issue_key, issue_label, request_id, acknowledged_at, created_at, ts_rooms(room_number)")

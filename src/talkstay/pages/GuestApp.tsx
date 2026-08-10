@@ -664,9 +664,9 @@ export default function GuestApp() {
         </div>
       </header>
 
-      {/* Conversation fills the screen — voice is a floating control, not a hero block. */}
+      {/* Conversation — leave room for the voice-first dock below. */}
       <div ref={scroller} className="relative flex-1 overflow-y-auto">
-      <div className="space-y-3 px-4 pb-24 pt-4">
+      <div className="space-y-3 px-4 pb-6 pt-4">
         {msgs.map((m, i) =>
           m.role === "request" ? (
             <div key={i} className="flex justify-center">
@@ -722,67 +722,93 @@ export default function GuestApp() {
       </div>
       </div>
 
-      {/* Floating mic — compact so chat stays readable. */}
-      <div className="pointer-events-none absolute inset-x-0 bottom-[4.25rem] z-30 flex justify-end px-3">
-        <div className="pointer-events-auto flex max-w-[calc(100%-0.5rem)] items-center gap-2">
-          {voiceState !== "idle" && (
-            <div className="rounded-full border bg-white/95 px-3 py-1.5 text-xs font-medium shadow-md backdrop-blur">
-              <span className="mr-2 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500 align-middle" />
-              {orbLabel}
+      {/* Voice-first dock — mic is the main action; typing is secondary. */}
+      <div className="relative z-20 border-t bg-background/95 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur">
+        <div className="flex flex-col items-center gap-2">
+          {voiceAvailable ? (
+            <>
+              <p className="text-center text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+                {voiceState === "idle"
+                  ? "Voice-first · any language"
+                  : isSpeaking
+                    ? "Speaking…"
+                    : "Listening — just talk"}
+              </p>
               <button
                 type="button"
-                onClick={() => stopVoice()}
-                className="ml-2 text-muted-foreground underline"
+                onClick={toggleVoice}
+                disabled={voiceState === "connecting"}
+                className="relative flex h-[4.5rem] w-[4.5rem] items-center justify-center rounded-full text-white shadow-lg transition hover:scale-[1.03] active:scale-[0.98] disabled:opacity-60"
+                style={{
+                  background: isListening && !isSpeaking
+                    ? "linear-gradient(145deg, #ef4444, #b91c1c)"
+                    : `linear-gradient(145deg, ${brand}, ${brand}b3)`,
+                  boxShadow: voiceState === "connected"
+                    ? `0 0 0 6px ${brand}22, 0 10px 28px ${brand}44`
+                    : `0 10px 24px ${brand}33`,
+                }}
+                aria-label={voiceState === "idle" ? "Tap to talk" : "End voice"}
               >
-                End
+                {voiceState === "connecting" ? (
+                  <Loader2 className="h-7 w-7 animate-spin" />
+                ) : voiceState === "connected" ? (
+                  <MicOff className="h-7 w-7" />
+                ) : (
+                  <Mic className="h-7 w-7" />
+                )}
+                {(voiceState === "connected" || isListening) && (
+                  <span className="pointer-events-none absolute inset-[-6px] animate-ping rounded-full border-2 border-current opacity-20" />
+                )}
               </button>
-            </div>
+              <div className="flex items-center gap-2 text-sm">
+                <span className="font-semibold tracking-tight" style={{ color: brand }}>
+                  {orbLabel}
+                </span>
+                {voiceState !== "idle" && (
+                  <button
+                    type="button"
+                    onClick={() => stopVoice()}
+                    className="text-xs text-muted-foreground underline underline-offset-2"
+                  >
+                    End
+                  </button>
+                )}
+              </div>
+              {voiceState === "idle" && (
+                <p className="max-w-[16rem] text-center text-xs leading-snug text-muted-foreground">
+                  Tap the mic and ask for anything — towels, breakfast, a repair. Typing is optional.
+                </p>
+              )}
+            </>
+          ) : (
+            <p className="pb-1 text-center text-xs text-muted-foreground">
+              Voice isn’t set up for this room yet — type below.
+            </p>
           )}
-          <button
-            type="button"
-            onClick={toggleVoice}
-            disabled={!voiceAvailable || voiceState === "connecting"}
-            className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full shadow-lg transition hover:scale-105 disabled:opacity-50"
-            style={{
-              background: !voiceAvailable
-                ? "#94a3b8"
-                : isListening && !isSpeaking
-                  ? "linear-gradient(135deg, #ef4444, #dc2626)"
-                  : `linear-gradient(135deg, ${brand}, ${brand}cc)`,
-              boxShadow: isSpeaking ? `0 0 18px ${brand}66` : undefined,
-            }}
-            aria-label={voiceState === "idle" ? "Start voice" : "Stop voice"}
-            title={voiceAvailable ? orbLabel : "Voice unavailable — type below"}
-          >
-            {voiceState === "connecting" ? (
-              <Loader2 className="h-5 w-5 animate-spin text-white" />
-            ) : voiceState === "connected" ? (
-              <MicOff className="h-5 w-5 text-white" />
-            ) : (
-              <Mic className="h-5 w-5 text-white" />
-            )}
-            {isListening && !isSpeaking && (
-              <span className="absolute inset-0 animate-ping rounded-full bg-white/20" />
-            )}
-          </button>
         </div>
-      </div>
 
-      {/* Typed input — TalkWeb style */}
-      <form
-        onSubmit={(e) => { e.preventDefault(); sendTyped(input); }}
-        className="relative z-20 flex items-center gap-2 border-t bg-background/95 px-3 py-3 backdrop-blur"
-      >
-        <Input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder={voiceState === "connected" ? "Listening… or type here" : "Type your message…"}
-          disabled={busy}
-        />
-        <Button type="submit" size="icon" disabled={busy || !input.trim()} style={{ backgroundColor: brand }}>
-          <Send className="h-4 w-4" />
-        </Button>
-      </form>
+        <form
+          onSubmit={(e) => { e.preventDefault(); sendTyped(input); }}
+          className="mt-3 flex items-center gap-2"
+        >
+          <Input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder={
+              voiceState === "connected"
+                ? "Or type while we listen…"
+                : voiceAvailable
+                  ? "Or type a message…"
+                  : "Type your message…"
+            }
+            disabled={busy}
+            className="h-10 text-sm"
+          />
+          <Button type="submit" size="icon" className="h-10 w-10 shrink-0" disabled={busy || !input.trim()} style={{ backgroundColor: brand }}>
+            <Send className="h-4 w-4" />
+          </Button>
+        </form>
+      </div>
 
       {notifyOpen && (
         <NotifySheet

@@ -149,6 +149,24 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
   // Keep prior range on screen while the next range loads.
   const loading = isPending && !insight;
 
+  type ReviewRow = {
+    request_id: string; rating: number; comment: string | null; created_at: string;
+    summary: string; room: string;
+  };
+  const reviewRows = useMemo<ReviewRow[]>(() => (
+    ratings.map((r) => {
+      const req = (r as any).ts_service_requests;
+      return {
+        request_id: r.request_id,
+        rating: r.rating,
+        comment: r.comment,
+        created_at: (r as any).created_at ?? "",
+        summary: req?.summary ?? "Service request",
+        room: req?.ts_rooms?.room_number ?? "—",
+      };
+    })
+  ), [ratings]);
+
   useEffect(() => {
     if (isError && error) toast.error(error.message);
   }, [isError, error]);
@@ -190,10 +208,12 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
     () => rows.filter((r) => new Date(r.created_at).getTime() >= sinceMs),
     [rows, sinceMs],
   );
-  const rangedRatings = useMemo(() => {
-    const ids = new Set(rangedAudit.map((a) => a.id));
-    return ratings.filter((r) => ids.has(r.request_id));
-  }, [ratings, rangedAudit]);
+  // Count by when the guest left the review (already time-filtered in fetch).
+  const rangedRatings = useMemo(() => ratings, [ratings]);
+  const rangedPulses = useMemo(
+    () => pulses.filter((p) => new Date(p.created_at).getTime() >= sinceMs),
+    [pulses, sinceMs],
+  );
 
   const m = useMemo(() => {
     const guestTurns = rangedRows.filter((r) => r.role === "guest");
@@ -471,10 +491,10 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
         <Stat icon={CheckCircle2} label="Completed" value={`${m.done} · ${m.completion}%`} active={drill === "completed"} onClick={() => { clearChartFilters(); revealDrill("completed", "Completed requests"); }} />
         <Stat icon={Star} label="Avg rating" value={m.avg ? m.avg.toFixed(1) : "—"} sub={m.avg ? `${rangedRatings.length} reviews` : "no reviews yet"} active={drill === "ratings"} onClick={() => { clearChartFilters(); revealDrill("ratings", "Guest ratings"); }} />
         <Stat
-          icon={Heart} label="Caught during the stay"
-          value={pulse.caughtInStay}
-          sub={`of ${pulse.current.length} pulse checks · last ${PERIOD_DAYS} days`}
-          active={drill === "pulse"} onClick={() => { clearChartFilters(); revealDrill("pulse", "Pulse checks"); }}
+          icon={Heart} label="Stay pulse"
+          value={rangedPulses.length}
+          sub={`${pulse.caughtInStay} flagged to a manager · last ${PERIOD_DAYS}d trend`}
+          active={drill === "pulse"} onClick={() => { clearChartFilters(); revealDrill("pulse", "Stay pulse checks"); }}
         />
         <Stat
           icon={Timer} label="Avg accept / complete"
@@ -484,6 +504,16 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
           onClick={() => { clearChartFilters(); revealDrill("requests", "Request timings — open any row for the full trail"); }}
         />
       </div>
+
+      {/* Always-visible recent feedback so owners aren't hunting in drills. */}
+      <LatestFeedback
+        pulses={rangedPulses}
+        reviews={reviewRows}
+        rangeLabel={rangeMeta.label}
+        onOpenPulse={() => { clearChartFilters(); revealDrill("pulse", "Stay pulse checks"); }}
+        onOpenReviews={() => { clearChartFilters(); revealDrill("ratings", "Guest ratings"); }}
+        onOpenRequest={(id) => setSelectedId(id)}
+      />
 
       {/* Interactive BI charts — bars/slices are the hit targets */}
       <div className="grid gap-4 lg:grid-cols-2">
@@ -734,12 +764,12 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
           />
         ) : drill === "ratings" ? (
           <ReviewsList
-            audit={rangedAudit.filter((a) => a.rating != null)}
+            reviews={reviewRows}
             onOpen={(id) => setSelectedId(id)}
           />
         ) : drill === "pulse" ? (
           <PulseFeed
-            pulses={pulse.all}
+            pulses={rangedPulses.length ? rangedPulses : pulse.all}
             onAcknowledge={acknowledge}
             onOpenRequest={(id) => setSelectedId(id)}
           />
@@ -926,23 +956,29 @@ function AuditTable({ rows, onOpen }: { rows: any[]; onOpen: (id: string) => voi
   );
 }
 
-function ReviewsList({ audit, onOpen }: { audit: any[]; onOpen: (id: string) => void }) {
-  if (audit.length === 0) return <p className="text-sm text-muted-foreground">No reviews yet.</p>;
+function ReviewsList({ reviews, onOpen }: {
+  reviews: { request_id: string; rating: number; comment: string | null; created_at: string; summary: string; room: string }[];
+  onOpen: (id: string) => void;
+}) {
+  if (reviews.length === 0) return <p className="text-sm text-muted-foreground">No reviews yet in this time range.</p>;
   return (
     <div>
-      <h3 className="mb-2 text-sm font-medium">Reviews ({audit.length})</h3>
+      <h3 className="mb-2 text-sm font-medium">Reviews ({reviews.length})</h3>
       <div className="divide-y rounded-2xl border">
-        {audit.map((r) => (
+        {reviews.map((r) => (
           <button
             type="button"
-            key={r.id}
-            onClick={() => onOpen(r.id)}
+            key={`${r.request_id}-${r.created_at}`}
+            onClick={() => onOpen(r.request_id)}
             className="block w-full px-4 py-2.5 text-left text-sm transition-colors hover:bg-muted/40"
           >
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2">
               <span className="min-w-0 flex-1 truncate">{formatRoomLabel(r.room)} · {r.summary}</span>
               <span className="ml-3 whitespace-nowrap text-yellow-500">{"★".repeat(r.rating)}</span>
             </div>
+            {r.created_at && (
+              <p className="mt-0.5 text-[11px] text-muted-foreground">{fmtWhen(r.created_at)}</p>
+            )}
             {r.comment && (
               <p className="mt-1 border-l-2 border-muted pl-2 text-xs italic text-muted-foreground">
                 “{r.comment}”
@@ -951,6 +987,106 @@ function ReviewsList({ audit, onOpen }: { audit: any[]; onOpen: (id: string) => 
           </button>
         ))}
       </div>
+    </div>
+  );
+}
+
+/** Top-of-Insights feed — stay pulse + star reviews without opening a drill first. */
+function LatestFeedback({
+  pulses, reviews, rangeLabel, onOpenPulse, onOpenReviews, onOpenRequest,
+}: {
+  pulses: Pulse[];
+  reviews: { request_id: string; rating: number; comment: string | null; created_at: string; summary: string; room: string }[];
+  rangeLabel: string;
+  onOpenPulse: () => void;
+  onOpenReviews: () => void;
+  onOpenRequest: (id: string) => void;
+}) {
+  const items = useMemo(() => {
+    const pulseItems = pulses.map((p) => ({
+      kind: "pulse" as const,
+      id: p.id,
+      at: p.created_at,
+      room: p.ts_rooms?.room_number ?? "—",
+      title: p.issue_label || p.issue_key || "Stay feedback",
+      body: p.body,
+      rating: p.rating,
+      sentiment: p.sentiment,
+      requestId: p.request_id,
+    }));
+    const reviewItems = reviews.map((r) => ({
+      kind: "review" as const,
+      id: r.request_id,
+      at: r.created_at,
+      room: r.room,
+      title: r.summary,
+      body: r.comment,
+      rating: r.rating,
+      sentiment: null as string | null,
+      requestId: r.request_id,
+    }));
+    return [...pulseItems, ...reviewItems]
+      .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
+      .slice(0, 8);
+  }, [pulses, reviews]);
+
+  return (
+    <div className="rounded-2xl border bg-card p-4 shadow-sm">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 className="text-sm font-medium">Latest guest feedback</h3>
+          <p className="text-xs text-muted-foreground">
+            Stay pulse (“How has your stay been?”) and star ratings · last {rangeLabel}
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <Button type="button" size="sm" variant="outline" onClick={onOpenPulse}>
+            All pulse
+          </Button>
+          <Button type="button" size="sm" variant="outline" onClick={onOpenReviews}>
+            All ratings
+          </Button>
+        </div>
+      </div>
+      {items.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          No feedback in this range yet. When a guest answers the stay check or rates a completed request, it shows up here (not in the Operations queue).
+        </p>
+      ) : (
+        <div className="divide-y rounded-xl border">
+          {items.map((item) => (
+            <button
+              key={`${item.kind}-${item.id}-${item.at}`}
+              type="button"
+              className="block w-full px-3 py-2.5 text-left text-sm transition-colors hover:bg-muted/40"
+              onClick={() => {
+                if (item.requestId) onOpenRequest(item.requestId);
+                else if (item.kind === "pulse") onOpenPulse();
+                else onOpenReviews();
+              }}
+            >
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="rounded-full bg-muted px-2 py-0.5 font-medium text-muted-foreground">
+                  {item.kind === "pulse" ? "Stay pulse" : "Request rating"}
+                </span>
+                {item.sentiment && (
+                  <span className={`rounded-full px-2 py-0.5 ${SENTIMENT_STYLE[item.sentiment] ?? SENTIMENT_STYLE.neutral}`}>
+                    {item.sentiment}
+                  </span>
+                )}
+                {item.rating != null && (
+                  <span className="text-yellow-500">{"★".repeat(item.rating)}</span>
+                )}
+                <span className="text-muted-foreground">{formatRoomLabel(item.room)} · {fmtWhen(item.at)}</span>
+              </div>
+              <p className="mt-1 truncate font-medium">{item.title}</p>
+              {item.body && (
+                <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">“{item.body}”</p>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
