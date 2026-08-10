@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import {
   PlayCircle, Hotel, House, ArrowRight, Volume2, VolumeX,
   Building2, KeyRound, Mic, Route, CheckCircle2, Languages,
+  Bath, Wifi, Wrench, Star, MessageCircleOff, BarChart3,
+  type LucideIcon,
 } from "lucide-react";
 import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
 import { useAuth } from "@/hooks/useAuth";
@@ -101,7 +103,19 @@ const IMG = {
   heroLqip:
     "data:image/jpeg;base64,/9j/2wBDABQUFBQVFBcZGRcfIh4iHy4rJycrLkYyNjI2MkZqQk5CQk5Cal5yXVZdcl6phXZ2hanDpJukw+zT0+z/////////2wBDARQUFBQVFBcZGRcfIh4iHy4rJycrLkYyNjI2MkZqQk5CQk5Cal5yXVZdcl6phXZ2hanDpJukw+zT0+z/////////wgARCAAQABgDASIAAhEBAxEB/8QAFwAAAwEAAAAAAAAAAAAAAAAAAAMFAf/EABQBAQAAAAAAAAAAAAAAAAAAAAP/2gAMAwEAAhADEAAAAIFdCSdhgh//xAAhEAADAAICAAcAAAAAAAAAAAABAgMEEQASEyEiMUGRov/aAAgBAQABPwDCm9NlV2R5AKB25VkwKGbbsaS9nOuvM/BugtkPRD6l/XJ4izQLKoDg7JI49pZFKLag6gbHwSRy+X40qr1I2Q31z//EABkRAAIDAQAAAAAAAAAAAAAAAAABESEikf/aAAgBAgEBPwB6kaiq6f/EABcRAAMBAAAAAAAAAAAAAAAAAAABEYH/2gAIAQMBAT8AkSMP/9k=",
   howItWorks: "/marketing/how-it-works.jpg",
+  howItWorksWebp: "/marketing/how-it-works.webp",
+  howItWorksWebpSrcSet:
+    "/marketing/how-it-works-960.webp 960w, /marketing/how-it-works-1400.webp 1400w, /marketing/how-it-works.webp 1536w",
+  howItWorksSizes: "(min-width: 1152px) 1152px, calc(100vw - 3rem)",
+  howItWorksLqip:
+    "data:image/jpeg;base64,/9j/2wBDABQUFBQVFBcZGRcfIh4iHy4rJycrLkYyNjI2MkZqQk5CQk5Cal5yXVZdcl6phXZ2hanDpJukw+zT0+z/////////2wBDARQUFBQVFBcZGRcfIh4iHy4rJycrLkYyNjI2MkZqQk5CQk5Cal5yXVZdcl6phXZ2hanDpJukw+zT0+z/////////wgARCAAQABgDASIAAhEBAxEB/8QAFgABAQEAAAAAAAAAAAAAAAAABQAE/8QAFQEBAQAAAAAAAAAAAAAAAAAAAgP/2gAMAwEAAhADEAAAACVStU6pxUj/AP/EACMQAAIBBAEDBQAAAAAAAAAAAAECAwAEERIhBRQxIiNRYXH/2gAIAQEAAT8AeKJFETMGk09B+z810+JO0uN1TIHGfynsrCOR8xoPYzy1WzAxKolAOSeT5pY5ZI0KRnbXG2fFQxEnaOYFRng1/8QAGBEBAAMBAAAAAAAAAAAAAAAAAQARQQL/2gAIAQIBAT8AGk2PdZP/xAAYEQADAQEAAAAAAAAAAAAAAAAAARESYf/aAAgBAwEBPwCVMx0//9k=",
   guestSquare: "/marketing/guest-square.jpg",
+  guestSquareWebp: "/marketing/guest-square.webp",
+  guestSquareWebpSrcSet:
+    "/marketing/guest-square-640.webp 640w, /marketing/guest-square-1000.webp 1000w, /marketing/guest-square.webp 1100w",
+  guestSquareSizes: "(min-width: 1024px) 532px, calc(100vw - 3rem)",
+  guestSquareLqip:
+    "data:image/jpeg;base64,/9j/2wBDABQUFBQVFBcZGRcfIh4iHy4rJycrLkYyNjI2MkZqQk5CQk5Cal5yXVZdcl6phXZ2hanDpJukw+zT0+z/////////2wBDARQUFBQVFBcZGRcfIh4iHy4rJycrLkYyNjI2MkZqQk5CQk5Cal5yXVZdcl6phXZ2hanDpJukw+zT0+z/////////wgARCAAWABgDASIAAhEBAxEB/8QAGQABAAMBAQAAAAAAAAAAAAAAAAQFBgID/8QAFgEBAQEAAAAAAAAAAAAAAAAAAwIE/9oADAMBAAIQAxAAAADO9W3oTQU9NUlqbg0IyL//xAAjEAACAgEDAwUAAAAAAAAAAAABAgMSABEhMQQFFBMyQUJh/9oACAEBAAE/AKiNVWSCrVHuGGB4pVsihjsFU84s7rN6AhDP+HIDISZ+ufcJRAw0zx45jE5Y6rwynOm7aolZtWdj9mzy3ahd2YqD8A8526R57CwoDuKgYpVV2Gf/xAAZEQACAwEAAAAAAAAAAAAAAAABAgARITH/2gAIAQIBAT8ALsBtS+ZHUFNA5DP/xAAZEQADAQEBAAAAAAAAAAAAAAAAAQIRITH/2gAIAQMBAT8AmE2Z70lvRH//2Q==",
   hospitality: "/marketing/hospitality-icon.png",
 };
 
@@ -125,7 +139,7 @@ function Photo({ src, alt, className = "", eager = false, fit = "cover",
   const [loaded, setLoaded] = useState(false);
   const imgClass = `h-full w-full transition-opacity duration-300 ${
     fit === "contain" ? "object-contain" : "object-cover"
-  } ${eager && !loaded ? "opacity-0" : "opacity-100"}`;
+  } ${lqip && !loaded ? "opacity-0" : "opacity-100"}`;
   return (
     <div
       className={`relative overflow-hidden bg-gradient-to-br from-violet-600 via-indigo-600 to-[#2e1065] ${className}`}
@@ -270,43 +284,76 @@ function Hero({ signedIn }: { signedIn: boolean }) {
   );
 }
 
-// Old-way / TalkStay contrasts — the operator's pain, not just guest convenience.
-const cases = [
+/** Visual “old vs TalkStay” beats — colour + icon, with the full explanation intact. */
+const cases: {
+  title: string;
+  old: string;
+  now: string;
+  win: string;
+  Icon: LucideIcon;
+  iconWrap: string;
+  iconColor: string;
+  tint: string;
+}[] = [
   {
     title: "One towel request shouldn't involve three members of staff.",
     old: "Guest → reception → housekeeping → a follow-up call. Slow, and easy to forget.",
     now: "The guest asks once. It's routed straight to housekeeping and tracked to done.",
     win: "Less labour wasted on simple requests.",
+    Icon: Bath,
+    iconWrap: "bg-sky-100",
+    iconColor: "text-sky-600",
+    tint: "from-sky-50/80 to-transparent",
   },
   {
     title: "Your night manager shouldn't answer “What's the Wi-Fi password?” at 1am.",
     old: "Guests call or message staff for the same information, at all hours.",
     now: "Instant answers from your property's knowledge base — day or night.",
     win: "24/7 service without 24/7 interruptions.",
+    Icon: Wifi,
+    iconWrap: "bg-amber-100",
+    iconColor: "text-amber-600",
+    tint: "from-amber-50/80 to-transparent",
   },
   {
     title: "A broken AC isn't a message. It's a task with a deadline.",
     old: "The complaint gets passed around until someone finally acts.",
     now: "It becomes an assigned, trackable maintenance request the moment it's reported.",
     win: "Move from conversations to accountable action.",
+    Icon: Wrench,
+    iconWrap: "bg-orange-100",
+    iconColor: "text-orange-600",
+    tint: "from-orange-50/80 to-transparent",
   },
   {
     title: "The most expensive complaint is the one you find on Booking.com.",
     old: "The guest stays quiet, checks out, then posts two stars.",
     now: "Issues are easy to raise — and resolve — while the guest is still in the room.",
     win: "Recover unhappy guests before checkout.",
+    Icon: Star,
+    iconWrap: "bg-rose-100",
+    iconColor: "text-rose-600",
+    tint: "from-rose-50/80 to-transparent",
   },
   {
     title: "Your guest shouldn't WhatsApp you at 11:30pm to ask how the heating works.",
     old: "For short stays, the host becomes personal customer support all evening.",
     now: "Guests get instant, property-specific answers without messaging you.",
     win: "24/7 guest support without the host being available 24/7.",
+    Icon: MessageCircleOff,
+    iconWrap: "bg-violet-100",
+    iconColor: "text-violet-600",
+    tint: "from-violet-50/80 to-transparent",
   },
   {
     title: "You can't improve what you can't see.",
     old: "Managers hear anecdotes about complaints and slow service.",
     now: "See what guests request, which teams are slow and what gets escalated.",
     win: "Turn guest requests into operational intelligence.",
+    Icon: BarChart3,
+    iconWrap: "bg-emerald-100",
+    iconColor: "text-emerald-600",
+    tint: "from-emerald-50/80 to-transparent",
   },
 ];
 
@@ -351,17 +398,41 @@ export default function Landing() {
           <Hero signedIn={!!user} />
         </section>
 
-        {/* The positioning line. */}
+        {/* Positioning — same request, three audiences, clear value. */}
         <section className="mx-auto mt-20 max-w-6xl px-6 sm:mt-28">
-          <div className="rounded-3xl bg-[#4c2bb8] px-6 py-14 text-center text-white sm:px-12">
-            <h2 className="mx-auto max-w-3xl text-2xl font-bold leading-snug tracking-tight sm:text-4xl">
-              One guest request shouldn't become three staff conversations.
-            </h2>
-            <p className="mx-auto mt-5 max-w-2xl text-white/75">
-              The guest sees a simple request. The operator sees staff time, delays, complaints
-              and reviews. TalkStay fixes both — it removes the repetitive communication layer
-              between guests, reception and your teams.
-            </p>
+          <div className="rounded-3xl bg-[#4c2bb8] px-6 py-12 text-white sm:px-12 sm:py-14">
+            <div className="mx-auto max-w-3xl text-center">
+              <h2 className="text-2xl font-bold leading-snug tracking-tight sm:text-4xl">
+                One guest request shouldn't become three staff conversations.
+              </h2>
+              <p className="mt-4 text-white/75">
+                Today a single ask gets passed guest → reception → team. TalkStay collapses that loop
+                so each side only does their job once.
+              </p>
+            </div>
+            <div className="mx-auto mt-10 grid max-w-4xl gap-8 text-left sm:grid-cols-3 sm:gap-6">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-violet-200">Guest</p>
+                <p className="mt-2 text-base font-semibold tracking-tight">Ask once. Done.</p>
+                <p className="mt-1.5 text-sm leading-relaxed text-white/70">
+                  Scan the room QR, speak or type the request, and get progress without chasing the front desk.
+                </p>
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-violet-200">Reception</p>
+                <p className="mt-2 text-base font-semibold tracking-tight">Stop being the middleman.</p>
+                <p className="mt-1.5 text-sm leading-relaxed text-white/70">
+                  Towels, Wi‑Fi, and maintenance no longer need a phone call, a note, and a follow-up.
+                </p>
+              </div>
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-violet-200">Your teams</p>
+                <p className="mt-2 text-base font-semibold tracking-tight">A task, not a message.</p>
+                <p className="mt-1.5 text-sm leading-relaxed text-white/70">
+                  Housekeeping and maintenance get a clear, assigned request — tracked until it’s finished.
+                </p>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -375,6 +446,12 @@ export default function Landing() {
           </div>
           <Photo
             src={IMG.howItWorks}
+            webp={IMG.howItWorksWebp}
+            webpSrcSet={IMG.howItWorksWebpSrcSet}
+            sizes={IMG.howItWorksSizes}
+            lqip={IMG.howItWorksLqip}
+            width={1536}
+            height={1024}
             alt="Six steps: scan to connect, speak your request, we take care of it, come back to a clean room, relax, and guest requests handled beautifully."
             className="mt-10 aspect-[1536/1024] w-full rounded-3xl border shadow-sm"
           />
@@ -393,7 +470,7 @@ export default function Landing() {
           </div>
         </section>
 
-        {/* Old way vs TalkStay. */}
+        {/* Old way vs TalkStay — colour + icon, full explanations kept. */}
         <section id="why" className="mx-auto mt-20 max-w-6xl px-6 sm:mt-28">
           <div className="text-center">
             <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">The old way vs TalkStay</h2>
@@ -401,21 +478,37 @@ export default function Landing() {
               Every unnecessary call to reception is a workflow your property should have automated already.
             </p>
           </div>
-          <div className="mt-10 grid gap-5 md:grid-cols-2 lg:grid-cols-3">
-            {cases.map((c) => (
-              <div key={c.title} className="ts-glass flex flex-col rounded-2xl border p-6">
-                <h3 className="text-base font-semibold leading-snug">{c.title}</h3>
+          <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {cases.map(({ title, old, now, win, Icon, iconWrap, iconColor, tint }) => (
+              <div
+                key={title}
+                className={`relative flex flex-col overflow-hidden rounded-2xl border border-black/[0.06] bg-gradient-to-b ${tint} p-5`}
+              >
+                <div className={`flex h-11 w-11 items-center justify-center rounded-xl ${iconWrap}`}>
+                  <Icon className={`h-5 w-5 ${iconColor}`} strokeWidth={2} />
+                </div>
+                <h3 className="mt-4 text-base font-semibold leading-snug tracking-tight">{title}</h3>
                 <div className="mt-4 space-y-3 text-sm">
-                  <div>
-                    <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/70">Old way</div>
-                    <p className="mt-0.5 text-muted-foreground">{c.old}</p>
+                  <div className="flex items-start gap-2.5">
+                    <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-rose-100 text-[11px] font-bold text-rose-600">
+                      ×
+                    </span>
+                    <div>
+                      <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground/70">Old way</div>
+                      <p className="mt-0.5 text-muted-foreground">{old}</p>
+                    </div>
                   </div>
-                  <div>
-                    <div className="text-xs font-semibold uppercase tracking-wide text-violet-600">TalkStay</div>
-                    <p className="mt-0.5">{c.now}</p>
+                  <div className="flex items-start gap-2.5">
+                    <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-100">
+                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                    </span>
+                    <div>
+                      <div className="text-xs font-semibold uppercase tracking-wide text-violet-600">TalkStay</div>
+                      <p className="mt-0.5 text-foreground">{now}</p>
+                    </div>
                   </div>
                 </div>
-                <p className="mt-4 border-t pt-3 text-sm font-medium text-violet-700">{c.win}</p>
+                <p className="mt-4 border-t border-black/[0.06] pt-3 text-sm font-medium text-violet-700">{win}</p>
               </div>
             ))}
           </div>
@@ -457,6 +550,12 @@ export default function Landing() {
           <div className="grid items-center gap-10 lg:grid-cols-2">
             <Photo
               src={IMG.guestSquare}
+              webp={IMG.guestSquareWebp}
+              webpSrcSet={IMG.guestSquareWebpSrcSet}
+              sizes={IMG.guestSquareSizes}
+              lqip={IMG.guestSquareLqip}
+              width={1100}
+              height={1008}
               alt="A guest relaxing — guest requests handled beautifully, from anywhere."
               className="aspect-[1310/1201] w-full rounded-3xl shadow-xl"
             />
