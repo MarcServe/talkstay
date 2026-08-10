@@ -214,9 +214,10 @@ export async function repeatRequest(args: {
   };
 }
 
-/** Guest cancels an open request — staff are notified. */
+/** Guest cancels an open request — staff are notified; optional reason; row is removed. */
 export async function cancelRequest(args: {
   hotelSlug: string; roomId: string; token: string; sessionId: string; requestId: string;
+  reason?: string;
 }) {
   const { data, error } = await fn({ action: "cancel", ...args });
   if (error) throw await realError(error);

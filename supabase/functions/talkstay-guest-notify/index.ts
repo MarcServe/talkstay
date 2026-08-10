@@ -85,10 +85,10 @@ serve(async (req) => {
           bodyHtml: `
             <p style="margin:0 0 10px;">${roomNo ? `Room ${escapeHtml(roomNo)} — ` : ""}here's the latest on what you asked for:</p>
             ${quoteBlock(r.summary)}
-            ${status === "completed"
-              ? `<p style="margin:14px 0 0;">If everything arrived, you can rate it from the assistant in your room.</p>`
-              : status === "cancelled"
+            ${status === "cancelled"
               ? `<p style="margin:14px 0 0;">If you still need help, open the chat below or scan the QR in your room and ask again.</p>`
+              : status === "completed"
+              ? `<p style="margin:14px 0 0;">If everything arrived, open the chat to confirm — you can also leave a quick rating for this request there.</p>`
               : ""}`,
           cta: { label: "Open chat", url: guestUrl },
           footerNote: "You asked for updates about this stay. The button opens your room assistant.",

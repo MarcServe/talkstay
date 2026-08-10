@@ -213,7 +213,14 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
 
   const TERMINAL = ["completed", "guest_confirmed", "cancelled"];
 
-  const advance = async (r: Req, to: string) => {
+  const advance = async (r: Req, to: string, opts?: { cancelReason?: string }) => {
+    let cancelReason = opts?.cancelReason?.trim() ?? "";
+    if (to === "cancelled" && opts?.cancelReason === undefined) {
+      // Optional — blank is fine; Cancel dismisses without changing anything.
+      const typed = window.prompt("Optional: why are you cancelling this request?", "");
+      if (typed === null) return;
+      cancelReason = typed.trim().slice(0, 280);
+    }
     const { data: { user } } = await supabase.auth.getUser();
     // Optimistic lock — refuse if another staff/guest already moved the status.
     const { data: updated, error } = await supabase
@@ -231,14 +238,21 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
     }
     // note = acting staff's "Name · Department" → powers the acknowledgement line.
     const label = await actorLabel(user?.id, user?.email);
+    const eventNote = to === "cancelled" && cancelReason
+      ? `${label} — ${cancelReason}`
+      : label;
     await supabase.from("ts_request_events").insert({
       request_id: r.id, status: to, actor_type: "staff", actor_id: user?.id ?? null,
-      note: label,
+      note: eventNote,
     });
     // Close-loop: guest is notified via DB trigger; alert the rest of the team.
     if (to === "completed" || to === "cancelled") {
       supabase.functions.invoke("talkstay-notify", {
-        body: { requestId: r.id, event: to },
+        body: {
+          requestId: r.id,
+          event: to,
+          ...(to === "cancelled" && cancelReason ? { note: cancelReason } : {}),
+        },
       }).then(() => {}, () => {});
     }
     refresh();

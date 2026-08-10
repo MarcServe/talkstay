@@ -34,8 +34,9 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-    const { requestId, event } = await req.json();
+    const { requestId, event, note: extraNote } = await req.json();
     if (!requestId) return json({ error: "requestId required" }, 400);
+    const sideNote = typeof extraNote === "string" ? extraNote.trim().slice(0, 280) : "";
     // Close-loop + chase events. "new"/missing event = brand-new request alert.
     const EVENT_BANNER: Record<string, string> = {
       reopened: "The guest said this wasn't done yet. Please pick it back up.",
@@ -104,6 +105,7 @@ serve(async (req) => {
         ${banner ? `<p style="margin:0 0 12px;color:${isCloseEvent ? "#4c1d95" : "#b91c1c"};font-weight:600;">${escapeHtml(banner)}</p>` : ""}
         <p style="margin:0 0 10px;"><strong>Room:</strong> ${escapeHtml(roomNo)}</p>
         ${quoteBlock(staffSummary)}
+        ${sideNote ? `<p style="margin:14px 0 0;"><strong>Reason:</strong> ${escapeHtml(sideNote)}</p>` : ""}
         ${r.is_complaint && !isCloseEvent ? `<p style="margin:14px 0 0;color:#b91c1c;font-weight:600;">This is a complaint — please handle promptly.</p>` : ""}`,
       cta: { label: "Open Operations dashboard", url: "https://talkstay.talkweb.io/app" },
     });

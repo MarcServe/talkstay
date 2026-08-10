@@ -69,6 +69,12 @@ export default function RequestDetailSheet({
 
   const closeAs = async (to: "completed" | "cancelled") => {
     if (!req) return;
+    let cancelReason = "";
+    if (to === "cancelled") {
+      const typed = window.prompt("Optional: why are you cancelling this request?", "");
+      if (typed === null) return;
+      cancelReason = typed.trim().slice(0, 280);
+    }
     const { data: { user } } = await supabase.auth.getUser();
     const { data: updated, error: err } = await supabase
       .from("ts_service_requests")
@@ -84,12 +90,17 @@ export default function RequestDetailSheet({
       onChanged?.();
       return;
     }
+    const who = user?.email ?? "staff";
     await supabase.from("ts_request_events").insert({
       request_id: req.id, status: to, actor_type: "staff", actor_id: user?.id ?? null,
-      note: user?.email ?? "staff",
+      note: to === "cancelled" && cancelReason ? `${who} — ${cancelReason}` : who,
     });
     supabase.functions.invoke("talkstay-notify", {
-      body: { requestId: req.id, event: to },
+      body: {
+        requestId: req.id,
+        event: to,
+        ...(to === "cancelled" && cancelReason ? { note: cancelReason } : {}),
+      },
     }).then(() => {}, () => {});
     toast.success(to === "completed" ? "Marked complete — guest notified." : "Cancelled — guest notified.");
     qc.setQueryData<RequestDetailData>(talkstayKeys.request(req.id), (prev) =>

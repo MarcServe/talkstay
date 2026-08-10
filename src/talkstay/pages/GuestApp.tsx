@@ -717,8 +717,7 @@ export default function GuestApp() {
   );
 }
 
-/** "How has your stay been?" — asked DURING the stay, so a fixable problem gets
- *  fixed instead of surfacing two weeks later as a public review. */
+/** Mid-stay pulse — overall stay sentiment (separate from per-request ratings). */
 function PulseCard({ hotelSlug, roomId, token, sid, brand, onFinished, onBeforeListen }: {
   hotelSlug: string; roomId: string; token: string; sid: string;
   brand: string; onFinished: (state: "done" | "dismissed") => void;
@@ -846,14 +845,14 @@ function PulseCard({ hotelSlug, roomId, token, sid, brand, onFinished, onBeforeL
   return (
     <div className="rounded-2xl border p-4" style={{ borderColor: `${brand}55` }}>
       <div className="flex items-start justify-between gap-2">
-        <p className="text-sm font-semibold">How has your stay been so far?</p>
+        <p className="text-sm font-semibold">How has your stay been generally?</p>
         <button onClick={() => { stopListening(); onFinished("dismissed"); }}
           aria-label="Dismiss" className="-mr-1 -mt-1 rounded-full p-1 text-muted-foreground hover:bg-muted">
           <X className="h-4 w-4" />
         </button>
       </div>
       <p className="mt-1 text-xs text-muted-foreground">
-        Tell us now and we can still put it right before you leave.
+        Overall vibe of the stay — not a single request. Tell us now and we can still put things right.
       </p>
 
       <div className="mt-3 grid grid-cols-3 gap-2">
@@ -1018,15 +1017,17 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
   hotelSlug: string; roomId: string; token: string; sid: string; onClose: () => void;
 }) {
   const [reqs, setReqs] = useState<GuestRequest[] | null>(null);
+  // Optimistic guest close-out: id → "confirmed" | "reopened".
+  const [resolved, setResolved] = useState<Record<string, "confirmed" | "reopened">>({});
   const [rated, setRated] = useState<Record<string, number>>({});
   const [comments, setComments] = useState<Record<string, string>>({});
   const [sent, setSent] = useState<Record<string, boolean>>({});
-  // Optimistic guest close-out: id → "confirmed" | "reopened" | "cancelled".
-  const [resolved, setResolved] = useState<Record<string, "confirmed" | "reopened" | "cancelled">>({});
   const [busyId, setBusyId] = useState<string | null>(null);
   const [nudged, setNudged] = useState<Record<string, boolean>>({});
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState<Record<string, string>>({});
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [cancelReason, setCancelReason] = useState("");
 
   const reload = () =>
     fetchMyRequests(hotelSlug, roomId, token, sid).then(setReqs).catch(() => setReqs([]));
@@ -1045,14 +1046,18 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
   };
 
   const cancelOpen = async (r: GuestRequest) => {
-    if (!confirm("Cancel this request? We'll let the team know.")) return;
     setBusyId(r.id);
-    setResolved((p) => ({ ...p, [r.id]: "cancelled" }));
     try {
-      await cancelRequest({ hotelSlug, roomId, token, sessionId: sid, requestId: r.id });
-      toast.success("Request cancelled — we've let the team know.");
+      await cancelRequest({
+        hotelSlug, roomId, token, sessionId: sid, requestId: r.id,
+        reason: cancelReason.trim() || undefined,
+      });
+      // Cancelled asks leave no guest record — drop from the list.
+      setReqs((prev) => (prev ?? []).filter((x) => x.id !== r.id));
+      setCancellingId(null);
+      setCancelReason("");
+      toast.success("Cancelled — we've let the team know.");
     } catch {
-      setResolved((p) => { const n = { ...p }; delete n[r.id]; return n; });
       toast.error("Couldn't cancel that request. Please try again.");
     } finally {
       setBusyId(null);
@@ -1110,6 +1115,28 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
     }
   };
 
+  const rate = async (r: GuestRequest, n: number) => {
+    setRated((p) => ({ ...p, [r.id]: n }));
+    try {
+      await submitReview({
+        hotelSlug, roomId, token, sessionId: sid, requestId: r.id,
+        rating: n, comment: comments[r.id]?.trim() || undefined,
+      });
+    } catch { /* ignore */ }
+  };
+
+  const sendComment = async (r: GuestRequest) => {
+    const n = rated[r.id];
+    if (!n) return;
+    try {
+      await submitReview({
+        hotelSlug, roomId, token, sessionId: sid, requestId: r.id,
+        rating: n, comment: comments[r.id]?.trim() || undefined,
+      });
+      setSent((p) => ({ ...p, [r.id]: true }));
+    } catch { /* ignore */ }
+  };
+
   /** Cancelled → put back in queue; completed → new ticket. Optional edited note. */
   const askAgain = async (r: GuestRequest) => {
     const note = (editText[r.id] ?? r.summary).trim();
@@ -1141,28 +1168,6 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
     }
   };
 
-  const rate = async (r: GuestRequest, n: number) => {
-    setRated((p) => ({ ...p, [r.id]: n }));
-    try {
-      await submitReview({
-        hotelSlug, roomId, token, sessionId: sid, requestId: r.id,
-        rating: n, comment: comments[r.id]?.trim() || undefined,
-      });
-    } catch { /* ignore */ }
-  };
-
-  const sendComment = async (r: GuestRequest) => {
-    const n = rated[r.id];
-    if (!n) return;
-    try {
-      await submitReview({
-        hotelSlug, roomId, token, sessionId: sid, requestId: r.id,
-        rating: n, comment: comments[r.id]?.trim() || undefined,
-      });
-      setSent((p) => ({ ...p, [r.id]: true }));
-    } catch { /* ignore */ }
-  };
-
   return (
     <div data-talkstay className="fixed inset-0 z-50 flex justify-end bg-black/45 backdrop-blur-[2px]" onClick={onClose}>
       <div
@@ -1180,7 +1185,7 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
           <Button variant="ghost" size="icon" onClick={onClose}><X className="h-5 w-5" /></Button>
         </div>
         <p className="mb-4 text-xs text-muted-foreground">
-          Track anything you've asked for. Open ones can be reminded, updated, or cancelled. Cancelled or done ones can be asked again in one tap.
+          Track open and completed asks. You can remind, update, or cancel anything still in progress — cancelled requests are removed.
         </p>
         {reqs === null ? (
           <div className="flex items-center gap-2 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</div>
@@ -1193,14 +1198,15 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
               const effStatus =
                 resolved[r.id] === "confirmed" ? "guest_confirmed"
                 : resolved[r.id] === "reopened" ? "reopened"
-                : resolved[r.id] === "cancelled" ? "cancelled"
                 : r.status;
+              if (effStatus === "cancelled") return null;
               const awaitingConfirm = effStatus === "completed";
               const confirmed = effStatus === "guest_confirmed";
               const wasReopened = effStatus === "reopened";
               const isOpen = ["new", "accepted", "in_progress", "on_the_way", "reopened"].includes(effStatus);
               const busy = busyId === r.id;
               const isEditing = editingId === r.id;
+              const isCancelling = cancellingId === r.id;
               const cardTone = GUEST_REQ_CARD[effStatus] ?? GUEST_REQ_CARD.new;
               return (
                 <div
@@ -1260,7 +1266,11 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
                           variant="outline"
                           className="h-auto flex-col gap-1 py-2 text-xs text-red-600 hover:text-red-700"
                           disabled={busy}
-                          onClick={() => cancelOpen(r)}
+                          onClick={() => {
+                            setEditingId(null);
+                            setCancellingId(isCancelling ? null : r.id);
+                            setCancelReason("");
+                          }}
                         >
                           <X className="h-3.5 w-3.5" />
                           Cancel
@@ -1271,9 +1281,9 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
                         {" "}
                         <strong className="font-medium text-foreground/80">Update</strong> changes what you asked for.
                         {" "}
-                        <strong className="font-medium text-foreground/80">Cancel</strong> stops the request.
+                        <strong className="font-medium text-foreground/80">Cancel</strong> stops the request (it’s removed from this list).
                       </p>
-                      {nudged[r.id] && !isEditing && (
+                      {nudged[r.id] && !isEditing && !isCancelling && (
                         <p className="text-xs text-amber-600">Team notified — they’ll pick this up shortly.</p>
                       )}
                       {isEditing && (
@@ -1297,25 +1307,41 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
                           </div>
                         </div>
                       )}
-                    </div>
-                  )}
-
-                  {effStatus === "cancelled" && (
-                    <div className="mt-3 space-y-2 border-t pt-3">
-                      <p className="text-xs font-medium text-foreground">Ask again</p>
-                      <p className="text-xs text-muted-foreground">
-                        Reopen this with the team. Edit the text if you need something different (e.g. 2 bottles instead of 1).
-                      </p>
-                      <Input
-                        value={editText[r.id] ?? r.summary}
-                        onChange={(e) => setEditText((p) => ({ ...p, [r.id]: e.target.value }))}
-                        placeholder="What should we bring?"
-                        disabled={busy}
-                      />
-                      <Button size="sm" disabled={busy || !(editText[r.id] ?? r.summary).trim()} onClick={() => askAgain(r)}>
-                        {busy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="mr-1 h-3.5 w-3.5" />}
-                        Send to team
-                      </Button>
+                      {isCancelling && (
+                        <div className="space-y-2 rounded-xl border border-rose-200/70 bg-rose-50/50 p-3">
+                          <p className="text-xs font-medium text-foreground">Cancel this request?</p>
+                          <p className="text-[11px] text-muted-foreground">
+                            Optional — why are you cancelling? Helps the team if something was wrong.
+                          </p>
+                          <Input
+                            value={cancelReason}
+                            onChange={(e) => setCancelReason(e.target.value)}
+                            placeholder="e.g. Ordered by mistake, no longer needed…"
+                            disabled={busy}
+                            autoFocus
+                            maxLength={280}
+                          />
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              disabled={busy}
+                              onClick={() => cancelOpen(r)}
+                            >
+                              {busy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+                              Confirm cancel
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              disabled={busy}
+                              onClick={() => { setCancellingId(null); setCancelReason(""); }}
+                            >
+                              Keep request
+                            </Button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -1324,7 +1350,37 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
                   )}
 
                   {confirmed && (
-                    <div className="mt-3 space-y-2">
+                    <div className="mt-3 space-y-3">
+                      <div className="space-y-2 rounded-xl border border-dashed p-3">
+                        <p className="text-xs font-medium">How was this request?</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          Rate this specific ask — separate from how the stay feels overall.
+                        </p>
+                        <div className="flex items-center gap-1">
+                          {[1, 2, 3, 4, 5].map((n) => (
+                            <button key={n} type="button" onClick={() => rate(r, n)} aria-label={`${n} stars`}>
+                              <Star className={`h-5 w-5 ${(rated[r.id] ?? 0) >= n ? "fill-yellow-400 text-yellow-400" : "text-muted-foreground"}`} />
+                            </button>
+                          ))}
+                        </div>
+                        {rated[r.id] ? (
+                          sent[r.id] ? (
+                            <p className="text-xs text-green-600">Thanks — your feedback on this request was sent.</p>
+                          ) : (
+                            <div className="space-y-1.5">
+                              <Input
+                                value={comments[r.id] ?? ""}
+                                onChange={(e) => setComments((p) => ({ ...p, [r.id]: e.target.value }))}
+                                placeholder={(rated[r.id] ?? 0) >= 4 ? "What went well? (optional)" : "What could we do better? (optional)"}
+                                className="h-9 text-sm"
+                              />
+                              <Button size="sm" variant="outline" onClick={() => sendComment(r)}>
+                                Send feedback
+                              </Button>
+                            </div>
+                          )
+                        ) : null}
+                      </div>
                       <div className="space-y-2 rounded-xl border border-dashed p-3">
                         <p className="text-xs font-medium">Need the same again?</p>
                         <Input
@@ -1338,31 +1394,6 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
                           Ask again
                         </Button>
                       </div>
-                      <div className="flex items-center gap-1">
-                        <span className="mr-1 text-xs text-muted-foreground">Rate:</span>
-                        {[1, 2, 3, 4, 5].map((n) => (
-                          <button key={n} onClick={() => rate(r, n)} aria-label={`${n} stars`}>
-                            <Star className={`h-5 w-5 ${(rated[r.id] ?? 0) >= n ? "fill-yellow-400 text-yellow-400" : "text-muted-foreground"}`} />
-                          </button>
-                        ))}
-                      </div>
-                      {rated[r.id] ? (
-                        sent[r.id] ? (
-                          <p className="text-xs text-green-600">Thanks — your feedback has been sent.</p>
-                        ) : (
-                          <div className="space-y-1.5">
-                            <Input
-                              value={comments[r.id] ?? ""}
-                              onChange={(e) => setComments((p) => ({ ...p, [r.id]: e.target.value }))}
-                              placeholder={(rated[r.id] ?? 0) >= 4 ? "What went well? (optional)" : "What could we do better? (optional)"}
-                              className="h-9 text-sm"
-                            />
-                            <Button size="sm" variant="outline" onClick={() => sendComment(r)}>
-                              Send feedback
-                            </Button>
-                          </div>
-                        )
-                      ) : null}
                     </div>
                   )}
                 </div>

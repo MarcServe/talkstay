@@ -426,7 +426,7 @@ async function classifyPulse(
         messages: [
           {
             role: "system",
-            content: `Classify one piece of mid-stay guest feedback for a hospitality property. Reply with ONLY JSON:
+            content: `Classify mid-stay guest feedback about how their stay has been generally (not a single task rating). Reply with ONLY JSON:
 {"sentiment":"positive|neutral|negative","severity":"low|medium|high","issue_key":"<one of: ${PULSE_ISSUES.join(", ")}>","department":"<one of: ${ctx.departments.join(", ") || "front_desk"} or null>","reply":"<one warm sentence back to the guest, IN THE GUEST'S OWN LANGUAGE>"}
 - department = the team the feedback is ABOUT, not who should fix it.
 - severity: low = a passing remark; medium = a real problem worth a manager acting on today; high = safety, discrimination, abuse, or a stay-ruining failure.
@@ -543,11 +543,13 @@ serve(async (req) => {
     }
 
     // ---- my_requests: this device/session's requests ----
+    // Cancelled tickets are removed (no guest-facing record).
     if (action === "my_requests") {
       const { data } = await admin
         .from("ts_service_requests")
         .select("id, department_key, summary, status, is_complaint, created_at")
         .eq("hotel_id", ctx.hotelId).eq("session_id", sessionId || "")
+        .neq("status", "cancelled")
         .order("created_at", { ascending: false }).limit(50);
       return json({ requests: data ?? [] });
     }
@@ -612,7 +614,7 @@ serve(async (req) => {
       return json({ ok: true });
     }
 
-    // ---- pulse: "How has your stay been?", asked DURING the stay ----
+    // ---- pulse: "How has your stay been generally?", asked DURING the stay ----
     // The point is to hear it while the guest is still in the building, not two
     // weeks later on Booking.com.
     if (action === "pulse") {
@@ -749,8 +751,11 @@ serve(async (req) => {
     }
 
     // ---- cancel: guest closes an open request; staff are notified ----
+    // Optional `reason` is shared with the team. After the alert, the row is
+    // deleted so cancelled asks leave no guest (or queue) record.
     if (action === "cancel") {
       const { requestId } = body;
+      const reason = typeof body.reason === "string" ? body.reason.trim().slice(0, 280) : "";
       if (!requestId) return json({ error: "requestId required" }, 400);
       const { data: reqRow } = await admin
         .from("ts_service_requests")
@@ -765,20 +770,25 @@ serve(async (req) => {
       const { error } = await admin.from("ts_service_requests")
         .update({ status: "cancelled" }).eq("id", requestId);
       if (error) return json({ error: error.message }, 400);
+      const note = reason
+        ? `Cancelled by guest — ${reason}`
+        : "Cancelled by guest";
       await admin.from("ts_request_events").insert({
-        request_id: requestId, status: "cancelled", actor_type: "guest",
-        note: "Cancelled by guest",
+        request_id: requestId, status: "cancelled", actor_type: "guest", note,
       });
-      // Guest notify fires via DB trigger; alert the ops team separately.
-      admin.functions.invoke("talkstay-notify", {
-        body: { requestId, event: "guest_cancelled" },
-      }).then(() => {}, () => {});
-      return json({ ok: true, status: "cancelled" });
+      // Guest notify fires via DB trigger; alert the ops team, then drop the row.
+      try {
+        await admin.functions.invoke("talkstay-notify", {
+          body: { requestId, event: "guest_cancelled", note: reason || undefined },
+        });
+      } catch { /* notify best-effort */ }
+      await admin.from("ts_service_requests").delete().eq("id", requestId);
+      return json({ ok: true, status: "cancelled", removed: true });
     }
 
     // ---- confirm / reopen: guest closes the loop on a completed request ----
     // Staff marking "completed" is a claim, not proof. The guest gets the final
-    // say: "Yes, all good" → guest_confirmed (then they can rate); "Not yet" →
+    // say: "Yes, all good" → guest_confirmed; "Not yet" →
     // reopened, and the team is alerted to pick it back up.
     // Cancelled requests can also be reopened (same ticket) via action "reopen".
     if (action === "confirm" || action === "reopen") {
