@@ -8,48 +8,17 @@ import {
   notificationPermission,
   notificationsAvailable,
 } from "@/talkstay/lib/alerts";
+import {
+  detectPlatform,
+  iosNeedsHomeScreenInstall,
+  IOS_ADD_HOME_SCREEN_HINT,
+  isStandalone,
+  type PlatformHint,
+} from "@/talkstay/lib/install";
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
-}
-
-type PlatformHint =
-  | "ios_safari"
-  | "ios_other"
-  | "android_chrome"
-  | "android_other"
-  | "desktop_chromium"
-  | "desktop_safari"
-  | "desktop_firefox"
-  | "unknown";
-
-function isStandalone(): boolean {
-  if (typeof window === "undefined") return false;
-  return (
-    window.matchMedia("(display-mode: standalone)").matches ||
-    !!(navigator as Navigator & { standalone?: boolean }).standalone
-  );
-}
-
-function detectPlatform(): PlatformHint {
-  if (typeof navigator === "undefined") return "unknown";
-  const ua = navigator.userAgent;
-  const isIos = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-  const isAndroid = /Android/i.test(ua);
-  const isSafari = /Safari/i.test(ua) && !/CriOS|FxiOS|EdgiOS|Chrome|Chromium|Android/i.test(ua);
-  const isCriOS = /CriOS/i.test(ua);
-  const isChrome = /Chrome|Chromium|Edg/i.test(ua) && !/CriOS/i.test(ua);
-  const isFirefox = /Firefox|FxiOS/i.test(ua);
-  const isDesktop = !isIos && !isAndroid;
-
-  if (isIos) return isSafari ? "ios_safari" : "ios_other";
-  if (isAndroid) return isChrome || /SamsungBrowser/i.test(ua) ? "android_chrome" : "android_other";
-  if (isDesktop && isChrome) return "desktop_chromium";
-  if (isDesktop && isSafari) return "desktop_safari";
-  if (isDesktop && isFirefox) return "desktop_firefox";
-  if (isCriOS) return "ios_other";
-  return "unknown";
 }
 
 type Step = { icon?: "share" | "menu" | "home"; text: string };
@@ -72,8 +41,9 @@ function homeScreenGuide(platform: PlatformHint, canPrompt: boolean): {
         steps: [
           { icon: "share", text: "Tap the Share button at the bottom of Safari" },
           { icon: "home", text: "Scroll and tap Add to Home Screen" },
-          { text: "Tap Add — TalkStay opens like an app, no App Store" },
+          { text: "Tap Add — then open TalkStay from the new icon to turn on alerts" },
         ],
+        tip: "iPhone and iPad need TalkStay on the Home Screen before notifications can turn on.",
       };
     case "ios_other":
       return {
@@ -81,8 +51,9 @@ function homeScreenGuide(platform: PlatformHint, canPrompt: boolean): {
         steps: [
           { text: "Open this page in Safari (Chrome on iOS can’t add home screen icons reliably)" },
           { icon: "share", text: "Tap Share → Add to Home Screen" },
+          { text: "Open TalkStay from the Home Screen icon, then turn on alerts" },
         ],
-        tip: "Safari only — takes a few seconds, nothing to download.",
+        tip: "Safari only — notifications work after you open the Home Screen app.",
       };
     case "android_chrome":
       return {
@@ -148,7 +119,7 @@ function StepIcon({ kind }: { kind?: Step["icon"] }) {
 
 /**
  * After sign-in: enable alert sounds and offer Add to Home Screen.
- * Copy is device/browser-aware and avoids “install” / download friction.
+ * On iOS, Home Screen install must happen before notification permission works.
  */
 export default function InstallAppBanner({
   hotelId,
@@ -163,20 +134,25 @@ export default function InstallAppBanner({
   const [onHomeScreen, setOnHomeScreen] = useState(isStandalone());
   const [busy, setBusy] = useState(false);
   const [perm, setPerm] = useState(notificationPermission());
-  const [showGuide, setShowGuide] = useState(false);
   const platform = useMemo(() => detectPlatform(), []);
+  const needsIosInstall = iosNeedsHomeScreenInstall();
+  // On iOS Safari tabs, show the A2HS steps up front — permission can't succeed yet.
+  const [showGuide, setShowGuide] = useState(needsIosInstall);
 
   useEffect(() => {
     let dismissed = false;
     try { dismissed = localStorage.getItem(storageKey) === "dismissed"; } catch { /* ignore */ }
 
+    const standalone = isStandalone();
     const needsAlerts =
       notificationsAvailable() && Notification.permission !== "granted";
-    const needsHome = !isStandalone();
-    const show = needsAlerts || (needsHome && !dismissed);
+    // On iOS Safari tabs Notification may be missing — still offer Home Screen setup.
+    const needsHome = !standalone;
+    const show = needsAlerts || (needsHome && !dismissed) || (iosNeedsHomeScreenInstall() && !dismissed);
     setHidden(!show);
     setPerm(notificationPermission());
-    setOnHomeScreen(isStandalone());
+    setOnHomeScreen(standalone);
+    if (iosNeedsHomeScreenInstall() && !dismissed) setShowGuide(true);
 
     const onBip = (e: Event) => {
       e.preventDefault();
@@ -187,7 +163,7 @@ export default function InstallAppBanner({
       setOnHomeScreen(true);
       setDeferred(null);
       setShowGuide(false);
-      toast.success("TalkStay is on your home screen.");
+      toast.success("TalkStay is on your home screen — open it from the icon to turn on alerts.");
     };
     window.addEventListener("beforeinstallprompt", onBip);
     window.addEventListener("appinstalled", onAdded);
@@ -204,6 +180,11 @@ export default function InstallAppBanner({
   };
 
   const turnOnAlerts = async () => {
+    if (iosNeedsHomeScreenInstall()) {
+      setShowGuide(true);
+      toast.message(IOS_ADD_HOME_SCREEN_HINT);
+      return;
+    }
     setBusy(true);
     try {
       const { permission } = await enableAlertSounds();
@@ -212,15 +193,18 @@ export default function InstallAppBanner({
         toast.error(
           permission === "denied"
             ? "Notifications are blocked in this browser — enable them in site settings."
-            : "Couldn't enable notifications on this device.",
+            : permission === "unsupported"
+              ? IOS_ADD_HOME_SCREEN_HINT
+              : "Couldn't enable notifications on this device.",
         );
+        if (permission === "unsupported" || permission === "default") setShowGuide(true);
         return;
       }
       if (variant === "staff" && hotelId && pushSupported()) {
         await enablePush(hotelId);
       }
       toast.success("Alert sounds & notifications are on for this device.");
-      if (onHomeScreen) dismiss();
+      if (onHomeScreen || isStandalone()) dismiss();
     } catch (e: any) {
       toast.error(e?.message ?? "Couldn't enable alerts.");
     } finally {
@@ -257,8 +241,9 @@ export default function InstallAppBanner({
     variant === "staff"
       ? "Get request alerts on this device"
       : "Get updates on this device";
-  const blurb =
-    variant === "staff"
+  const blurb = needsIosInstall
+    ? "On iPhone and iPad: add TalkStay to your Home Screen, open it from the icon, then turn on alert sounds. No App Store download."
+    : variant === "staff"
       ? "Turn on the notification sound so you hear new guest requests — then add TalkStay to your home screen for one-tap access. No download."
       : "Allow notifications so you hear when the team replies — add TalkStay to your home screen for quick access. No download.";
 
@@ -276,13 +261,32 @@ export default function InstallAppBanner({
         <p className="text-sm font-semibold">{title}</p>
         <p className="mt-0.5 max-w-2xl text-xs leading-relaxed text-violet-800/85">{blurb}</p>
         <div className="mt-2.5 flex flex-wrap gap-2">
+          {/* On iOS Safari tabs, prioritize Home Screen install before the alerts CTA. */}
+          {needsIosInstall && !onHomeScreen && (
+            <Button
+              size="sm"
+              disabled={busy}
+              onClick={addToHomeScreen}
+              className="bg-violet-700 hover:bg-violet-800"
+              aria-expanded={showGuide}
+            >
+              <Smartphone className="mr-1.5 h-3.5 w-3.5" />
+              {deferred ? "Add to home screen" : showGuide ? "Hide steps" : "Add to Home Screen"}
+            </Button>
+          )}
           {!alertsOn && (
-            <Button size="sm" disabled={busy} onClick={turnOnAlerts} className="bg-violet-700 hover:bg-violet-800">
+            <Button
+              size="sm"
+              variant={needsIosInstall ? "outline" : "default"}
+              disabled={busy}
+              onClick={turnOnAlerts}
+              className={needsIosInstall ? "border-violet-300 bg-white" : "bg-violet-700 hover:bg-violet-800"}
+            >
               <Bell className="mr-1.5 h-3.5 w-3.5" />
               {busy ? "Enabling…" : "Turn on alert sounds"}
             </Button>
           )}
-          {!onHomeScreen && (
+          {!needsIosInstall && !onHomeScreen && (
             <Button
               size="sm"
               variant="outline"

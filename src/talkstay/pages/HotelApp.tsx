@@ -290,12 +290,19 @@ export default function HotelApp() {
           <button
             onClick={async () => {
               try {
+                const { iosNeedsHomeScreenInstall, IOS_ADD_HOME_SCREEN_HINT } = await import("@/talkstay/lib/install");
+                if (iosNeedsHomeScreenInstall()) {
+                  toast.message(IOS_ADD_HOME_SCREEN_HINT);
+                  return;
+                }
                 const { permission } = await enableAlertSounds();
                 if (permission !== "granted") {
                   toast.error(
                     permission === "denied"
                       ? "Notifications are blocked — enable them in browser settings."
-                      : "Couldn't enable alert sounds.",
+                      : permission === "unsupported"
+                        ? IOS_ADD_HOME_SCREEN_HINT
+                        : "Couldn't enable alert sounds.",
                   );
                   return;
                 }

@@ -1,101 +1,75 @@
-// Generates TalkStay PWA icons (no external image deps — pure Node + zlib).
-// Purple brand tile with a white microphone glyph, drawn analytically.
-import zlib from "node:zlib";
+// Generates TalkStay PWA icons from the real brand logo
+// (public/marketing/talkstay-logo.png) — not a generic mic glyph.
+//
+// Requires sharp as a one-off (not a runtime dep):
+//   npm i -D sharp && node scripts/gen-icons.mjs
 import { mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
-const OUT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../public/icons");
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const LOGO = path.join(ROOT, "public/marketing/talkstay-logo.png");
+const OUT = path.join(ROOT, "public/icons");
 mkdirSync(OUT, { recursive: true });
 
-const BRAND = [0x7c, 0x3a, 0xed]; // #7c3aed
-const WHITE = [0xff, 0xff, 0xff];
-
-// CRC32
-const CRC_TABLE = (() => {
-  const t = new Uint32Array(256);
-  for (let n = 0; n < 256; n++) {
-    let c = n;
-    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-    t[n] = c >>> 0;
-  }
-  return t;
-})();
-const crc32 = (buf) => {
-  let c = 0xffffffff;
-  for (let i = 0; i < buf.length; i++) c = CRC_TABLE[(c ^ buf[i]) & 0xff] ^ (c >>> 8);
-  return (c ^ 0xffffffff) >>> 0;
-};
-const chunk = (type, data) => {
-  const len = Buffer.alloc(4); len.writeUInt32BE(data.length, 0);
-  const typeBuf = Buffer.from(type, "ascii");
-  const body = Buffer.concat([typeBuf, data]);
-  const crc = Buffer.alloc(4); crc.writeUInt32BE(crc32(body), 0);
-  return Buffer.concat([len, body, crc]);
-};
-
-function drawIcon(size) {
-  const px = Buffer.alloc(size * size * 4);
-  const set = (x, y, [r, g, b], a = 255) => {
-    const i = (y * size + x) * 4;
-    px[i] = r; px[i + 1] = g; px[i + 2] = b; px[i + 3] = a;
-  };
-  const S = size;
-  const cx = S * 0.5;
-
-  // rounded-rect (capsule) test
-  const inRoundRect = (x, y, x0, y0, x1, y1, rad) => {
-    if (x < x0 || x > x1 || y < y0 || y > y1) return false;
-    const rx = Math.min(rad, (x1 - x0) / 2), ry = Math.min(rad, (y1 - y0) / 2);
-    const dx = x < x0 + rx ? x0 + rx - x : x > x1 - rx ? x - (x1 - rx) : 0;
-    const dy = y < y0 + ry ? y0 + ry - y : y > y1 - ry ? y - (y1 - ry) : 0;
-    return dx * dx + dy * dy <= Math.min(rx, ry) ** 2 || (dx === 0 || dy === 0);
-  };
-
-  // Mic geometry
-  const capTop = S * 0.28, capBot = S * 0.56, capHalf = S * 0.11;
-  const cradleR = S * 0.185, cradleCX = cx, cradleCY = S * 0.47, cradleW = S * 0.03;
-  const stemX0 = cx - S * 0.015, stemX1 = cx + S * 0.015, stemY0 = S * 0.64, stemY1 = S * 0.72;
-  const baseY0 = S * 0.72, baseY1 = S * 0.75, baseHalf = S * 0.10;
-
-  for (let y = 0; y < S; y++) {
-    for (let x = 0; x < S; x++) {
-      // brand background, full bleed
-      let col = BRAND, a = 255;
-
-      // mic capsule
-      if (inRoundRect(x, y, cx - capHalf, capTop, cx + capHalf, capBot, capHalf)) col = WHITE;
-
-      // cradle: lower half of an annulus hugging the capsule
-      const d = Math.hypot(x - cradleCX, y - cradleCY);
-      if (y > cradleCY && d < cradleR && d > cradleR - cradleW) col = WHITE;
-
-      // stem + base
-      if (x >= stemX0 && x <= stemX1 && y >= stemY0 && y <= stemY1) col = WHITE;
-      if (inRoundRect(x, y, cx - baseHalf, baseY0, cx + baseHalf, baseY1, S * 0.015)) col = WHITE;
-
-      set(x, y, col, a);
-    }
-  }
-
-  // PNG encode (filter 0 per scanline)
-  const raw = Buffer.alloc(S * (S * 4 + 1));
-  for (let y = 0; y < S; y++) {
-    raw[y * (S * 4 + 1)] = 0;
-    px.copy(raw, y * (S * 4 + 1) + 1, y * S * 4, (y + 1) * S * 4);
-  }
-  const ihdr = Buffer.alloc(13);
-  ihdr.writeUInt32BE(S, 0); ihdr.writeUInt32BE(S, 4);
-  ihdr[8] = 8; ihdr[9] = 6; ihdr[10] = 0; ihdr[11] = 0; ihdr[12] = 0;
-  return Buffer.concat([
-    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-    chunk("IHDR", ihdr),
-    chunk("IDAT", zlib.deflateSync(raw, { level: 9 })),
-    chunk("IEND", Buffer.alloc(0)),
-  ]);
+let sharp;
+try {
+  sharp = (await import("sharp")).default;
+} catch {
+  console.error("Install sharp to regenerate icons: npm i -D sharp");
+  process.exit(1);
 }
 
-for (const [name, size] of [["icon-192", 192], ["icon-512", 512], ["icon-maskable-512", 512]]) {
-  writeFileSync(path.join(OUT, `${name}.png`), drawIcon(size));
-  console.log("wrote", `${name}.png`);
+const WHITE = { r: 255, g: 255, b: 255, alpha: 1 };
+
+/** Square icon with the TalkStay logo centered on a white tile. */
+async function makeIcon(size, padRatio = 0.06) {
+  const inner = Math.round(size * (1 - padRatio * 2));
+  const resized = await sharp(LOGO)
+    .ensureAlpha()
+    .resize(inner, inner, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } })
+    .png()
+    .toBuffer();
+
+  return sharp({
+    create: { width: size, height: size, channels: 4, background: WHITE },
+  })
+    .composite([{ input: resized, gravity: "centre" }])
+    .png()
+    .toBuffer();
+}
+
+/** Minimal ICO wrapper around a single PNG (modern browsers accept PNG-in-ICO). */
+function pngToIco(pngBuf, size) {
+  const header = Buffer.alloc(6);
+  header.writeUInt16LE(0, 0);
+  header.writeUInt16LE(1, 2);
+  header.writeUInt16LE(1, 4);
+  const dir = Buffer.alloc(16);
+  dir[0] = size >= 256 ? 0 : size;
+  dir[1] = size >= 256 ? 0 : size;
+  dir.writeUInt16LE(1, 4);
+  dir.writeUInt16LE(32, 6);
+  dir.writeUInt32LE(pngBuf.length, 8);
+  dir.writeUInt32LE(6 + 16, 12);
+  return Buffer.concat([header, dir, pngBuf]);
+}
+
+const outputs = [
+  ["icons/icon-192.png", await makeIcon(192, 0.06)],
+  ["icons/icon-512.png", await makeIcon(512, 0.06)],
+  // Maskable icons need ~20% safe padding so OS masks don't clip the logo.
+  ["icons/icon-maskable-512.png", await makeIcon(512, 0.18)],
+  ["icons/apple-touch-icon-180.png", await makeIcon(180, 0.06)],
+];
+
+const fav32 = await makeIcon(32, 0.04);
+outputs.push(["favicon-32.png", fav32]);
+outputs.push(["favicon.ico", pngToIco(fav32, 32)]);
+
+for (const [rel, buf] of outputs) {
+  const dest = path.join(ROOT, "public", rel);
+  mkdirSync(path.dirname(dest), { recursive: true });
+  writeFileSync(dest, buf);
+  console.log("wrote", rel, `(${buf.length} bytes)`);
 }
