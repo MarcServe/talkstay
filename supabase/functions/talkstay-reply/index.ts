@@ -106,6 +106,15 @@ serve(async (req) => {
           .eq("hotel_id", r.hotel_id).eq("session_id", r.session_id),
       ]);
 
+      // Same deep link for email CTA and push — opens this room's chat with the QR token.
+      let guestUrl = "https://talkstay.talkweb.io";
+      if (hotel.slug && r.room_id) {
+        const { data: tok } = await admin.from("ts_room_tokens").select("token")
+          .eq("room_id", r.room_id).eq("is_active", true)
+          .order("created_at", { ascending: false }).limit(1).maybeSingle();
+        if (tok?.token) guestUrl = `https://talkstay.talkweb.io/h/${hotel.slug}/r/${r.room_id}?token=${tok.token}`;
+      }
+
       const email = sess?.contact_email;
       const key = (Deno.env.get("RESEND_API_KEY") || "").trim();
       if (email && sess?.notify_channel !== "none" && key) {
@@ -115,7 +124,8 @@ serve(async (req) => {
           accentColor: hotel.branding?.primary_color,
           heading: "A message from the team",
           bodyHtml: `<p style="margin:0 0 10px;">From <strong>${escapeHtml(staffLabel)}</strong>:</p>${quoteBlock(shown)}`,
-          footerNote: "Scan the QR code in your room to reply.",
+          cta: { label: "Continue chat", url: guestUrl },
+          footerNote: "Opens your room assistant so you can reply. You can also scan the QR in your room.",
         });
         fetch("https://api.resend.com/emails", {
           method: "POST",
@@ -129,13 +139,6 @@ serve(async (req) => {
         const vapidPriv = (Deno.env.get("VAPID_PRIVATE_KEY") || "").trim();
         if (vapidPub && vapidPriv) {
           webpush.setVapidDetails(Deno.env.get("VAPID_SUBJECT") || "mailto:notifications@talkweb.io", vapidPub, vapidPriv);
-          let guestUrl = "https://talkstay.talkweb.io";
-          if (hotel.slug && r.room_id) {
-            const { data: tok } = await admin.from("ts_room_tokens").select("token")
-              .eq("room_id", r.room_id).eq("is_active", true)
-              .order("created_at", { ascending: false }).limit(1).maybeSingle();
-            if (tok?.token) guestUrl = `https://talkstay.talkweb.io/h/${hotel.slug}/r/${r.room_id}?token=${tok.token}`;
-          }
           for (const s of pushSubs) {
             try {
               await webpush.sendNotification(

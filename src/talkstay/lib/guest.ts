@@ -201,6 +201,26 @@ export async function cancelRequest(args: {
   return true;
 }
 
+/** Guest nudges the team ("I'm still waiting") — alerts staff, rate-limited. */
+export async function nudgeRequest(args: {
+  hotelSlug: string; roomId: string; token: string; sessionId: string; requestId: string; note?: string;
+}) {
+  const { data, error } = await fn({ action: "nudge", ...args });
+  if (error) throw await realError(error);
+  if ((data as any)?.error) throw new Error((data as any).error);
+  return data as { ok: true; action: string };
+}
+
+/** Guest changes what they asked for and alerts the team. */
+export async function updateRequest(args: {
+  hotelSlug: string; roomId: string; token: string; sessionId: string; requestId: string; note: string;
+}) {
+  const { data, error } = await fn({ action: "update_request", ...args });
+  if (error) throw await realError(error);
+  if ((data as any)?.error) throw new Error((data as any).error);
+  return data as { ok: true; action: string; summary: string };
+}
+
 /** Mid-stay pulse check. `notifiedManager` is true when the answer was negative
  *  enough that a manager was alerted — the guest is told so explicitly, because
  *  "someone is coming" is the whole reason to speak up during the stay. */

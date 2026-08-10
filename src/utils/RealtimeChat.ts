@@ -207,28 +207,26 @@ export class RealtimeChat {
 
       console.log(`📝 Found ${history.length} messages to inject`);
 
-      // Parse and inject each historical message into OpenAI
+      // Parse and inject each historical message into OpenAI.
+      // Assistant items must use content type "text"; "input_text" is user-only
+      // and silently drops prior assistant turns (breaking chat→voice memory).
       for (const msg of history) {
-        // Handle message object format
         const role = msg.role;
         const text = msg.content;
-        
         if (!text || !role) continue;
-        
-        if (!text) continue;
+        if (role !== 'user' && role !== 'assistant') continue;
 
         const historyEvent = {
           type: 'conversation.item.create',
           item: {
             type: 'message',
-            role: role,
+            role,
             content: [
-              {
-                type: 'input_text',
-                text: text
-              }
-            ]
-          }
+              role === 'assistant'
+                ? { type: 'text', text }
+                : { type: 'input_text', text },
+            ],
+          },
         };
 
         this.dc.send(JSON.stringify(historyEvent));

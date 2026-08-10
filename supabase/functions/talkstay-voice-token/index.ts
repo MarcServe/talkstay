@@ -30,7 +30,7 @@ serve(async (req) => {
     // it, and the client's SDP handshake must request the exact same model.
     const MODEL = "gpt-realtime";
 
-    const { hotelSlug, roomId, token, deviceId, code } = await req.json();
+    const { hotelSlug, roomId, token, deviceId, code, sessionId } = await req.json();
     if (!hotelSlug || !roomId || !token) return json({ error: "Missing hotel/room/token" }, 400);
 
     // Verify the room QR token.
@@ -73,6 +73,40 @@ serve(async (req) => {
       knowledge = [...layered, ...site].join("\n").slice(0, 8000);
     } catch { /* best-effort */ }
 
+    // Same session memory the typed chat uses — open tickets + recent turns —
+    // so switching from typing to speaking doesn't wipe "what did I ask for?".
+    let openRequestsBlock = "(none yet)";
+    let recentChatBlock = "(no earlier chat in this stay)";
+    if (sessionId && typeof sessionId === "string") {
+      try {
+        const [{ data: openReqs }, { data: turns }] = await Promise.all([
+          admin.from("ts_service_requests")
+            .select("summary, status, department_key, created_at")
+            .eq("hotel_id", hotel.id).eq("session_id", sessionId)
+            .in("status", ["new", "accepted", "in_progress", "on_the_way", "reopened"])
+            .order("created_at", { ascending: false }).limit(8),
+          admin.from("ts_interactions")
+            .select("role, content, created_at")
+            .eq("hotel_id", hotel.id).eq("session_id", sessionId)
+            .in("role", ["guest", "assistant", "user"])
+            .order("created_at", { ascending: false }).limit(16),
+        ]);
+        if (openReqs?.length) {
+          openRequestsBlock = openReqs.map((r: any, i: number) => {
+            const mins = Math.max(0, Math.round((Date.now() - new Date(r.created_at).getTime()) / 60000));
+            const when = mins < 1 ? "just now" : mins < 60 ? `${mins}m ago` : `${Math.round(mins / 60)}h ago`;
+            return `${i + 1}. "${r.summary}" — status: ${String(r.status).replace(/_/g, " ")} (${when})`;
+          }).join("\n");
+        }
+        if (turns?.length) {
+          recentChatBlock = [...turns].reverse().map((t: any) => {
+            const who = t.role === "assistant" ? "Assistant" : "Guest";
+            return `${who}: ${String(t.content || "").slice(0, 220)}`;
+          }).join("\n");
+        }
+      } catch { /* best-effort */ }
+    }
+
     const instructions = `You are the in-room voice assistant for ${hotel.name}${roomNo ? `, speaking with the guest in Room ${roomNo}` : ""}.
 
 Be warm, brief and natural — like a great concierge. Keep answers to 1–3 short sentences.
@@ -86,6 +120,17 @@ WHAT YOU DO
 - For complaints or anything upsetting: apologise sincerely, don't try to fix it yourself,
   and tell them the duty manager has been notified and will contact them shortly.
 - Never invent facts that aren't in the knowledge below. If you don't know, say you'll check with the team.
+
+THIS STAY'S MEMORY (shared with typed chat — use it; never pretend you forgot)
+- If the guest asks what they requested, the status, or "do you remember", answer from OPEN REQUESTS and RECENT CHAT below.
+- Do not ask them to repeat an open request you already have listed.
+- Follow-ups like "is it coming?" or "make it white wine instead" refer to those open requests.
+
+OPEN REQUESTS
+${openRequestsBlock}
+
+RECENT CHAT (typed or spoken earlier this stay)
+${recentChatBlock}
 
 CONVERSATION STYLE — this is a spoken conversation, not a Q&A form. Never just answer and go silent —
 that feels like a machine that's done with you. Close each turn by keeping the conversation open:

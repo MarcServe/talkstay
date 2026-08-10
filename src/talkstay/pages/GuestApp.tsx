@@ -2,14 +2,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Loader2, Send, ClipboardList, Star, X, Mic, MicOff, Globe, Check, MessageCircle, Smile, Meh, Frown, BellRing } from "lucide-react";
+import { Loader2, Send, ClipboardList, Star, X, Mic, MicOff, Globe, Check, MessageCircle, Smile, Meh, Frown, BellRing, Bell, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { RealtimeChat } from "@/utils/RealtimeChat";
 import { conversationMemory } from "@/utils/ConversationMemory";
 import { pushSupported } from "@/talkstay/lib/push";
 import {
   fetchContext, sendMessage, fetchMyRequests, submitReview, saveGuestContact,
-  confirmRequest, reopenRequest, cancelRequest, fetchStaffMessages, enableDevicePush, disableDevicePush,
+  confirmRequest, reopenRequest, cancelRequest, nudgeRequest, updateRequest,
+  fetchStaffMessages, enableDevicePush, disableDevicePush,
   getSessionId, getDeviceId, loadHistory, saveHistory, getNotifyChoice, setNotifyChoice,
   submitPulse, getPulseState, setPulseState,
   STATUS_LABEL, type ChatMsg, type GuestRequest, type GuestBranding,
@@ -194,7 +195,9 @@ export default function GuestApp() {
       // TalkStay's own token minter: verifies the room QR token server-side and
       // returns a hotel-aware realtime session.
       chat.tokenFunction = "talkstay-voice-token";
-      chat.tokenBody = { hotelSlug, roomId, token, deviceId: getDeviceId() };
+      // sessionId lets the voice session load the same open requests + recent
+      // turns the typed hotel brain already uses — so mic ↔ keyboard stay in sync.
+      chat.tokenBody = { hotelSlug, roomId, token, deviceId: getDeviceId(), sessionId: sid };
       chatRef.current = chat;
       await chat.init();
       setVoiceState("connected");
@@ -799,6 +802,10 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
   const [sent, setSent] = useState<Record<string, boolean>>({});
   // Optimistic guest close-out: id → "confirmed" | "reopened" | "cancelled".
   const [resolved, setResolved] = useState<Record<string, "confirmed" | "reopened" | "cancelled">>({});
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [nudged, setNudged] = useState<Record<string, boolean>>({});
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editText, setEditText] = useState<Record<string, string>>({});
 
   useEffect(() => {
     fetchMyRequests(hotelSlug, roomId, token, sid).then(setReqs).catch(() => setReqs([]));
@@ -814,6 +821,8 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
   };
 
   const cancelOpen = async (r: GuestRequest) => {
+    if (!confirm("Cancel this request? We'll let the team know.")) return;
+    setBusyId(r.id);
     setResolved((p) => ({ ...p, [r.id]: "cancelled" }));
     try {
       await cancelRequest({ hotelSlug, roomId, token, sessionId: sid, requestId: r.id });
@@ -821,6 +830,50 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
     } catch {
       setResolved((p) => { const n = { ...p }; delete n[r.id]; return n; });
       toast.error("Couldn't cancel that request. Please try again.");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const remind = async (r: GuestRequest) => {
+    setBusyId(r.id);
+    try {
+      await nudgeRequest({ hotelSlug, roomId, token, sessionId: sid, requestId: r.id });
+      setNudged((p) => ({ ...p, [r.id]: true }));
+      toast.success("We've reminded the team you're waiting.");
+    } catch (e: any) {
+      const msg = String(e?.message ?? "");
+      toast.error(
+        msg.includes("too_soon")
+          ? "You've already nudged them — please wait a few minutes."
+          : "Couldn't send that reminder. Please try again.",
+      );
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const saveUpdate = async (r: GuestRequest) => {
+    const note = (editText[r.id] ?? "").trim();
+    if (!note) return;
+    setBusyId(r.id);
+    try {
+      const res = await updateRequest({
+        hotelSlug, roomId, token, sessionId: sid, requestId: r.id, note,
+      });
+      setReqs((prev) => (prev ?? []).map((x) => x.id === r.id ? { ...x, summary: res.summary || note } : x));
+      setEditingId(null);
+      setNudged((p) => ({ ...p, [r.id]: true }));
+      toast.success("Updated — the team has been notified.");
+    } catch (e: any) {
+      const msg = String(e?.message ?? "");
+      toast.error(
+        msg.includes("too_soon")
+          ? "Please wait a few minutes before updating again."
+          : "Couldn't update that request. Please try again.",
+      );
+    } finally {
+      setBusyId(null);
     }
   };
 
@@ -862,10 +915,13 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
           <h2 className="text-lg font-semibold tracking-tight">My requests</h2>
           <Button variant="ghost" size="icon" onClick={onClose}><X className="h-5 w-5" /></Button>
         </div>
+        <p className="mb-4 text-xs text-muted-foreground">
+          Track anything you've asked for. While it's open you can remind the team, change it, or cancel.
+        </p>
         {reqs === null ? (
           <div className="flex items-center gap-2 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</div>
         ) : reqs.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No requests yet.</p>
+          <p className="text-sm text-muted-foreground">No requests yet. Ask in chat or tap the mic.</p>
         ) : (
           <div className="space-y-3">
             {reqs.map((r) => {
@@ -879,6 +935,8 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
               const confirmed = effStatus === "guest_confirmed";
               const wasReopened = effStatus === "reopened";
               const isOpen = ["new", "accepted", "in_progress", "on_the_way", "reopened"].includes(effStatus);
+              const busy = busyId === r.id;
+              const isEditing = editingId === r.id;
               return (
                 <div key={r.id} className="rounded-2xl border p-4 shadow-sm">
                   <div className="text-[15px] font-medium leading-snug">{r.summary}</div>
@@ -890,7 +948,8 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
                   {/* Staff marked it done — the guest gets the final say. */}
                   {awaitingConfirm && (
                     <div className="mt-3 space-y-2">
-                      <p className="text-sm">Did you receive everything?</p>
+                      <p className="text-sm font-medium">Did you receive everything?</p>
+                      <p className="text-xs text-muted-foreground">Confirm so we can close it, or tell us it’s not done yet.</p>
                       <div className="flex gap-2">
                         <Button size="sm" onClick={() => confirmDone(r)}>Yes, all good</Button>
                         <Button size="sm" variant="outline" onClick={() => reopen(r)}>Not yet</Button>
@@ -898,12 +957,76 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
                     </div>
                   )}
 
-                  {/* Guest can cancel an open request — team is notified. */}
+                  {/* Open request — remind / update / cancel with clear guidance. */}
                   {isOpen && (
-                    <div className="mt-3">
-                      <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={() => cancelOpen(r)}>
-                        Cancel request
-                      </Button>
+                    <div className="mt-3 space-y-2 border-t pt-3">
+                      <p className="text-xs font-medium text-foreground">What you can do</p>
+                      <div className="grid grid-cols-3 gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-auto flex-col gap-1 py-2 text-xs"
+                          disabled={busy || nudged[r.id]}
+                          onClick={() => remind(r)}
+                        >
+                          {busy && !isEditing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Bell className="h-3.5 w-3.5" />}
+                          {nudged[r.id] ? "Reminded" : "Remind"}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-auto flex-col gap-1 py-2 text-xs"
+                          disabled={busy}
+                          onClick={() => {
+                            setEditingId(isEditing ? null : r.id);
+                            setEditText((p) => ({ ...p, [r.id]: p[r.id] ?? r.summary }));
+                          }}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                          Update
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-auto flex-col gap-1 py-2 text-xs text-red-600 hover:text-red-700"
+                          disabled={busy}
+                          onClick={() => cancelOpen(r)}
+                        >
+                          <X className="h-3.5 w-3.5" />
+                          Cancel
+                        </Button>
+                      </div>
+                      <p className="text-[11px] leading-relaxed text-muted-foreground">
+                        <strong className="font-medium text-foreground/80">Remind</strong> nudges the team you’re still waiting.
+                        {" "}
+                        <strong className="font-medium text-foreground/80">Update</strong> changes what you asked for.
+                        {" "}
+                        <strong className="font-medium text-foreground/80">Cancel</strong> stops the request.
+                      </p>
+                      {nudged[r.id] && !isEditing && (
+                        <p className="text-xs text-amber-600">Team notified — they’ll pick this up shortly.</p>
+                      )}
+                      {isEditing && (
+                        <div className="space-y-2 rounded-xl bg-muted/40 p-3">
+                          <p className="text-xs text-muted-foreground">What should we bring or do instead?</p>
+                          <Input
+                            value={editText[r.id] ?? ""}
+                            onChange={(e) => setEditText((p) => ({ ...p, [r.id]: e.target.value }))}
+                            placeholder="e.g. White wine instead of red"
+                            disabled={busy}
+                            autoFocus
+                          />
+                          <div className="flex gap-2">
+                            <Button size="sm" disabled={busy || !(editText[r.id] ?? "").trim()} onClick={() => saveUpdate(r)}>
+                              {busy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+                              Send update
+                            </Button>
+                            <Button size="sm" variant="ghost" disabled={busy} onClick={() => setEditingId(null)}>
+                              Back
+                            </Button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 

@@ -79,9 +79,10 @@ serve(async (req) => {
             ${status === "completed"
               ? `<p style="margin:14px 0 0;">If everything arrived, you can rate it from the assistant in your room.</p>`
               : status === "cancelled"
-              ? `<p style="margin:14px 0 0;">If you still need help, scan the QR in your room and ask again.</p>`
+              ? `<p style="margin:14px 0 0;">If you still need help, open the chat below or scan the QR in your room and ask again.</p>`
               : ""}`,
-          footerNote: "You asked for updates about this stay. Scan the QR code in your room to see your requests.",
+          cta: { label: "Open chat", url: guestUrl },
+          footerNote: "You asked for updates about this stay. The button opens your room assistant.",
         });
         const resp = await fetch("https://api.resend.com/emails", {
           method: "POST",

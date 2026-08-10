@@ -539,6 +539,55 @@ serve(async (req) => {
       return json({ ok: true });
     }
 
+    // ---- nudge: guest is still waiting — alert staff without a new ticket ----
+    // ---- update_request: guest changes what they asked for + alerts staff ----
+    if (action === "nudge" || action === "update_request") {
+      const { requestId } = body;
+      const note = typeof body.note === "string" ? body.note.trim().slice(0, 400) : "";
+      if (!requestId) return json({ error: "requestId required" }, 400);
+      if (action === "update_request" && !note) return json({ error: "note required" }, 400);
+
+      const { data: reqRow } = await admin
+        .from("ts_service_requests")
+        .select("id, session_id, status, summary")
+        .eq("id", requestId).eq("hotel_id", ctx.hotelId).maybeSingle();
+      if (!reqRow || (sessionId && reqRow.session_id && reqRow.session_id !== sessionId))
+        return json({ error: "not_found" }, 404);
+      const open = ["new", "accepted", "in_progress", "on_the_way", "reopened"];
+      if (!open.includes(reqRow.status))
+        return json({ error: "not_open", status: reqRow.status }, 409);
+
+      // Soft rate-limit so a guest can't spam the team with nudges.
+      const sinceIso = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+      const { data: recent } = await admin.from("ts_request_events")
+        .select("id").eq("request_id", requestId).eq("status", "escalated")
+        .eq("actor_type", "guest").gte("created_at", sinceIso).limit(1);
+      if (recent?.length) return json({ error: "too_soon", retryAfterMin: 5 }, 429);
+
+      if (action === "update_request") {
+        const { error } = await admin.from("ts_service_requests")
+          .update({ summary: note, priority: "urgent" }).eq("id", requestId);
+        if (error) return json({ error: error.message }, 400);
+      } else {
+        await admin.from("ts_service_requests").update({ priority: "urgent" }).eq("id", requestId);
+      }
+
+      await admin.from("ts_request_events").insert({
+        request_id: requestId, status: "escalated", actor_type: "guest",
+        note: action === "update_request"
+          ? `Guest updated request: ${note}`.slice(0, 200)
+          : (note || "Guest is still waiting"),
+      });
+      admin.functions.invoke("talkstay-notify", {
+        body: { requestId, event: "escalated" },
+      }).then(() => {}, () => {});
+      return json({
+        ok: true,
+        action,
+        summary: action === "update_request" ? note : reqRow.summary,
+      });
+    }
+
     // ---- cancel: guest closes an open request; staff are notified ----
     if (action === "cancel") {
       const { requestId } = body;
