@@ -649,24 +649,29 @@ export default function GuestApp() {
         backgroundPosition: "center",
       } : undefined}
     >
-      {/* Header — TalkWeb widget style */}
-      <header className="border-b px-4 pb-3 pt-4 text-center">
-        <div className="mb-1 flex items-start justify-end">
-          <Button variant="outline" size="sm" onClick={() => setRequestsOpen(true)}>
-            <ClipboardList className="mr-1 h-4 w-4" /> My requests
-          </Button>
+      {/* Compact header — keep chat as the largest surface. */}
+      <header className="flex shrink-0 items-center gap-2.5 border-b bg-background/80 px-3 py-2 backdrop-blur">
+        {logo ? (
+          <img src={logo} alt="" className="h-9 w-9 shrink-0 rounded-lg object-cover" />
+        ) : (
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-white" style={{ backgroundColor: brand }}>
+            <Globe className="h-4 w-4" />
+          </div>
+        )}
+        <div className="min-w-0 flex-1 text-left">
+          <h1 className="truncate text-sm font-bold leading-tight">{ctx.hotelName}</h1>
+          <p className="truncate text-xs text-muted-foreground">
+            {formatRoomLabel(ctx.roomNumber)} · Voice · any language
+          </p>
         </div>
-        {logo && <img src={logo} alt="" className="mx-auto mb-2 h-14 w-14 rounded-xl object-cover" />}
-        <h1 className="text-lg font-bold leading-tight">{ctx.hotelName}</h1>
-        <p className="text-sm text-muted-foreground">{formatRoomLabel(ctx.roomNumber)} · Voice Stay</p>
-        <div className="mt-2 inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs text-muted-foreground">
-          <Globe className="h-3.5 w-3.5" /> Speak Any Language
-        </div>
+        <Button variant="outline" size="sm" className="h-8 shrink-0 px-2.5 text-xs" onClick={() => setRequestsOpen(true)}>
+          <ClipboardList className="mr-1 h-3.5 w-3.5" /> Requests
+        </Button>
       </header>
 
-      {/* Conversation — leave room for the voice-first dock below. */}
-      <div ref={scroller} className="relative flex-1 overflow-y-auto">
-      <div className="space-y-3 px-4 pb-6 pt-4">
+      {/* Transcript — grows to fill everything between header and dock. */}
+      <div ref={scroller} className="relative min-h-0 flex-1 overflow-y-auto">
+      <div className="space-y-3 px-4 pb-4 pt-3">
         {msgs.map((m, i) =>
           m.role === "request" ? (
             <div key={i} className="flex justify-center">
@@ -722,74 +727,67 @@ export default function GuestApp() {
       </div>
       </div>
 
-      {/* Voice-first dock — mic is the main action; typing is secondary. */}
-      <div className="relative z-20 border-t bg-background/95 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur">
-        <div className="flex flex-col items-center gap-2">
-          {voiceAvailable ? (
-            <>
-              <p className="text-center text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                {voiceState === "idle"
-                  ? "Voice-first · any language"
-                  : isSpeaking
-                    ? "Speaking…"
-                    : "Listening — just talk"}
-              </p>
-              <button
-                type="button"
-                onClick={toggleVoice}
-                disabled={voiceState === "connecting"}
-                className="relative flex h-[4.5rem] w-[4.5rem] items-center justify-center rounded-full text-white shadow-lg transition hover:scale-[1.03] active:scale-[0.98] disabled:opacity-60"
-                style={{
-                  background: isListening && !isSpeaking
-                    ? "linear-gradient(145deg, #ef4444, #b91c1c)"
-                    : `linear-gradient(145deg, ${brand}, ${brand}b3)`,
-                  boxShadow: voiceState === "connected"
-                    ? `0 0 0 6px ${brand}22, 0 10px 28px ${brand}44`
-                    : `0 10px 24px ${brand}33`,
-                }}
-                aria-label={voiceState === "idle" ? "Tap to talk" : "End voice"}
-              >
-                {voiceState === "connecting" ? (
-                  <Loader2 className="h-7 w-7 animate-spin" />
-                ) : voiceState === "connected" ? (
-                  <MicOff className="h-7 w-7" />
-                ) : (
-                  <Mic className="h-7 w-7" />
-                )}
-                {(voiceState === "connected" || isListening) && (
-                  <span className="pointer-events-none absolute inset-[-6px] animate-ping rounded-full border-2 border-current opacity-20" />
-                )}
-              </button>
-              <div className="flex items-center gap-2 text-sm">
-                <span className="font-semibold tracking-tight" style={{ color: brand }}>
-                  {orbLabel}
-                </span>
+      {/* Compact voice dock — one row for mic, one for typing. */}
+      <div className="relative z-20 shrink-0 border-t bg-background/95 px-3 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur">
+        {voiceAvailable ? (
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={toggleVoice}
+              disabled={voiceState === "connecting"}
+              className="relative flex h-14 w-14 shrink-0 items-center justify-center rounded-full text-white shadow-md transition hover:scale-[1.03] active:scale-[0.98] disabled:opacity-60"
+              style={{
+                background: isListening && !isSpeaking
+                  ? "linear-gradient(145deg, #ef4444, #b91c1c)"
+                  : `linear-gradient(145deg, ${brand}, ${brand}b3)`,
+                boxShadow: voiceState === "connected" ? `0 0 0 4px ${brand}28` : undefined,
+              }}
+              aria-label={voiceState === "idle" ? "Tap to talk" : "End voice"}
+            >
+              {voiceState === "connecting" ? (
+                <Loader2 className="h-6 w-6 animate-spin" />
+              ) : voiceState === "connected" ? (
+                <MicOff className="h-6 w-6" />
+              ) : (
+                <Mic className="h-6 w-6" />
+              )}
+              {(voiceState === "connected" || isListening) && (
+                <span className="pointer-events-none absolute inset-[-4px] animate-ping rounded-full border-2 border-current opacity-20" />
+              )}
+            </button>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <p className="truncate text-sm font-semibold" style={{ color: brand }}>{orbLabel}</p>
                 {voiceState !== "idle" && (
                   <button
                     type="button"
                     onClick={() => stopVoice()}
-                    className="text-xs text-muted-foreground underline underline-offset-2"
+                    className="shrink-0 text-xs text-muted-foreground underline underline-offset-2"
                   >
                     End
                   </button>
                 )}
               </div>
-              {voiceState === "idle" && (
-                <p className="max-w-[16rem] text-center text-xs leading-snug text-muted-foreground">
-                  Tap the mic and ask for anything — towels, breakfast, a repair. Typing is optional.
-                </p>
-              )}
-            </>
-          ) : (
-            <p className="pb-1 text-center text-xs text-muted-foreground">
-              Voice isn’t set up for this room yet — type below.
-            </p>
-          )}
-        </div>
+              <p className="truncate text-[11px] text-muted-foreground">
+                {voiceState === "idle"
+                  ? (msgs.length <= 2
+                    ? "Tap the mic to speak — any language. Or type below."
+                    : "Tap to speak · any language")
+                  : isSpeaking
+                    ? "Assistant is speaking…"
+                    : "Go ahead — I’m listening"}
+              </p>
+            </div>
+          </div>
+        ) : (
+          <p className="pb-1 text-center text-xs text-muted-foreground">
+            Voice isn’t set up for this room yet — type below.
+          </p>
+        )}
 
         <form
           onSubmit={(e) => { e.preventDefault(); sendTyped(input); }}
-          className="mt-3 flex items-center gap-2"
+          className="mt-2 flex items-center gap-2"
         >
           <Input
             value={input}
@@ -798,13 +796,13 @@ export default function GuestApp() {
               voiceState === "connected"
                 ? "Or type while we listen…"
                 : voiceAvailable
-                  ? "Or type a message…"
+                  ? "Or type…"
                   : "Type your message…"
             }
             disabled={busy}
-            className="h-10 text-sm"
+            className="h-9 text-sm"
           />
-          <Button type="submit" size="icon" className="h-10 w-10 shrink-0" disabled={busy || !input.trim()} style={{ backgroundColor: brand }}>
+          <Button type="submit" size="icon" className="h-9 w-9 shrink-0" disabled={busy || !input.trim()} style={{ backgroundColor: brand }}>
             <Send className="h-4 w-4" />
           </Button>
         </form>
