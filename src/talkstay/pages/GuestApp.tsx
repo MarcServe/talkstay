@@ -593,7 +593,7 @@ export default function GuestApp() {
         <h1 className="text-xl font-semibold">Enter your check-in code</h1>
         <p className="max-w-sm text-sm text-muted-foreground">
           For your security, reception gave you a short code at check-in (it may be on your
-          key-card sleeve). Enter it once to connect this device
+          key-card sleeve or email). Enter it once to connect this device
           {roomLabel.roomNumber ? <> to <strong>{formatRoomLabel(roomLabel.roomNumber)}</strong></> : null}.
         </p>
         <form onSubmit={submit} className="flex w-full max-w-xs flex-col gap-3">
