@@ -7,7 +7,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Loader2, Trash2, UserPlus, Upload, FileSpreadsheet, Download } from "lucide-react";
+import { Loader2, Trash2, UserPlus, Upload, FileSpreadsheet, Download, Mail } from "lucide-react";
 import { DEPARTMENTS, type Hotel } from "@/talkstay/lib/hotels";
 import LiveShareCard from "@/talkstay/components/LiveShareCard";
 
@@ -188,13 +188,15 @@ export default function StaffPanel({ hotel }: { hotel: Hotel }) {
     const { data, error } = await supabase.functions.invoke("talkstay-staff", {
       body: { hotelId: hotel.id, ...body },
     });
-    const bodyErr = (data as { error?: string } | null)?.error;
+    let bodyErr = (data as { error?: string } | null)?.error;
+    if (!bodyErr && error) {
+      try {
+        const parsed = await (error as any)?.context?.json?.();
+        if (parsed?.error) bodyErr = String(parsed.error);
+      } catch { /* ignore */ }
+    }
     if (error || bodyErr) {
-      const msg = bodyErr
-        || (error as { context?: { json?: () => Promise<{ error?: string }> } })?.message
-        || "Staff request failed";
-      // Surfaces DB/auth detail instead of only "Edge Function returned a non-2xx".
-      throw new Error(msg);
+      throw new Error(bodyErr || error?.message || "Staff request failed");
     }
     return data;
   };
@@ -218,7 +220,10 @@ export default function StaffPanel({ hotel }: { hotel: Hotel }) {
 
   const invite = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email.trim()) return;
+    if (!email.trim()) {
+      toast.error("Enter a staff email first.");
+      return;
+    }
     setBusy(true);
     try {
       const data = await call({
@@ -229,8 +234,10 @@ export default function StaffPanel({ hotel }: { hotel: Hotel }) {
         role,
       });
       const res = data as any;
-      if (res?.invited) {
-        toast.success(`Invite sent to ${res.email} — they'll open TalkStay to set a password.`);
+      if (res?.emailSent || res?.invited) {
+        toast.success(`Invite email sent to ${res.email}.`);
+      } else if (res?.emailError) {
+        toast.warning(`${res.email} was added to staff, but email failed: ${res.emailError}`);
       } else {
         toast.success(`${res.email} added to staff.`);
       }
@@ -332,6 +339,23 @@ export default function StaffPanel({ hotel }: { hotel: Hotel }) {
 
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [resendingId, setResendingId] = useState<string | null>(null);
+
+  const resendInvite = async (row: StaffRow) => {
+    if (!row.email || row.email === "(unknown)") {
+      toast.error("No email on this staff account.");
+      return;
+    }
+    setResendingId(row.id);
+    try {
+      const data = await call({ action: "resend_invite", staffId: row.id });
+      toast.success(`Invitation email resent to ${(data as any)?.email ?? row.email}.`);
+    } catch (e: any) {
+      toast.error(e?.message ?? "Couldn't resend invitation email");
+    } finally {
+      setResendingId(null);
+    }
+  };
 
   const update = async (row: StaffRow, patch: { name?: string; role?: string; departmentKey?: string | null }) => {
     setSavingId(row.id);
@@ -487,9 +511,9 @@ export default function StaffPanel({ hotel }: { hotel: Hotel }) {
         </p>
       ) : (
         <div className="overflow-x-auto rounded-2xl border">
-          <table className="w-full min-w-[640px] text-sm">
+          <table className="w-full min-w-[760px] text-sm">
             <thead className="bg-muted/50 text-left text-xs text-muted-foreground">
-              <tr><th className="px-4 py-2">Name</th><th className="px-4 py-2">Email</th><th className="px-4 py-2">Department</th><th className="px-4 py-2">Role</th><th className="px-4 py-2"></th></tr>
+              <tr><th className="px-4 py-2">Name</th><th className="px-4 py-2">Email</th><th className="px-4 py-2">Department</th><th className="px-4 py-2">Role</th><th className="px-4 py-2 text-right">Invite</th></tr>
             </thead>
             <tbody>
               {staff.map((s) => {
@@ -535,13 +559,36 @@ export default function StaffPanel({ hotel }: { hotel: Hotel }) {
                     )}
                   </td>
                   <td className="px-4 py-2 text-right">
-                    {savingId === s.id ? (
-                      <Loader2 className="ml-auto h-4 w-4 animate-spin text-muted-foreground" />
-                    ) : isOwner ? null : (
-                      <Button size="sm" variant="ghost" onClick={() => remove(s)}>
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    )}
+                    <div className="flex items-center justify-end gap-1">
+                      {resendingId === s.id ? (
+                        <span className="inline-flex items-center gap-1.5 px-2 text-xs text-muted-foreground">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" /> Sending…
+                        </span>
+                      ) : savingId === s.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                      ) : (
+                        <>
+                          {s.email && s.email !== "(unknown)" && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 gap-1.5 text-xs"
+                              title={`Resend invitation to ${s.email}`}
+                              aria-label={`Resend invitation to ${s.email}`}
+                              onClick={() => resendInvite(s)}
+                            >
+                              <Mail className="h-3.5 w-3.5" />
+                              Resend invite
+                            </Button>
+                          )}
+                          {!isOwner && (
+                            <Button size="sm" variant="ghost" onClick={() => remove(s)} aria-label={`Remove ${s.email}`}>
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          )}
+                        </>
+                      )}
+                    </div>
                   </td>
                 </tr>
                 );
@@ -560,8 +607,8 @@ export default function StaffPanel({ hotel }: { hotel: Hotel }) {
           it takes effect the next time they open the app.
         </p>
         <p className="mt-1">
-          <strong className="text-foreground">Bulk import</strong> sends each person a “Set your password” email.
-          People who already have a TalkStay account are linked without a new invite.
+          <strong className="text-foreground">Bulk import</strong> and single invites send each person a login email
+          (set password or magic link). Missed it? Use <strong className="text-foreground">Resend invite</strong> on their row.
         </p>
       </div>
     </div>

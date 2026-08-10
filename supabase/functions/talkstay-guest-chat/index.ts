@@ -625,6 +625,50 @@ serve(async (req) => {
       return json({ ok: true });
     }
 
+    // ---- transcribe_audio: record-then-Whisper for pulse feedback (not live STT) ----
+    if (action === "transcribe_audio") {
+      if (!OPENAI_API_KEY) return json({ error: "AI not configured" }, 500);
+      const audioBase64 = String(body.audioBase64 ?? "").replace(/^data:[^;]+;base64,/, "");
+      const mimeType = String(body.mimeType ?? "audio/webm").split(";")[0].trim() || "audio/webm";
+      if (!audioBase64 || audioBase64.length < 32) return json({ error: "audio required" }, 400);
+      // ~4MB base64 ≈ ~3MB binary — keep pulse notes short.
+      if (audioBase64.length > 5_500_000) return json({ error: "recording_too_long" }, 413);
+
+      let bytes: Uint8Array;
+      try {
+        const bin = atob(audioBase64);
+        bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      } catch {
+        return json({ error: "invalid_audio" }, 400);
+      }
+
+      const ext = mimeType.includes("mp4") || mimeType.includes("m4a") ? "m4a"
+        : mimeType.includes("ogg") ? "ogg"
+        : mimeType.includes("wav") ? "wav"
+        : mimeType.includes("mpeg") || mimeType.includes("mp3") ? "mp3"
+        : "webm";
+      const form = new FormData();
+      form.append("file", new File([bytes], `pulse.${ext}`, { type: mimeType }));
+      form.append("model", "whisper-1");
+      form.append("response_format", "json");
+
+      const clean = OPENAI_API_KEY.replace(/[^\x21-\x7E]/g, "");
+      const r = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${clean}` },
+        body: form,
+      });
+      if (!r.ok) {
+        const errText = await r.text().catch(() => "");
+        return json({ error: `Couldn't transcribe that (${r.status}). ${errText.slice(0, 120)}` }, 400);
+      }
+      const d = await r.json();
+      const text = String(d?.text ?? "").trim().slice(0, 2000);
+      if (!text) return json({ error: "Couldn't hear anything — try again or type." }, 400);
+      return json({ ok: true, text });
+    }
+
     // ---- pulse: "How has your stay been generally?", asked DURING the stay ----
     // The point is to hear it while the guest is still in the building, not two
     // weeks later on Booking.com.

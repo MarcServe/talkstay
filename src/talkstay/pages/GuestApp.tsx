@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Loader2, Send, ClipboardList, Star, X, Mic, MicOff, Globe, Check, MessageCircle, Smile, Meh, Frown, BellRing, Bell, Pencil, ExternalLink, RotateCcw } from "lucide-react";
+import { Loader2, Send, ClipboardList, Star, X, Mic, MicOff, Square, Globe, Check, MessageCircle, Smile, Meh, Frown, BellRing, Bell, Pencil, ExternalLink, RotateCcw } from "lucide-react";
 import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
 import { toast } from "sonner";
 import { RealtimeChat } from "@/utils/RealtimeChat";
@@ -13,7 +13,7 @@ import {
   confirmRequest, reopenRequest, cancelRequest, nudgeRequest, updateRequest, repeatRequest,
   fetchStaffMessages, enableDevicePush, disableDevicePush,
   getSessionId, getDeviceId, loadHistory, saveHistory, getNotifyChoice, setNotifyChoice,
-  submitPulse, getPulseState, setPulseState,
+  submitPulse, transcribePulseAudio, getPulseState, setPulseState,
   type ChatMsg, type GuestCard, type GuestRequest, type GuestBranding,
 } from "@/talkstay/lib/guest";
 import { statusBadge, statusDot, statusLabel } from "@/talkstay/lib/statusStyles";
@@ -661,7 +661,7 @@ export default function GuestApp() {
         <div className="min-w-0 flex-1 text-left">
           <h1 className="truncate text-sm font-bold leading-tight">{ctx.hotelName}</h1>
           <p className="truncate text-xs text-muted-foreground">
-            {formatRoomLabel(ctx.roomNumber)} · Voice · any language
+            {formatRoomLabel(ctx.roomNumber)} · Voice Stay
           </p>
         </div>
         <Button variant="outline" size="sm" className="h-8 shrink-0 px-2.5 text-xs" onClick={() => setRequestsOpen(true)}>
@@ -669,7 +669,64 @@ export default function GuestApp() {
         </Button>
       </header>
 
-      {/* Transcript — grows to fill everything between header and dock. */}
+      {/* Voice-first strip — centred under the header. */}
+      <div className="shrink-0 border-b bg-background/90 px-3 py-2.5 backdrop-blur">
+        {voiceAvailable ? (
+          <div className="flex flex-col items-center gap-1.5 text-center">
+            <button
+              type="button"
+              onClick={toggleVoice}
+              disabled={voiceState === "connecting"}
+              className="relative flex h-14 w-14 items-center justify-center rounded-full text-white shadow-md transition hover:scale-[1.03] active:scale-[0.98] disabled:opacity-60"
+              style={{
+                background: isListening && !isSpeaking
+                  ? "linear-gradient(145deg, #ef4444, #b91c1c)"
+                  : `linear-gradient(145deg, ${brand}, ${brand}b3)`,
+                boxShadow: voiceState === "connected" ? `0 0 0 4px ${brand}28` : undefined,
+              }}
+              aria-label={voiceState === "idle" ? "Tap to talk" : "End voice"}
+            >
+              {voiceState === "connecting" ? (
+                <Loader2 className="h-6 w-6 animate-spin" />
+              ) : voiceState === "connected" ? (
+                <MicOff className="h-6 w-6" />
+              ) : (
+                <Mic className="h-6 w-6" />
+              )}
+              {(voiceState === "connected" || isListening) && (
+                <span className="pointer-events-none absolute inset-[-4px] animate-ping rounded-full border-2 border-current opacity-20" />
+              )}
+            </button>
+            <div className="flex items-center justify-center gap-2">
+              <p className="text-sm font-semibold" style={{ color: brand }}>{orbLabel}</p>
+              {voiceState !== "idle" && (
+                <button
+                  type="button"
+                  onClick={() => stopVoice()}
+                  className="text-xs text-muted-foreground underline underline-offset-2"
+                >
+                  End
+                </button>
+              )}
+            </div>
+            <p className="max-w-[18rem] text-[11px] leading-snug text-muted-foreground">
+              {voiceState === "idle"
+                ? (msgs.length <= 2
+                  ? "Tap the mic and ask for anything — towels, breakfast, a repair. Or type below."
+                  : "Tap to speak — or type below.")
+                : isSpeaking
+                  ? "Assistant is speaking…"
+                  : "Go ahead — I’m listening"}
+            </p>
+          </div>
+        ) : (
+          <p className="text-center text-xs text-muted-foreground">
+            Voice isn’t set up for this room yet — type below.
+          </p>
+        )}
+      </div>
+
+      {/* Transcript — grows to fill everything between voice strip and type dock. */}
       <div ref={scroller} className="relative min-h-0 flex-1 overflow-y-auto">
       <div className="space-y-3 px-4 pb-4 pt-3">
         {msgs.map((m, i) =>
@@ -727,67 +784,11 @@ export default function GuestApp() {
       </div>
       </div>
 
-      {/* Compact voice dock — one row for mic, one for typing. */}
+      {/* Type dock — secondary to voice above. */}
       <div className="relative z-20 shrink-0 border-t bg-background/95 px-3 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur">
-        {voiceAvailable ? (
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={toggleVoice}
-              disabled={voiceState === "connecting"}
-              className="relative flex h-14 w-14 shrink-0 items-center justify-center rounded-full text-white shadow-md transition hover:scale-[1.03] active:scale-[0.98] disabled:opacity-60"
-              style={{
-                background: isListening && !isSpeaking
-                  ? "linear-gradient(145deg, #ef4444, #b91c1c)"
-                  : `linear-gradient(145deg, ${brand}, ${brand}b3)`,
-                boxShadow: voiceState === "connected" ? `0 0 0 4px ${brand}28` : undefined,
-              }}
-              aria-label={voiceState === "idle" ? "Tap to talk" : "End voice"}
-            >
-              {voiceState === "connecting" ? (
-                <Loader2 className="h-6 w-6 animate-spin" />
-              ) : voiceState === "connected" ? (
-                <MicOff className="h-6 w-6" />
-              ) : (
-                <Mic className="h-6 w-6" />
-              )}
-              {(voiceState === "connected" || isListening) && (
-                <span className="pointer-events-none absolute inset-[-4px] animate-ping rounded-full border-2 border-current opacity-20" />
-              )}
-            </button>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <p className="truncate text-sm font-semibold" style={{ color: brand }}>{orbLabel}</p>
-                {voiceState !== "idle" && (
-                  <button
-                    type="button"
-                    onClick={() => stopVoice()}
-                    className="shrink-0 text-xs text-muted-foreground underline underline-offset-2"
-                  >
-                    End
-                  </button>
-                )}
-              </div>
-              <p className="truncate text-[11px] text-muted-foreground">
-                {voiceState === "idle"
-                  ? (msgs.length <= 2
-                    ? "Tap the mic to speak — any language. Or type below."
-                    : "Tap to speak · any language")
-                  : isSpeaking
-                    ? "Assistant is speaking…"
-                    : "Go ahead — I’m listening"}
-              </p>
-            </div>
-          </div>
-        ) : (
-          <p className="pb-1 text-center text-xs text-muted-foreground">
-            Voice isn’t set up for this room yet — type below.
-          </p>
-        )}
-
         <form
           onSubmit={(e) => { e.preventDefault(); sendTyped(input); }}
-          className="mt-2 flex items-center gap-2"
+          className="flex items-center gap-2"
         >
           <Input
             value={input}
@@ -796,7 +797,7 @@ export default function GuestApp() {
               voiceState === "connected"
                 ? "Or type while we listen…"
                 : voiceAvailable
-                  ? "Or type…"
+                  ? "Or type a message…"
                   : "Type your message…"
             }
             disabled={busy}
@@ -828,7 +829,8 @@ export default function GuestApp() {
   );
 }
 
-/** Mid-stay pulse — overall stay sentiment (separate from per-request ratings). */
+/** Mid-stay pulse — overall stay sentiment (separate from per-request ratings).
+ *  Voice uses record → Whisper (not live browser SpeechRecognition). */
 function PulseCard({ hotelSlug, roomId, token, sid, brand, onFinished, onBeforeListen }: {
   hotelSlug: string; roomId: string; token: string; sid: string;
   brand: string; onFinished: (state: "done" | "dismissed") => void;
@@ -837,91 +839,163 @@ function PulseCard({ hotelSlug, roomId, token, sid, brand, onFinished, onBeforeL
   const [rating, setRating] = useState<number | null>(null);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
-  const [listening, setListening] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
   const [result, setResult] = useState<{ reply: string; notifiedManager: boolean } | null>(null);
-  const recogRef = useRef<any>(null);
-  const baseTextRef = useRef("");
-  const networkRetryRef = useRef(false);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  /** Bumps on cancel/restart so a late onstop never transcribes a discarded clip. */
+  const takeRef = useRef(0);
 
-  const speechOk = typeof window !== "undefined" &&
-    !!(window.SpeechRecognition || (window as any).webkitSpeechRecognition);
+  const recordOk = typeof window !== "undefined" &&
+    !!(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
 
-  const stopListening = () => {
-    try { recogRef.current?.stop(); } catch { /* already stopped */ }
-    recogRef.current = null;
-    setListening(false);
+  const releaseMic = () => {
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    recorderRef.current = null;
+    chunksRef.current = [];
   };
 
-  useEffect(() => () => { try { recogRef.current?.stop(); } catch { /* */ } }, []);
+  const cancelRecording = () => {
+    takeRef.current += 1;
+    try {
+      if (recorderRef.current && recorderRef.current.state !== "inactive") {
+        recorderRef.current.stop();
+      }
+    } catch { /* */ }
+    releaseMic();
+    setRecording(false);
+    setTranscribing(false);
+  };
 
-  const startListening = async () => {
-    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SR) {
-      toast.error("Voice isn't available here — please type instead.");
-      return;
-    }
-    // Free the mic if Tap-to-Talk / WebRTC still owns it.
+  useEffect(() => () => {
+    takeRef.current += 1;
+    try {
+      if (recorderRef.current && recorderRef.current.state !== "inactive") {
+        recorderRef.current.stop();
+      }
+    } catch { /* */ }
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    recorderRef.current = null;
+    chunksRef.current = [];
+  }, []);
+
+  const blobToBase64 = (blob: Blob) =>
+    new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const dataUrl = String(reader.result || "");
+        resolve(dataUrl.includes(",") ? dataUrl.split(",")[1]! : dataUrl);
+      };
+      reader.onerror = () => reject(new Error("Couldn't read recording"));
+      reader.readAsDataURL(blob);
+    });
+
+  const startRecording = async () => {
+    if (!recordOk || busy || transcribing) return;
     onBeforeListen?.();
-    stopListening();
-    await new Promise((r) => setTimeout(r, 200));
+    cancelRecording();
+    await new Promise((r) => setTimeout(r, 150));
+    const take = ++takeRef.current;
 
-    baseTextRef.current = text.trim();
-    networkRetryRef.current = false;
-    const r = new SR();
-    // Short feedback phrases — continuous mode is flaky and fights the main mic.
-    r.lang = navigator.language || "en-US";
-    r.interimResults = true;
-    r.continuous = false;
-    r.maxAlternatives = 1;
-    r.onstart = () => setListening(true);
-    r.onerror = (e: any) => {
-      const err = String(e?.error || "");
-      if (err === "aborted" || err === "no-speech") {
-        setListening(false);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+      if (take !== takeRef.current) {
+        stream.getTracks().forEach((t) => t.stop());
         return;
       }
-      if (err === "network" && !networkRetryRef.current) {
-        networkRetryRef.current = true;
-        try { r.start(); return; } catch { /* fall through */ }
+      streamRef.current = stream;
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : MediaRecorder.isTypeSupported("audio/webm")
+          ? "audio/webm"
+          : MediaRecorder.isTypeSupported("audio/mp4")
+            ? "audio/mp4"
+            : "";
+      const recorder = mimeType
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream);
+      chunksRef.current = [];
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
+      recorder.onstop = async () => {
+        const parts = chunksRef.current.slice();
+        const type = recorder.mimeType || mimeType || "audio/webm";
+        releaseMic();
+        setRecording(false);
+        if (take !== takeRef.current) return;
+        if (!parts.length) {
+          toast.error("No audio captured — try again or type.");
+          return;
+        }
+        const blob = new Blob(parts, { type });
+        if (blob.size < 800) {
+          toast.error("That was too short — hold and speak, then tap stop.");
+          return;
+        }
+        setTranscribing(true);
+        try {
+          const audioBase64 = await blobToBase64(blob);
+          if (take !== takeRef.current) return;
+          const { text: spoken } = await transcribePulseAudio({
+            hotelSlug, roomId, token, sessionId: sid,
+            audioBase64, mimeType: type.split(";")[0] || "audio/webm",
+          });
+          if (take !== takeRef.current) return;
+          setText((prev) => [prev.trim(), spoken.trim()].filter(Boolean).join(" "));
+        } catch (e: any) {
+          if (take !== takeRef.current) return;
+          const msg = String(e?.message || "");
+          toast.error(
+            msg.includes("not-allowed") || msg.toLowerCase().includes("permission")
+              ? "Microphone permission needed to speak your feedback."
+              : msg || "Couldn't transcribe that — please type instead.",
+          );
+        } finally {
+          if (take === takeRef.current) setTranscribing(false);
+        }
+      };
+      recorderRef.current = recorder;
+      recorder.start();
+      setRecording(true);
+    } catch (e: any) {
+      if (take === takeRef.current) {
+        releaseMic();
+        setRecording(false);
       }
-      const msg =
-        err === "not-allowed" || err === "service-not-allowed"
+      const name = String(e?.name || "");
+      toast.error(
+        name === "NotAllowedError"
           ? "Microphone permission needed to speak your feedback."
-          : err === "audio-capture"
-            ? "Microphone is busy — end Tap to Talk, then try again (or type)."
-            : err === "network"
-              ? "Voice typing needs a connection — please type instead."
-              : "Couldn't capture that — try again or type instead.";
-      toast.error(msg);
-      setListening(false);
-    };
-    r.onend = () => setListening(false);
-    r.onresult = (event: any) => {
-      let interim = "";
-      let finals = "";
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const piece = event.results[i][0].transcript as string;
-        if (event.results[i].isFinal) finals += piece;
-        else interim += piece;
-      }
-      if (finals.trim()) {
-        baseTextRef.current = [baseTextRef.current, finals.trim()].filter(Boolean).join(" ");
-        setText(baseTextRef.current);
-      } else if (interim) {
-        setText([baseTextRef.current, interim.trim()].filter(Boolean).join(" "));
-      }
-    };
-    recogRef.current = r;
+          : name === "NotFoundError"
+            ? "No microphone found — please type instead."
+            : "Microphone is busy — end Tap to Talk, then try again (or type).",
+      );
+    }
+  };
+
+  const stopRecording = () => {
     try {
-      r.start();
+      if (recorderRef.current && recorderRef.current.state !== "inactive") {
+        recorderRef.current.stop();
+      } else {
+        setRecording(false);
+        releaseMic();
+      }
     } catch {
-      toast.error("Couldn't start the microphone — please type instead.");
-      setListening(false);
+      setRecording(false);
+      releaseMic();
     }
   };
 
   const send = async (withRating: number) => {
-    stopListening();
+    cancelRecording();
     setBusy(true);
     try {
       const res = await submitPulse({ hotelSlug, roomId, token, sessionId: sid, rating: withRating, text: text.trim() || undefined });
@@ -952,12 +1026,13 @@ function PulseCard({ hotelSlug, roomId, token, sid, brand, onFinished, onBeforeL
     { value: 3, label: "Okay", Icon: Meh },
     { value: 2, label: "Not great", Icon: Frown },
   ];
+  const micBusy = busy || transcribing;
 
   return (
     <div className="rounded-2xl border p-4" style={{ borderColor: `${brand}55` }}>
       <div className="flex items-start justify-between gap-2">
         <p className="text-sm font-semibold">How has your stay been generally?</p>
-        <button onClick={() => { stopListening(); onFinished("dismissed"); }}
+        <button onClick={() => { cancelRecording(); onFinished("dismissed"); }}
           aria-label="Dismiss" className="-mr-1 -mt-1 rounded-full p-1 text-muted-foreground hover:bg-muted">
           <X className="h-4 w-4" />
         </button>
@@ -971,7 +1046,7 @@ function PulseCard({ hotelSlug, roomId, token, sid, brand, onFinished, onBeforeL
           <button
             key={value}
             onClick={() => setRating(value)}
-            disabled={busy}
+            disabled={busy || recording || transcribing}
             className={`flex flex-col items-center gap-1 rounded-xl border py-3 text-xs transition-colors ${rating === value ? "text-white" : "hover:bg-muted"}`}
             style={rating === value ? { backgroundColor: brand, borderColor: brand } : undefined}
           >
@@ -986,38 +1061,39 @@ function PulseCard({ hotelSlug, roomId, token, sid, brand, onFinished, onBeforeL
           <div className="flex items-center gap-2">
             <Input
               value={text}
-              onChange={(e) => {
-                setText(e.target.value);
-                if (!listening) baseTextRef.current = e.target.value;
-              }}
+              onChange={(e) => setText(e.target.value)}
               placeholder={rating >= 4 ? "What stood out? (optional)" : "What would you like us to fix? (optional)"}
-              disabled={busy}
-              autoFocus={!speechOk}
+              disabled={busy || recording || transcribing}
+              autoFocus={!recordOk}
               className="flex-1"
             />
-            {speechOk && (
+            {recordOk && (
               <Button
                 type="button"
                 size="icon"
-                variant={listening ? "default" : "outline"}
-                disabled={busy}
-                onClick={() => (listening ? stopListening() : startListening())}
-                aria-label={listening ? "Stop listening" : "Speak your feedback"}
-                title={listening ? "Stop listening" : "Speak instead of typing"}
-                style={listening ? { backgroundColor: brand } : undefined}
+                variant={recording ? "default" : "outline"}
+                disabled={micBusy && !recording}
+                onClick={() => (recording ? stopRecording() : startRecording())}
+                aria-label={recording ? "Stop recording" : "Record your feedback"}
+                title={recording ? "Stop and turn into text" : "Speak instead of typing"}
+                style={recording ? { backgroundColor: brand } : undefined}
               >
-                {listening
-                  ? <MicOff className="h-4 w-4 animate-pulse" />
-                  : <Mic className="h-4 w-4" />}
+                {transcribing
+                  ? <Loader2 className="h-4 w-4 animate-spin" />
+                  : recording
+                    ? <Square className="h-3.5 w-3.5 fill-current" />
+                    : <Mic className="h-4 w-4" />}
               </Button>
             )}
           </div>
-          {listening ? (
-            <p className="text-xs" style={{ color: brand }}>Listening… speak your feedback now.</p>
-          ) : speechOk ? (
-            <p className="text-xs text-muted-foreground">Or tap the mic and tell us in your own words.</p>
+          {recording ? (
+            <p className="text-xs" style={{ color: brand }}>Recording… tap the square when you finish speaking.</p>
+          ) : transcribing ? (
+            <p className="text-xs text-muted-foreground">Turning your voice into text…</p>
+          ) : recordOk ? (
+            <p className="text-xs text-muted-foreground">Or tap the mic, speak, then stop — we’ll type it for you.</p>
           ) : null}
-          <Button onClick={() => send(rating)} disabled={busy} className="w-full" style={{ backgroundColor: brand }}>
+          <Button onClick={() => send(rating)} disabled={busy || recording || transcribing} className="w-full" style={{ backgroundColor: brand }}>
             {busy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null} Send
           </Button>
         </div>

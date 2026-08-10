@@ -131,7 +131,10 @@ serve(async (req) => {
 
     const inviteOne = async (opts: {
       email: string; name?: string | null; departmentKey?: string | null; role?: string;
-    }): Promise<{ email: string; ok: boolean; invited?: boolean; added?: boolean; error?: string }> => {
+    }): Promise<{
+      email: string; ok: boolean; invited?: boolean; added?: boolean;
+      emailSent?: boolean; emailError?: string; error?: string;
+    }> => {
       const cleanEmail = String(opts.email ?? "").trim().toLowerCase();
       if (!cleanEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
         return { email: cleanEmail || "(blank)", ok: false, error: "invalid email" };
@@ -153,9 +156,10 @@ serve(async (req) => {
         }
       };
 
-      const sendInviteEmail = async (actionLink: string) => {
+      const sendInviteEmail = async (actionLink: string): Promise<{ sent: boolean; reason?: string }> => {
         const key = (Deno.env.get("RESEND_API_KEY") || "").trim();
-        if (!key || !actionLink) return;
+        if (!key) return { sent: false, reason: "Email sending is not configured (RESEND_API_KEY)." };
+        if (!actionLink) return { sent: false, reason: "Could not generate invite link." };
         const deptLabel = department_key ? department_key.replace(/_/g, " ") : "";
         const html = renderEmail({
           hotelName: hotel.name ?? "Your hotel",
@@ -169,7 +173,7 @@ serve(async (req) => {
           footerNote: "If you weren't expecting this, you can safely ignore this email.",
         });
         try {
-          await fetch("https://api.resend.com/emails", {
+          const r = await fetch("https://api.resend.com/emails", {
             method: "POST",
             headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -179,12 +183,20 @@ serve(async (req) => {
               html,
             }),
           });
-        } catch { /* membership still created */ }
+          if (!r.ok) {
+            const t = await r.text().catch(() => "");
+            return { sent: false, reason: `Email provider error (${r.status}): ${t.slice(0, 160)}` };
+          }
+          return { sent: true };
+        } catch (e) {
+          return { sent: false, reason: e instanceof Error ? e.message : "Email send failed" };
+        }
       };
 
       const index = await loadEmailIndex();
       let userId: string | null = index.get(cleanEmail) ?? null;
-      let invited = false;
+      let actionLink = "";
+      let isNewUser = false;
 
       if (!userId) {
         const { data: linkData, error: lErr } = await admin.auth.admin.generateLink({
@@ -199,8 +211,8 @@ serve(async (req) => {
         if (linkData?.user) {
           userId = linkData.user.id;
           index.set(cleanEmail, userId);
-          invited = true;
-          await sendInviteEmail(linkData.properties?.action_link ?? "");
+          isNewUser = true;
+          actionLink = linkData.properties?.action_link ?? "";
         } else {
           // Often: email already registered in the shared TalkWeb project.
           const msg = (lErr?.message || "").toLowerCase();
@@ -215,22 +227,39 @@ serve(async (req) => {
               user_metadata: staffName ? { full_name: staffName } : undefined,
             });
             userId = created?.user?.id ?? null;
+            isNewUser = !!userId;
           }
 
           if (!userId) {
             return { email: cleanEmail, ok: false, error: lErr?.message ?? "Could not create user" };
           }
+        }
+      }
 
-          // Existing account: send a magic link that lands on TalkStay /app.
-          const { data: mag } = await admin.auth.admin.generateLink({
+      // Always email — including people who already have a TalkWeb/TalkStay account.
+      // Previously we only emailed brand-new users, so existing accounts got silent adds.
+      if (!actionLink) {
+        const { data: mag, error: magErr } = await admin.auth.admin.generateLink({
+          type: isNewUser ? "invite" : "magiclink",
+          email: cleanEmail,
+          options: {
+            data: staffName ? { full_name: staffName } : undefined,
+            redirectTo,
+          },
+        });
+        actionLink = mag?.properties?.action_link ?? "";
+        if (!actionLink && magErr) {
+          // Fall back: still try a magic link if invite failed for an existing user.
+          const { data: mag2 } = await admin.auth.admin.generateLink({
             type: "magiclink",
             email: cleanEmail,
             options: { redirectTo },
           });
-          invited = true;
-          await sendInviteEmail(mag?.properties?.action_link ?? "");
+          actionLink = mag2?.properties?.action_link ?? "";
         }
       }
+
+      const mail = await sendInviteEmail(actionLink);
 
       const { error: sErr } = await admin.from("ts_staff").upsert(
         {
@@ -244,7 +273,14 @@ serve(async (req) => {
         { onConflict: "hotel_id,user_id,department_key" }
       );
       if (sErr) return { email: cleanEmail, ok: false, error: sErr.message };
-      return { email: cleanEmail, ok: true, invited, added: !invited };
+      return {
+        email: cleanEmail,
+        ok: true,
+        invited: mail.sent,
+        added: !isNewUser,
+        emailSent: mail.sent,
+        emailError: mail.sent ? undefined : mail.reason,
+      };
     };
 
     // ------- list -------
@@ -269,7 +305,47 @@ serve(async (req) => {
       if (!email) return json({ error: "email required" }, 400);
       const result = await inviteOne({ email, name, departmentKey, role });
       if (!result.ok) return json({ error: result.error ?? "Failed" }, 400);
-      return json({ ok: true, invited: !!result.invited, email: result.email });
+      return json({
+        ok: true,
+        invited: !!result.invited,
+        email: result.email,
+        emailSent: !!(result as any).emailSent,
+        emailError: (result as any).emailError ?? null,
+        added: !!(result as any).added,
+      });
+    }
+
+    // ------- resend_invite: re-send set-password / magic-link email to existing staff -------
+    if (action === "resend_invite") {
+      if (!staffId) return json({ error: "staffId required" }, 400);
+      const { data: row } = await admin.from("ts_staff")
+        .select("id, user_id, name, department_key, role")
+        .eq("id", staffId).eq("hotel_id", hotelId).maybeSingle();
+      if (!row) return json({ error: "Staff member not found" }, 404);
+      const { data: authUser } = await admin.auth.admin.getUserById(row.user_id);
+      const staffEmail = authUser?.user?.email?.trim().toLowerCase();
+      if (!staffEmail) return json({ error: "No email on this staff account" }, 400);
+
+      const result = await inviteOne({
+        email: staffEmail,
+        name: name !== undefined ? name : row.name,
+        departmentKey: departmentKey !== undefined ? departmentKey : row.department_key,
+        role: role !== undefined ? role : row.role,
+      });
+      if (!result.ok) return json({ error: result.error ?? "Failed to resend" }, 400);
+      if (!result.emailSent) {
+        return json({
+          error: result.emailError ?? "Could not send the invite email",
+          email: result.email,
+          emailSent: false,
+        }, 400);
+      }
+      return json({
+        ok: true,
+        email: result.email,
+        emailSent: true,
+        resent: true,
+      });
     }
 
     // ------- invite_bulk -------

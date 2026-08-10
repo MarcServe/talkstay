@@ -277,6 +277,17 @@ export async function submitPulse(args: {
   return data as { reply: string; notifiedManager: boolean };
 }
 
+/** Record-then-Whisper for pulse feedback (no live browser SpeechRecognition). */
+export async function transcribePulseAudio(args: {
+  hotelSlug: string; roomId: string; token: string; sessionId: string;
+  audioBase64: string; mimeType: string;
+}) {
+  const { data, error } = await fn({ action: "transcribe_audio", ...args });
+  if (error) throw await realError(error);
+  if ((data as any)?.error) throw new Error((data as any).error);
+  return data as { ok: true; text: string };
+}
+
 /** Guest-facing labels — same source as staff dashboard chips. */
 export const STATUS_LABEL: Record<string, string> = Object.fromEntries(
   Object.entries(REQUEST_STATUS).map(([k, v]) => [k, v.label]),
