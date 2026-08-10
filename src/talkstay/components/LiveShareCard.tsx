@@ -142,20 +142,29 @@ export default function LiveShareCard({ hotel }: { hotel: Hotel }) {
       ) : (
         <div className="mt-4 space-y-3">
           <div className="grid gap-3 sm:grid-cols-[1fr_7rem]">
-            <Input
-              value={label}
-              onChange={(e) => setLabel(e.target.value)}
-              placeholder="Link label"
-            />
-            <Input
-              type="number"
-              min={1}
-              max={365}
-              value={days}
-              onChange={(e) => setDays(e.target.value)}
-              placeholder="Days"
-              title="Expires in days"
-            />
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-violet-900/80">Link label</label>
+              <Input
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
+                placeholder="e.g. Email campaign"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-violet-900/80" title="How long the shared link stays valid">
+                Valid (days)
+              </label>
+              <Input
+                type="number"
+                min={1}
+                max={365}
+                value={days}
+                onChange={(e) => setDays(e.target.value)}
+                placeholder="30"
+                title="Link expires after this many days"
+                aria-label="Days until the live view link expires"
+              />
+            </div>
           </div>
           <Button type="button" className="bg-violet-600 hover:bg-violet-700" disabled={busy} onClick={() => void create()}>
             {busy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Link2 className="mr-1.5 h-4 w-4" />}

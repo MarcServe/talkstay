@@ -51,6 +51,17 @@ export interface HotelBranding {
   tagline?: string | null;
   poster?: PosterConfig | null;
   property?: PropertyProfile | null;
+  /**
+   * Guest UI light wash over the background photo (0 = photo sharp, 1 = fully veiled).
+   * Default ~0.88 keeps text readable; lower to show more of the property image.
+   */
+  guest_bg_wash?: number | null;
+}
+
+/** Clamp guest background wash; higher = more transparent photo (heavier veil). */
+export function clampGuestBgWash(raw?: number | null): number {
+  if (raw == null || !Number.isFinite(raw)) return 0.88;
+  return Math.min(0.96, Math.max(0.2, raw));
 }
 
 /** In-room printable QR poster. Every text field is editable; sensible defaults

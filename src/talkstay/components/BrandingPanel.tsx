@@ -7,13 +7,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { Loader2, Upload, Mic, Palette, Printer, ImageIcon, X, Building2 } from "lucide-react";
 import {
-  friendlyImageName, updatePropertyProfile,
+  clampGuestBgWash, friendlyImageName, updatePropertyProfile,
   type Hotel, type HotelBranding, type PropertyProfile,
 } from "@/talkstay/lib/hotels";
 import PosterPanel from "@/talkstay/components/PosterPanel";
 import PropertyProfileFields from "@/talkstay/components/PropertyProfileFields";
 
 const DEFAULT_COLOR = "#7c3aed";
+const DEFAULT_GUEST_WASH = 0.88;
 
 /** Identity (logo/colour/tagline — used everywhere) and Poster (the printable
  *  in-room QR poster) share one brand colour + logo, so they live under one
@@ -77,6 +78,9 @@ function IdentityTab({ hotel, onSaved }: { hotel: Hotel; onSaved?: (b: HotelBran
   const [logo, setLogo] = useState(hotel.branding?.logo_url ?? "");
   const [color, setColor] = useState(hotel.branding?.primary_color ?? DEFAULT_COLOR);
   const [tagline, setTagline] = useState(hotel.branding?.tagline ?? "Scan. Speak. Consider it done.");
+  const [guestWash, setGuestWash] = useState(
+    clampGuestBgWash(hotel.branding?.guest_bg_wash ?? DEFAULT_GUEST_WASH),
+  );
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   // Separate from `logo` — a write-only field for pasting a URL manually, so
@@ -87,6 +91,8 @@ function IdentityTab({ hotel, onSaved }: { hotel: Hotel; onSaved?: (b: HotelBran
     const v = logoUrlDraft.trim();
     if (v) { setLogo(v); setLogoUrlDraft(""); }
   };
+  const bgPhoto = hotel.branding?.poster?.bg_image_url || logo || "";
+  const photoVisiblePct = Math.round((1 - guestWash) * 100);
 
   const uploadLogo = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -117,6 +123,7 @@ function IdentityTab({ hotel, onSaved }: { hotel: Hotel; onSaved?: (b: HotelBran
       logo_url: logo.trim() || null,
       primary_color: color || DEFAULT_COLOR,
       tagline: tagline.trim() || null,
+      guest_bg_wash: clampGuestBgWash(guestWash),
     };
     const { error } = await supabase.from("ts_hotels").update({ branding }).eq("id", hotel.id);
     setSaving(false);
@@ -177,6 +184,39 @@ function IdentityTab({ hotel, onSaved }: { hotel: Hotel; onSaved?: (b: HotelBran
           <Input value={tagline} onChange={(e) => setTagline(e.target.value)} placeholder="Scan. Speak. Consider it done." />
         </div>
 
+        <div className="space-y-2">
+          <Label>Guest screen background</Label>
+          <p className="text-xs text-muted-foreground">
+            How strongly the room photo shows through behind chat (uses your Poster background, or logo).
+            Lower veil = more of the photo; higher keeps text easier to read.
+          </p>
+          <div className="rounded-xl border bg-muted/30 px-3 py-3">
+            <div className="mb-2 flex items-center justify-between text-xs">
+              <span className="font-medium">Photo visibility {photoVisiblePct}%</span>
+              <span className="text-muted-foreground">Veil {Math.round(guestWash * 100)}%</span>
+            </div>
+            <input
+              type="range"
+              min={0.2}
+              max={0.96}
+              step={0.02}
+              value={guestWash}
+              onChange={(e) => setGuestWash(Number(e.target.value))}
+              className="w-full"
+              aria-label="Guest background photo veil"
+            />
+            <div className="mt-1 flex justify-between text-[11px] text-muted-foreground">
+              <span>Photo clearer</span>
+              <span>More veil</span>
+            </div>
+            {!bgPhoto && (
+              <p className="mt-2 text-[11px] text-amber-800">
+                Add a Poster background image (or logo) to see this on the guest screen.
+              </p>
+            )}
+          </div>
+        </div>
+
         <Button onClick={save} disabled={saving}>
           {saving ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null} Save branding
         </Button>
@@ -184,13 +224,20 @@ function IdentityTab({ hotel, onSaved }: { hotel: Hotel; onSaved?: (b: HotelBran
 
       {/* Live preview */}
       <div className="space-y-4">
-        <div className="rounded-2xl border bg-card p-5 text-center">
+        <div
+          className="rounded-2xl border p-5 text-center shadow-sm"
+          style={bgPhoto ? {
+            backgroundImage: `linear-gradient(hsla(38,26%,97%,${Math.min(0.97, guestWash + 0.04)}), hsla(210,20%,94%,${Math.min(0.97, guestWash + 0.06)})), url(${bgPhoto})`,
+            backgroundSize: "cover",
+            backgroundPosition: "center",
+          } : undefined}
+        >
           <div className="mb-1 text-xs font-medium text-muted-foreground">Guest screen preview</div>
           {logo && <img src={logo} alt="logo" className="mx-auto mb-2 h-14 w-14 rounded-xl object-cover" />}
           <div className="font-semibold">{hotel.name}</div>
           <div className="text-xs text-muted-foreground">{tagline}</div>
           <div
-            className="mx-auto my-4 flex h-20 w-20 items-center justify-center rounded-full text-white"
+            className="mx-auto my-4 flex h-20 w-20 items-center justify-center rounded-full text-white shadow-md"
             style={{ backgroundColor: color }}
           >
             <Mic className="h-8 w-8" />

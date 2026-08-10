@@ -143,7 +143,7 @@ function actionsFor(
   if (stats.avgAcceptMin != null && stats.avgAcceptMin > 15) {
     out.push(
       scale === "micro" || type === "airbnb"
-        ? "Accept times are slow for a small operation — turn on phone alerts for the host on duty and keep the app installed on the home screen."
+        ? "Accept times are slow for a small operation — turn on phone alerts for the host on duty and keep TalkStay on the home screen."
         : "Average accept time is high — review who is on which department and whether night coverage needs a duty manager fallback.",
     );
   }
@@ -295,7 +295,13 @@ export function buildBusinessIntelligence(input: {
   if (complaints > 0) risks.push(`${complaints} complaint-flagged request${complaints === 1 ? "" : "s"} in this view.`);
   if (completionPct < 70 && rows.length >= 4) risks.push(`Only ${completionPct}% of requests completed.`);
   if (avgAcceptMin != null && avgAcceptMin > 20) {
-    risks.push(`Average accept time ~${Math.round(avgAcceptMin)} minutes — guests may feel ignored.`);
+    const mins = Math.round(avgAcceptMin);
+    const dur = mins >= 120
+      ? `about ${Math.round(mins / 60)} hours`
+      : mins >= 60
+        ? `about ${Math.floor(mins / 60)}h ${mins % 60}m`
+        : `about ${mins} minutes`;
+    risks.push(`Average accept time is ${dur} — guests may feel ignored.`);
   }
   if (input.avgRating != null && input.avgRating < 4 && input.ratingCount >= 2) {
     risks.push(`Average rating ${input.avgRating.toFixed(1)}★ needs attention.`);

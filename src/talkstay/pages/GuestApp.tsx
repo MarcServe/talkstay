@@ -639,9 +639,14 @@ export default function GuestApp() {
   const brand = ctx.branding?.primary_color || "#7c3aed";
   const logo = ctx.branding?.logo_url || undefined;
   // Prefer the poster's own background photo (the owner picked it on purpose);
-  // fall back to the logo as a faint watermark. A near-opaque wash keeps
-  // dark UI text readable over busy hotel photos.
+  // fall back to the logo as a faint watermark. Wash strength is set in Branding.
   const bgPhoto = ctx.branding?.poster?.bg_image_url || logo || undefined;
+  const washRaw = ctx.branding?.guest_bg_wash;
+  const wash = washRaw != null && Number.isFinite(washRaw)
+    ? Math.min(0.96, Math.max(0.2, washRaw))
+    : 0.88;
+  const washTop = Math.min(0.97, wash + 0.04);
+  const washBot = Math.min(0.97, wash + 0.06);
   const voiceAvailable = !!ctx.assistantId;
 
   const orbLabel =
@@ -655,7 +660,7 @@ export default function GuestApp() {
       data-talkstay
       className="ts-atmosphere relative mx-auto flex h-[100dvh] max-w-md flex-col bg-cover bg-center"
       style={bgPhoto ? {
-        backgroundImage: `linear-gradient(hsla(38,26%,97%,.92), hsla(210,20%,94%,.94)), url(${bgPhoto})`,
+        backgroundImage: `linear-gradient(hsla(38,26%,97%,${washTop}), hsla(210,20%,94%,${washBot})), url(${bgPhoto})`,
         backgroundSize: "cover",
         backgroundPosition: "center",
       } : undefined}

@@ -39,11 +39,11 @@ function MetricCell({
 }) {
   const c = ACCENT[accent];
   return (
-    <div className={`relative min-w-[7.5rem] flex-1 overflow-hidden px-3 py-2.5 ${c.bg}`}>
+    <div className={`relative min-w-[6.5rem] flex-1 px-3 py-2.5 ${c.bg}`}>
       <span className={`absolute inset-y-0 left-0 w-1 ${c.bar}`} aria-hidden />
       <div className={`text-[10px] font-semibold uppercase tracking-wider ${c.label}`}>{label}</div>
-      <div className={`mt-0.5 text-sm font-semibold tabular-nums ${c.value}`}>{value}</div>
-      {hint && <div className="mt-0.5 truncate text-[11px] text-muted-foreground">{hint}</div>}
+      <div className={`mt-0.5 text-sm font-semibold tabular-nums leading-snug ${c.value}`}>{value}</div>
+      {hint && <div className="mt-0.5 text-[11px] leading-snug text-muted-foreground">{hint}</div>}
     </div>
   );
 }
@@ -64,7 +64,7 @@ export default function BusinessIntelligenceCard({
   missingProfile: boolean;
 }) {
   const demo = useIsDemo();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
   const [ai, setAi] = useState<{ headline: string; summary: string; actions: string[] } | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -135,22 +135,24 @@ export default function BusinessIntelligenceCard({
             </span>
           </div>
           <h3 className="mt-1 text-base font-semibold tracking-tight">{headline}</h3>
-          <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{summary}</p>
+          <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{summary}</p>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
           <Button size="sm" variant="ghost" className="h-8 px-2" disabled={busy} onClick={polish} title="AI polish">
             {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : ai ? <RefreshCw className="h-3.5 w-3.5" /> : <Sparkles className="h-3.5 w-3.5" />}
           </Button>
-          <Button size="sm" variant="outline" className="h-8" onClick={() => setOpen((v) => !v)}>
-            {open ? <ChevronUp className="mr-1 h-3.5 w-3.5" /> : <ChevronDown className="mr-1 h-3.5 w-3.5" />}
-            {open ? "Less" : "Advice"}
-          </Button>
+          {actions.length > 0 && (
+            <Button size="sm" variant="outline" className="h-8" onClick={() => setOpen((v) => !v)}>
+              {open ? <ChevronUp className="mr-1 h-3.5 w-3.5" /> : <ChevronDown className="mr-1 h-3.5 w-3.5" />}
+              {open ? "Hide advice" : "Show advice"}
+            </Button>
+          )}
         </div>
       </div>
 
       {/* Colour-coded metric strip */}
-      <div className="mt-3 overflow-hidden rounded-xl border border-border/80">
-        <div className="flex flex-wrap divide-x divide-border/80">
+      <div className="mt-3 rounded-xl border border-border/80">
+        <div className="flex flex-wrap divide-x divide-border/80 overflow-hidden rounded-t-xl">
           {lead && (
             <MetricCell
               accent="teal"
@@ -187,30 +189,37 @@ export default function BusinessIntelligenceCard({
               hint={`${stats.completed}/${stats.requests}`}
             />
           )}
-          {snapshot.risks[0] && (
-            <MetricCell
-              accent="amber"
-              label="Watch"
-              value={<span className="line-clamp-2 text-xs font-semibold leading-snug">{snapshot.risks[0]}</span>}
-            />
-          )}
-          {missingProfile && !snapshot.risks[0] && (
-            <MetricCell
-              accent="slate"
-              label="Profile"
-              value={<span className="text-xs font-semibold leading-snug">Set Branding → Property</span>}
-              hint="Sharper advice"
-            />
-          )}
         </div>
+
+        {(snapshot.risks.length > 0 || missingProfile) && (
+          <div className="space-y-1.5 border-t border-amber-200/80 bg-amber-50/90 px-3 py-2.5">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-amber-800">Watch</div>
+            <ul className="space-y-1.5 text-sm font-medium leading-relaxed text-amber-950">
+              {snapshot.risks.map((r) => (
+                <li key={r} className="flex gap-2">
+                  <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" aria-hidden />
+                  <span className="min-w-0 flex-1 break-words">{r}</span>
+                </li>
+              ))}
+              {missingProfile && (
+                <li className="flex gap-2 text-amber-900/85">
+                  <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-slate-400" aria-hidden />
+                  <span className="min-w-0 flex-1 break-words">
+                    Set Branding → Property for sharper advice.
+                  </span>
+                </li>
+              )}
+            </ul>
+          </div>
+        )}
       </div>
 
       {open && actions.length > 0 && (
-        <ol className="mt-3 space-y-1.5 border-t pt-3 text-sm text-foreground/90">
+        <ol className="mt-3 space-y-2 border-t pt-3 text-sm leading-relaxed text-foreground/90">
           {actions.map((a, i) => (
             <li key={a} className="flex gap-2">
               <span className="shrink-0 font-medium text-teal-700">{i + 1}.</span>
-              <span>{a}</span>
+              <span className="min-w-0 flex-1 break-words">{a}</span>
             </li>
           ))}
         </ol>
