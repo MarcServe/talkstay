@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { authorizeRequestSideEffect } from "../_shared/talkstayAuth.ts";
+import { formatRoomLabel } from "../_shared/roomLabel.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -49,9 +50,9 @@ serve(async (req) => {
     const FROM = (Deno.env.get("TWILIO_VOICE_FROM") || "").trim();
     if (!SID || !AUTH || !FROM) return json({ ok: false, reason: "twilio_not_configured" });
 
-    const roomNo = room?.room_number ?? "a room";
+    const roomLabel = formatRoomLabel(room?.room_number, { fallback: "a stay" });
     const label = DEPT_LABEL[r.department_key] ?? r.department_key;
-    const twiml = `<Response><Say voice="Polly.Amy">This is TalkStay for ${hotel?.name ?? "your hotel"}. A guest in room ${roomNo} has been waiting for ${label}. Please open the TalkStay dashboard to respond.</Say></Response>`;
+    const twiml = `<Response><Say voice="Polly.Amy">This is TalkStay for ${hotel?.name ?? "your property"}. A guest in ${roomLabel} has been waiting for ${label}. Please open the TalkStay dashboard to respond.</Say></Response>`;
 
     const form = new URLSearchParams({ To: to, From: FROM, Twiml: twiml });
     const resp = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${SID}/Calls.json`, {

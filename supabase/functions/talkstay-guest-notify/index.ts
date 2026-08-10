@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import webpush from "npm:web-push@3.6.7";
 import { renderEmail, quoteBlock, escapeHtml } from "../_shared/email.ts";
 import { authorizeRequestSideEffect } from "../_shared/talkstayAuth.ts";
+import { formatRoomLabel } from "../_shared/roomLabel.ts";
 
 // Tells the GUEST their request moved on (accepted / on the way / completed).
 // Email and "notify this device" (web push) are independent opt-ins — a guest
@@ -58,7 +59,7 @@ serve(async (req) => {
     ]);
 
     const hotelName = hotel?.name ?? "Your hotel";
-    const roomNo = room?.room_number ?? "";
+    const roomLabel = room?.room_number ? formatRoomLabel(room.room_number) : "";
     const heading = `Your request ${LINE[status]}`;
 
     // A direct link back into the guest's own room chat, for the push notification.
@@ -83,7 +84,7 @@ serve(async (req) => {
           accentColor: hotel?.branding?.primary_color,
           heading,
           bodyHtml: `
-            <p style="margin:0 0 10px;">${roomNo ? `Room ${escapeHtml(roomNo)} — ` : ""}here's the latest on what you asked for:</p>
+            <p style="margin:0 0 10px;">${roomLabel ? `${escapeHtml(roomLabel)} — ` : ""}here's the latest on what you asked for:</p>
             ${quoteBlock(r.summary)}
             ${status === "cancelled"
               ? `<p style="margin:14px 0 0;">If you still need help, open the chat below or scan the QR in your room and ask again.</p>`

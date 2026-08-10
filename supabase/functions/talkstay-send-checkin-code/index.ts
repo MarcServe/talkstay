@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { renderEmail, escapeHtml } from "../_shared/email.ts";
+import { formatRoomLabel } from "../_shared/roomLabel.ts";
 
 // Staff-triggered: front desk types a busy guest's email and this sends the
 // room's current check-in code, a direct link to the room's assistant, and
@@ -61,13 +62,14 @@ serve(async (req) => {
     const key = (Deno.env.get("RESEND_API_KEY") || "").trim();
     if (!key) return json({ error: "resend_not_configured" }, 500);
 
+    const roomLabel = formatRoomLabel(room.room_number);
     const html = renderEmail({
       hotelName: hotel.name ?? "Your hotel",
       logoUrl: hotel.branding?.logo_url,
       accentColor: hotel.branding?.primary_color,
-      heading: `Your check-in code — Room ${room.room_number}`,
+      heading: `Your check-in code — ${roomLabel}`,
       bodyHtml: `
-        <p style="margin:0 0 14px;">Here's everything you need to reach us from your room:</p>
+        <p style="margin:0 0 14px;">Here's everything you need to reach us from your stay:</p>
         <div style="text-align:center;padding:16px;background:#f9fafb;border-radius:10px;margin:0 0 16px;">
           <div style="font-size:28px;font-weight:800;letter-spacing:0.15em;color:#111827;">${escapeHtml(room.checkin_code)}</div>
         </div>
@@ -76,8 +78,8 @@ serve(async (req) => {
           <li style="margin-bottom:4px;">Tap the button below on your phone (or scan the QR code in your room).</li>
           <li>If you're asked for a code, enter the one above.</li>
         </ol>`,
-      cta: { label: "Open your room assistant", url: guestUrl },
-      footerNote: "This code is unique to your stay — please don't share it with anyone outside your room.",
+      cta: { label: "Open your stay assistant", url: guestUrl },
+      footerNote: "This code is unique to your stay — please don't share it with anyone outside your party.",
     });
 
     const resp = await fetch("https://api.resend.com/emails", {
@@ -85,7 +87,7 @@ serve(async (req) => {
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         from: "TalkStay <notifications@talkweb.io>", to: String(email),
-        subject: `${hotel.name ?? "Your hotel"}: your check-in code (Room ${room.room_number})`, html,
+        subject: `${hotel.name ?? "Your hotel"}: your check-in code (${roomLabel})`, html,
       }),
     });
     if (!resp.ok) {

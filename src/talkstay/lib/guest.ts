@@ -35,16 +35,29 @@ export function getDeviceId(): string {
 const fn = (body: Record<string, unknown>) =>
   supabase.functions.invoke("talkstay-guest-chat", { body: { deviceId: getDeviceId(), ...body } });
 
+export type GuestFnError = Error & {
+  code?: string;
+  roomNumber?: string;
+  hotelName?: string;
+};
+
 /** supabase.functions.invoke() returns a GENERIC message on a non-2xx response
  *  ("Edge Function returned a non-2xx status code") — the real machine code
  *  (checked_out / room_full / need_code / bad_code / invalid_token) is in the
- *  response body. Pull it out so callers can branch on it. */
-async function realError(error: any): Promise<Error> {
+ *  response body. Pull it out so callers can branch on it. Room/hotel labels
+ *  ride along on stay-ended responses for clearer guest copy. */
+async function realError(error: any): Promise<GuestFnError> {
   try {
     const body = await error?.context?.json?.();
-    if (body?.error) return new Error(body.error);
+    if (body?.error) {
+      const e = new Error(body.error) as GuestFnError;
+      e.code = body.error;
+      if (body.roomNumber) e.roomNumber = String(body.roomNumber);
+      if (body.hotelName) e.hotelName = String(body.hotelName);
+      return e;
+    }
   } catch { /* not JSON */ }
-  return error instanceof Error ? error : new Error(String(error));
+  return (error instanceof Error ? error : new Error(String(error))) as GuestFnError;
 }
 
 /** Stable per-room session id kept in localStorage (device history). */
@@ -96,7 +109,13 @@ export interface GuestBranding {
 export async function fetchContext(hotelSlug: string, roomId: string, token: string, code?: string, sessionId?: string) {
   const { data, error } = await fn({ action: "context", hotelSlug, roomId, token, code, sessionId });
   if (error) throw await realError(error);
-  if ((data as any)?.error) throw new Error((data as any).error);
+  if ((data as any)?.error) {
+    const e = new Error((data as any).error) as GuestFnError;
+    e.code = (data as any).error;
+    if ((data as any).roomNumber) e.roomNumber = String((data as any).roomNumber);
+    if ((data as any).hotelName) e.hotelName = String((data as any).hotelName);
+    throw e;
+  }
   return data as {
     hotelName: string; roomNumber: string; language: string; greeting: string;
     departments: string[]; branding?: GuestBranding; assistantId?: string | null;

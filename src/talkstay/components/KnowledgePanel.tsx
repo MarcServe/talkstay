@@ -14,6 +14,7 @@ import {
   Loader2, Trash2, Plus, Upload, Search, Pencil, X, ImageIcon, Link2, ChevronDown, Copy, Camera, Replace,
 } from "lucide-react";
 import { DEPARTMENTS, listRooms, friendlyImageName, type Hotel, type Room } from "@/talkstay/lib/hotels";
+import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
 import ContentPanel from "@/talkstay/components/ContentPanel";
 import type { GuestCard } from "@/talkstay/lib/guest";
 import { cn } from "@/lib/utils";
@@ -750,7 +751,7 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
         {scope === "room" && (
           <Select value={roomId} onValueChange={setRoomId}>
             <SelectTrigger className="h-8 w-44"><SelectValue placeholder="Select room" /></SelectTrigger>
-            <SelectContent>{rooms.map((r) => <SelectItem key={r.id} value={r.id}>Room {r.room_number}</SelectItem>)}</SelectContent>
+            <SelectContent>{rooms.map((r) => <SelectItem key={r.id} value={r.id}>{formatRoomLabel(r.room_number)}</SelectItem>)}</SelectContent>
           </Select>
         )}
       </div>

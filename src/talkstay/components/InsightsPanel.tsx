@@ -19,6 +19,7 @@ import RequestDetailSheet from "@/talkstay/components/RequestDetailSheet";
 import ExportReportButton from "@/talkstay/components/ExportReportButton";
 import { exportFilenameBase, type TalkStayExportPayload } from "@/talkstay/lib/exportReport";
 import { INTENT_STYLE, statusBadge, statusLabel } from "@/talkstay/lib/statusStyles";
+import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
 import { useDemo } from "@/talkstay/demo/DemoContext";
 
 /** Recharts click payloads vary by chart type — normalise to the data row. */
@@ -857,7 +858,7 @@ function PulseFeed({ pulses, onAcknowledge, onOpenRequest }: {
               )}
               <span className="rounded-full bg-muted px-2 py-0.5 text-muted-foreground">{p.issue_label || p.issue_key}</span>
               {p.department_key && <span className="rounded-full bg-muted px-2 py-0.5 text-muted-foreground">{deptLabel(p.department_key)}</span>}
-              <span className="ml-auto whitespace-nowrap text-muted-foreground">Room {p.ts_rooms?.room_number ?? "—"} · {fmtWhen(p.created_at)}</span>
+              <span className="ml-auto whitespace-nowrap text-muted-foreground">{formatRoomLabel(p.ts_rooms?.room_number)} · {fmtWhen(p.created_at)}</span>
             </div>
             <p className="mt-2 text-sm">{p.body}</p>
             <div className="mt-2 flex items-center gap-3 text-xs">
@@ -939,7 +940,7 @@ function ReviewsList({ audit, onOpen }: { audit: any[]; onOpen: (id: string) => 
             className="block w-full px-4 py-2.5 text-left text-sm transition-colors hover:bg-muted/40"
           >
             <div className="flex items-center justify-between">
-              <span className="min-w-0 flex-1 truncate">Room {r.room} · {r.summary}</span>
+              <span className="min-w-0 flex-1 truncate">{formatRoomLabel(r.room)} · {r.summary}</span>
               <span className="ml-3 whitespace-nowrap text-yellow-500">{"★".repeat(r.rating)}</span>
             </div>
             {r.comment && (

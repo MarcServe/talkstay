@@ -10,6 +10,7 @@ import { supabase } from "@/integrations/supabase/client";
 import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
 import { DEPARTMENTS } from "@/talkstay/lib/hotels";
 import { statusBadge, statusCard, statusLabel } from "@/talkstay/lib/statusStyles";
+import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
 
 type LiveRequest = {
   id: string;
@@ -234,7 +235,7 @@ function LiveCard({ r }: { r: LiveRequest }) {
             <Icon className="h-4 w-4" />
           </span>
           <div>
-            <div className="text-sm font-semibold">Room {r.room_number ?? "—"}</div>
+            <div className="text-sm font-semibold">{formatRoomLabel(r.room_number)}</div>
             <div className="text-xs text-muted-foreground">{deptLabel(r.department_key)}</div>
           </div>
         </div>

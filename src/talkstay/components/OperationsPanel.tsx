@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { DEPARTMENTS, type Hotel } from "@/talkstay/lib/hotels";
 import { playChime } from "@/talkstay/lib/chime";
+import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
 import type { OpsRequest, OpsTimeRange } from "@/talkstay/lib/data";
 import { OPEN_STATUSES } from "@/talkstay/lib/data";
 import {
@@ -175,7 +176,7 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
         const r = fresh[0];
         toast.message(
           fresh.length === 1
-            ? `New request · Room ${r.ts_rooms?.room_number ?? "—"}`
+            ? `New request · ${formatRoomLabel(r.ts_rooms?.room_number)}`
             : `${fresh.length} new requests`,
           {
             description: fresh.length === 1 ? (r.summary_staff || r.summary) : "Open the queue to review them.",
@@ -204,7 +205,7 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
         playChime();
         const e0 = fresh[0];
         const r0 = list.find((r) => r.id === e0.request_id);
-        toast.message(`Guest followed up · Room ${r0?.ts_rooms?.room_number ?? "—"}`, {
+        toast.message(`Guest followed up · ${formatRoomLabel(r0?.ts_rooms?.room_number)}`, {
           description: e0.note || r0?.summary_staff || r0?.summary,
           duration: 12_000,
           action: {
@@ -696,7 +697,7 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
                     {r.ts_rooms?.room_number ?? "—"}
                   </div>
                   <div className="min-w-0 flex-1 overflow-hidden">
-                    <p className="truncate text-sm font-medium">Room {r.ts_rooms?.room_number ?? "—"}</p>
+                    <p className="truncate text-sm font-medium">{formatRoomLabel(r.ts_rooms?.room_number)}</p>
                     <p className="truncate text-xs text-muted-foreground">
                       {deptLabel(r.department_key)} · {timeAgo(r.created_at)}
                     </p>
@@ -803,7 +804,7 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
                   </div>
                   <div className="min-w-0 flex-1 overflow-hidden">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-semibold">Room {r.ts_rooms?.room_number ?? "—"}</span>
+                      <span className="font-semibold">{formatRoomLabel(r.ts_rooms?.room_number)}</span>
                       <Badge variant="secondary">{deptLabel(r.department_key)}</Badge>
                       {r.is_complaint && (
                         <Badge className="border border-rose-200 bg-rose-100 text-rose-800"><AlertTriangle className="mr-1 h-3 w-3" />Complaint</Badge>

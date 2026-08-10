@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { getPublicBaseUrl } from "@/config/environment";
 import { listRooms, getRoomToken, friendlyImageName, POSTER_DEFAULTS, type Hotel, type HotelBranding, type PosterConfig, type Room } from "@/talkstay/lib/hotels";
+import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
 
 const FEATURE_ICONS = [UtensilsCrossed, BedDouble, Wrench, Info];
 const BADGE_ICONS = [ShieldCheck, Zap, Globe];
@@ -327,7 +328,7 @@ export default function PosterPanel({ hotel, onSaved }: { hotel: Hotel; onSaved?
             <Select value={roomId} onValueChange={setRoomId}>
               <SelectTrigger className="h-9"><SelectValue placeholder={rooms.length ? "Select a room" : "No rooms yet (sample QR)"} /></SelectTrigger>
               <SelectContent>
-                {rooms.map((r) => <SelectItem key={r.id} value={r.id}>Room {r.room_number}</SelectItem>)}
+                {rooms.map((r) => <SelectItem key={r.id} value={r.id}>{formatRoomLabel(r.room_number)}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>

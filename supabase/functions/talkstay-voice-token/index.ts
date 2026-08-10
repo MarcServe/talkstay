@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { formatRoomLabel } from "../_shared/roomLabel.ts";
 
 // TalkStay's own realtime token minter.
 // WHY THIS EXISTS (instead of calling TalkWeb's protected `realtime-token`):
@@ -122,7 +123,8 @@ serve(async (req) => {
       } catch { /* best-effort */ }
     }
 
-    const instructions = `You are the in-room voice assistant for ${hotel.name}${roomNo ? `, speaking with the guest in Room ${roomNo}` : ""}.
+    const roomLabel = roomNo ? formatRoomLabel(roomNo) : "";
+    const instructions = `You are the in-room voice assistant for ${hotel.name}${roomLabel ? `, speaking with the guest in ${roomLabel}` : ""}.
 
 Be warm, brief and natural — like a great concierge. Keep answers to 1–3 short sentences.
 Reply in whatever language the guest speaks (hotel default: ${hotel.default_language || "English"}).

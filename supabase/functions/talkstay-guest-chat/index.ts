@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { formatRoomLabel } from "../_shared/roomLabel.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -68,11 +69,14 @@ function classifyDeterministic(message: string, ctx: RoomCtx): { dept: string; s
   return best ? { dept: best.dept, source: "keyword" } : null;
 }
 
-// Returns the room context, null (bad token/room), or "checked_out" (valid room,
-// but the stay has ended — saved links must stop working).
+type CheckedOutHint = { status: "checked_out"; hotelName: string; roomNumber: string };
+
+// Returns the room context, null (bad token/room), or checked_out (valid room,
+// but the stay has ended — saved links must stop working). Includes hotel/room
+// labels so the guest UI can show which room to mention in feedback.
 async function resolveRoom(
   admin: any, hotelSlug: string, roomId: string, token: string
-): Promise<RoomCtx | null | "checked_out"> {
+): Promise<RoomCtx | null | CheckedOutHint> {
   // Token must be active AND belong to this room.
   const { data: tok } = await admin
     .from("ts_room_tokens")
@@ -108,7 +112,9 @@ async function resolveRoom(
   if (!room) return null;
   // Checked out → every saved link/bookmark stops working immediately, anywhere.
   // The printed QR is unchanged and revives when the next guest is checked in.
-  if (room.occupancy_status === "vacant") return "checked_out";
+  if (room.occupancy_status === "vacant") {
+    return { status: "checked_out", hotelName: hotel.name, roomNumber: room.room_number };
+  }
 
   return {
     hotelId: hotel.id, hotelName: hotel.name, assistantId: hotel.assistant_id,
@@ -505,8 +511,13 @@ serve(async (req) => {
     if (!hotelSlug || !roomId || !token) return json({ error: "Missing hotel/room/token" }, 400);
 
     const ctx = await resolveRoom(admin, hotelSlug, roomId, token);
-    if (ctx === "checked_out") return json({ error: "checked_out" }, 403);
+    if (ctx && "status" in ctx && ctx.status === "checked_out") {
+      return json({ error: "checked_out", hotelName: ctx.hotelName, roomNumber: ctx.roomNumber }, 403);
+    }
     if (!ctx) return json({ error: "invalid_token" }, 403);
+
+    const endedPayload = () =>
+      json({ error: "checked_out", hotelName: ctx.hotelName, roomNumber: ctx.roomNumber }, 403);
 
     // Bind this device to the current stay. A device from a previous stay (the
     // ex-guest refreshing a saved link after the room was re-let) is rejected;
@@ -514,13 +525,13 @@ serve(async (req) => {
     // requires a check-in code, a new device must supply the current stay's code.
     // Missing deviceId used to skip binding entirely — reject it explicitly.
     if (!deviceId || !String(deviceId).trim()) {
-      return json({ error: "checked_out" }, 403);
+      return endedPayload();
     }
     const { data: claim } = await admin.rpc("ts_claim_device", { p_room: ctx.roomId, p_device: String(deviceId).trim(), p_code: code ?? null });
-    if (claim === "ended") return json({ error: "checked_out" }, 403);
-    if (claim === "full") return json({ error: "room_full" }, 403);
-    if (claim === "need_code") return json({ error: "need_code" }, 403);
-    if (claim === "bad_code") return json({ error: "bad_code" }, 403);
+    if (claim === "ended") return endedPayload();
+    if (claim === "full") return json({ error: "room_full", hotelName: ctx.hotelName, roomNumber: ctx.roomNumber }, 403);
+    if (claim === "need_code") return json({ error: "need_code", hotelName: ctx.hotelName, roomNumber: ctx.roomNumber }, 403);
+    if (claim === "bad_code") return json({ error: "bad_code", hotelName: ctx.hotelName, roomNumber: ctx.roomNumber }, 403);
 
     // Track guest activity — powers auto-checkout after the hotel's inactivity window.
     admin.from("ts_rooms").update({ last_guest_activity_at: new Date().toISOString() })
@@ -538,7 +549,7 @@ serve(async (req) => {
         // Assistant id powers the voice session (TalkWeb realtime stack); assistant
         // ids are public by design in TalkWeb's widget embeds.
         assistantId: ctx.assistantId,
-        greeting: `Hi! You're in Room ${ctx.roomNumber} at ${ctx.hotelName}. How can I help — anything you need, or a question about the hotel?`,
+        greeting: `Hi! You're in ${formatRoomLabel(ctx.roomNumber)} at ${ctx.hotelName}. How can I help — anything you need, or a question about the hotel?`,
       });
     }
 
@@ -962,7 +973,7 @@ serve(async (req) => {
       `- [${r.id}] ${r.status} · ${r.department_key} · ${r.summary}`
     ).join("\n");
 
-    const system = `You are the in-room guest assistant for ${ctx.hotelName}, Room ${ctx.roomNumber}.
+    const system = `You are the in-room guest assistant for ${ctx.hotelName}, ${formatRoomLabel(ctx.roomNumber)}.
 Be warm, brief and natural — like a helpful concierge, not a form. The guest should feel they just ask and it's handled.
 
 LANGUAGE: Reply in the same language the guest writes in (their hotel default is ${ctx.language}). The "summary" you pass to tools MUST be in English for staff.

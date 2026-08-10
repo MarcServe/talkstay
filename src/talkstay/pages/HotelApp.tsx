@@ -32,7 +32,7 @@ const NAV = [
   // `admin: true` = owner/manager only. Department staff see just Operations.
   { key: "operations", label: "Operations", icon: Inbox, admin: false, desc: "Live queue with today’s volumes — click any request for the full chat and timeline." },
   { key: "insights", label: "Insights", icon: BarChart3, admin: true, desc: "Interactive analytics board — click charts and KPIs to drill into the data." },
-  { key: "rooms", label: "Rooms & QR", icon: QrCode, admin: true, desc: "Add rooms and print the QR code guests scan to reach you." },
+  { key: "rooms", label: "Rooms & QR", icon: QrCode, admin: true, desc: "Add rooms or named units and print the QR guests scan." },
   { key: "branding", label: "Branding", icon: Palette, admin: true, desc: "Your logo, colour and the printable in-room poster." },
   { key: "departments", label: "Departments", icon: Building2, admin: true, desc: "Teams, routing rules and per-department notifications." },
   { key: "knowledge", label: "Knowledge", icon: BookOpen, admin: true, desc: "What the assistant knows — website, documents and property info." },

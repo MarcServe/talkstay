@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import webpush from "npm:web-push@3.6.7";
 import { renderEmail, quoteBlock, escapeHtml } from "../_shared/email.ts";
 import { authorizeRequestSideEffect } from "../_shared/talkstayAuth.ts";
+import { formatRoomLabel } from "../_shared/roomLabel.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -88,14 +89,14 @@ serve(async (req) => {
     }
 
     const deptEmail = dept?.notify_email || null;
-    const roomNo = room?.room_number ?? "—";
+    const roomLabel = formatRoomLabel(room?.room_number, { fallback: "—" });
     const label = DEPT_LABEL[r.department_key] ?? r.department_key;
     // Reopen/escalation = guest unhappy → urgent. Close events stay informational.
     const urgent = (!isCloseEvent && !!banner) || r.priority === "urgent" || r.is_complaint;
 
     const subject = banner
-      ? `${urgent ? "🔴 " : ""}${EVENT_LABEL[event] ?? "Update"} · ${label} — Room ${roomNo}`
-      : `${urgent ? "🔴 URGENT · " : ""}New ${label} request — Room ${roomNo}`;
+      ? `${urgent ? "🔴 " : ""}${EVENT_LABEL[event] ?? "Update"} · ${label} — ${roomLabel}`
+      : `${urgent ? "🔴 URGENT · " : ""}New ${label} request — ${roomLabel}`;
     const html = renderEmail({
       hotelName: hotel?.name ?? "TalkStay",
       logoUrl: hotel?.branding?.logo_url,
@@ -103,7 +104,7 @@ serve(async (req) => {
       heading: banner ? `${EVENT_LABEL[event]} — ${label}` : `${urgent ? "Urgent " : ""}${label} request`,
       bodyHtml: `
         ${banner ? `<p style="margin:0 0 12px;color:${isCloseEvent ? "#4c1d95" : "#b91c1c"};font-weight:600;">${escapeHtml(banner)}</p>` : ""}
-        <p style="margin:0 0 10px;"><strong>Room:</strong> ${escapeHtml(roomNo)}</p>
+        <p style="margin:0 0 10px;"><strong>${escapeHtml(roomLabel)}</strong></p>
         ${quoteBlock(staffSummary)}
         ${sideNote ? `<p style="margin:14px 0 0;"><strong>Reason:</strong> ${escapeHtml(sideNote)}</p>` : ""}
         ${r.is_complaint && !isCloseEvent ? `<p style="margin:14px 0 0;color:#b91c1c;font-weight:600;">This is a complaint — please handle promptly.</p>` : ""}`,
@@ -152,7 +153,7 @@ serve(async (req) => {
           try {
             await webpush.sendNotification(
               { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
-              JSON.stringify({ title: subject, body: `Room ${roomNo}: ${staffSummary}`, url: "https://talkstay.talkweb.io/app", urgent, tag: r.id })
+              JSON.stringify({ title: subject, body: `${roomLabel}: ${staffSummary}`, url: "https://talkstay.talkweb.io/app", urgent, tag: r.id })
             );
             return 1;
           } catch (err: any) {

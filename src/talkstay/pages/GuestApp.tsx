@@ -3,6 +3,7 @@ import { useParams, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Loader2, Send, ClipboardList, Star, X, Mic, MicOff, Globe, Check, MessageCircle, Smile, Meh, Frown, BellRing, Bell, Pencil, ExternalLink, RotateCcw } from "lucide-react";
+import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
 import { toast } from "sonner";
 import { RealtimeChat } from "@/utils/RealtimeChat";
 import { conversationMemory } from "@/utils/ConversationMemory";
@@ -204,6 +205,8 @@ export default function GuestApp() {
   const [needCode, setNeedCode] = useState(false);
   const [codeError, setCodeError] = useState<string | null>(null);
   const [codeInput, setCodeInput] = useState("");
+  // Labels for gate screens (ended / code) — from API or last successful visit.
+  const [roomLabel, setRoomLabel] = useState<{ hotelName?: string; roomNumber?: string }>({});
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -228,17 +231,34 @@ export default function GuestApp() {
 
   const loadContext = (code?: string) => {
     if (!hotelSlug || !roomId || !token) { setInvalid(true); return; }
+    const labelKey = `talkstay:roomlabel:${hotelSlug}:${roomId}`;
     fetchContext(hotelSlug, roomId, token, code, sid)
       .then((c) => {
         setNeedCode(false); setCodeError(null);
         setCheckedOut(false); setRoomFull(false); setInvalid(false);
         setCtx(c);
+        setRoomLabel({ hotelName: c.hotelName, roomNumber: c.roomNumber });
+        try {
+          localStorage.setItem(labelKey, JSON.stringify({ hotelName: c.hotelName, roomNumber: c.roomNumber }));
+        } catch { /* ignore */ }
         const prev = loadHistory(sid) as Msg[];
         // Fresh stay after re-check-in: prefer greeting if history was wiped.
         setMsgs(prev.length ? prev : [{ role: "assistant", content: c.greeting }]);
       })
       .catch((e) => {
         const msg = String(e?.message ?? e);
+        const fromErr = {
+          hotelName: typeof e?.hotelName === "string" ? e.hotelName : undefined,
+          roomNumber: typeof e?.roomNumber === "string" ? e.roomNumber : undefined,
+        };
+        let cached: { hotelName?: string; roomNumber?: string } = {};
+        try { cached = JSON.parse(localStorage.getItem(labelKey) || "{}"); } catch { /* ignore */ }
+        const labels = {
+          hotelName: fromErr.hotelName || cached.hotelName,
+          roomNumber: fromErr.roomNumber || cached.roomNumber,
+        };
+        if (labels.hotelName || labels.roomNumber) setRoomLabel(labels);
+
         if (msg.includes("checked_out")) {
           // Stay vacant OR this device is still on an old stay — clear local history.
           try {
@@ -357,9 +377,17 @@ export default function GuestApp() {
 
   // Voice path (TalkWeb RealtimeChat → realtime-token, WebRTC).
   const startVoice = async () => {
-    if (!ctx?.assistantId) return;
+    if (!ctx?.assistantId) {
+      toast.error("Voice isn't set up for this room yet — please type instead.");
+      return;
+    }
     setVoiceState("connecting");
     try {
+      // Ask for mic early so Safari/iPad shows a clear permission prompt.
+      if (navigator.mediaDevices?.getUserMedia) {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach((t) => t.stop());
+      }
       syncVoiceMemoryFromChat();
       const chat = new RealtimeChat(ctx.assistantId, {
         onUserSpeechStart: () => setIsListening(true),
@@ -389,7 +417,12 @@ export default function GuestApp() {
         },
         onAssistantAudioStart: () => setIsSpeaking(true),
         onAssistantAudioEnd: () => setIsSpeaking(false),
-        onError: () => { /* keep session; transcript continues */ },
+        onError: (err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err ?? "");
+          if (/permission|not allowed|denied/i.test(msg)) {
+            toast.error("Microphone blocked — allow mic access in browser settings, or type below.");
+          }
+        },
         onInactivityTimeout: () => stopVoice(true),
       } as any);
       // TalkStay's own token minter: verifies the room QR token server-side and
@@ -401,8 +434,15 @@ export default function GuestApp() {
       chatRef.current = chat;
       await chat.init();
       setVoiceState("connected");
-    } catch {
+      toast.message("Voice is on — speak naturally. Tap the mic again to end.");
+    } catch (err: unknown) {
       setVoiceState("idle");
+      const msg = err instanceof Error ? err.message : String(err ?? "");
+      if (/permission|not allowed|denied|NotAllowed/i.test(msg)) {
+        toast.error("Microphone permission denied — allow access, or type your request.");
+      } else {
+        toast.error("Voice couldn't start — you can type your message below.");
+      }
       append({ role: "assistant", content: "Voice couldn't start — you can type your message below." });
     }
   };
@@ -475,14 +515,22 @@ export default function GuestApp() {
   }, [pulseEligible, pulseReady]);
 
   if (checkedOut) {
+    const roomLine = formatRoomLabel(roomLabel.roomNumber, { fallback: "this room" });
+    const hotelBit = roomLabel.hotelName ? ` at ${roomLabel.hotelName}` : "";
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4 p-8 text-center">
         <h1 className="text-xl font-semibold">Your stay has ended</h1>
         <p className="max-w-sm text-sm text-muted-foreground">
-          Thank you for staying with us. This room assistant is no longer active for the previous stay.
+          Thank you for staying with us. The assistant for <strong>{roomLine}</strong>{hotelBit} is no longer
+          active for the previous stay.
           If you've just checked in again, enter the new check-in code from reception — or ask them to
-          confirm the room is checked in.
+          confirm {roomLabel.roomNumber ? roomLine : "the room"} is checked in.
         </p>
+        {roomLabel.roomNumber && (
+          <p className="text-xs text-muted-foreground">
+            Mention <strong>{roomLine}</strong> if you contact reception or share feedback.
+          </p>
+        )}
         <form
           className="flex w-full max-w-xs flex-col gap-3"
           onSubmit={(e) => {
@@ -524,7 +572,8 @@ export default function GuestApp() {
       <div className="flex min-h-screen flex-col items-center justify-center gap-2 p-8 text-center">
         <h1 className="text-xl font-semibold">Too many devices on this room</h1>
         <p className="max-w-sm text-sm text-muted-foreground">
-          This room already has the maximum number of connected devices for this stay.
+          {formatRoomLabel(roomLabel.roomNumber, { fallback: "This room" })} already has the maximum number of
+          connected devices for this stay.
           Please use a device that's already connected, or ask reception for help.
         </p>
       </div>
@@ -544,7 +593,8 @@ export default function GuestApp() {
         <h1 className="text-xl font-semibold">Enter your check-in code</h1>
         <p className="max-w-sm text-sm text-muted-foreground">
           For your security, reception gave you a short code at check-in (it may be on your
-          key-card sleeve). Enter it once to connect this device.
+          key-card sleeve). Enter it once to connect this device
+          {roomLabel.roomNumber ? <> to <strong>{formatRoomLabel(roomLabel.roomNumber)}</strong></> : null}.
         </p>
         <form onSubmit={submit} className="flex w-full max-w-xs flex-col gap-3">
           <input
@@ -592,7 +642,7 @@ export default function GuestApp() {
   return (
     <div
       data-talkstay
-      className="ts-atmosphere mx-auto flex h-[100dvh] max-w-md flex-col bg-cover bg-center"
+      className="ts-atmosphere relative mx-auto flex h-[100dvh] max-w-md flex-col bg-cover bg-center"
       style={bgPhoto ? {
         backgroundImage: `linear-gradient(hsla(38,26%,97%,.82), hsla(210,20%,94%,.88)), url(${bgPhoto})`,
         backgroundSize: "cover",
@@ -608,73 +658,15 @@ export default function GuestApp() {
         </div>
         {logo && <img src={logo} alt="" className="mx-auto mb-2 h-14 w-14 rounded-xl object-cover" />}
         <h1 className="text-lg font-bold leading-tight">{ctx.hotelName}</h1>
-        <p className="text-sm text-muted-foreground">Room {ctx.roomNumber} · Voice Stay</p>
+        <p className="text-sm text-muted-foreground">{formatRoomLabel(ctx.roomNumber)} · Voice Stay</p>
         <div className="mt-2 inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs text-muted-foreground">
           <Globe className="h-3.5 w-3.5" /> Speak Any Language
         </div>
       </header>
 
-      {/* Conversation — the hero orb stays pinned at the top while the transcript
-          scrolls behind it (frosted so scrolled messages read softly underneath). */}
+      {/* Conversation fills the screen — voice is a floating control, not a hero block. */}
       <div ref={scroller} className="relative flex-1 overflow-y-auto">
-      {/* Voice orb — copied from TalkWeb's SimplifiedVoiceInterface */}
-      <div
-        className="sticky top-0 z-20 flex flex-col items-center gap-3 border-b py-6"
-        style={{ backgroundImage: `linear-gradient(180deg, ${brand}18, transparent)` }}
-      >
-        <div className="relative">
-          {isSpeaking && (
-            <div className="absolute inset-0 animate-pulse rounded-full">
-              <div className="-m-2 h-28 w-28 rounded-full" style={{ background: `linear-gradient(135deg, ${brand}4d, ${brand}1a)` }} />
-            </div>
-          )}
-          <button
-            onClick={toggleVoice}
-            disabled={!voiceAvailable || voiceState === "connecting"}
-            className="relative z-10 flex h-24 w-24 items-center justify-center rounded-full shadow-xl transition-all duration-300 hover:scale-105 disabled:cursor-not-allowed disabled:opacity-50"
-            style={{
-              background: isListening && !isSpeaking
-                ? "linear-gradient(135deg, #ef4444, #dc2626)"
-                : `linear-gradient(135deg, ${brand}, ${brand}cc)`,
-              boxShadow: isSpeaking ? `0 0 30px ${brand}80, 0 0 60px ${brand}4d` : undefined,
-            }}
-            aria-label={voiceState === "idle" ? "Start voice" : "Stop voice"}
-          >
-            {voiceState === "connecting" ? (
-              <Loader2 className="h-8 w-8 animate-spin text-white" />
-            ) : (
-              <div className="relative">
-                <Mic className={`h-9 w-9 text-white ${isSpeaking ? "animate-pulse" : ""}`} />
-                {isListening && !isSpeaking && (
-                  <div className="absolute inset-0 animate-ping opacity-75">
-                    <div className="h-full w-full rounded-full bg-white/20" />
-                  </div>
-                )}
-              </div>
-            )}
-            {isSpeaking && (
-              <>
-                <div className="absolute inset-0 animate-ping rounded-full bg-white/10" style={{ animationDuration: "1.5s" }} />
-                <div className="absolute inset-0 animate-ping rounded-full bg-white/5" style={{ animationDuration: "2s", animationDelay: "0.3s" }} />
-              </>
-            )}
-          </button>
-        </div>
-        <div className="text-center">
-          <p className="text-base font-semibold">{orbLabel}</p>
-          {voiceState === "idle" && (
-            <p className="text-xs text-muted-foreground">
-              {voiceAvailable ? "Start a voice conversation" : "Voice unavailable — type below"}
-            </p>
-          )}
-          {voiceState === "connected" && (
-            <button onClick={() => stopVoice()} className="mt-0.5 text-xs text-muted-foreground underline">End voice</button>
-          )}
-        </div>
-      </div>
-
-      {/* Transcript scrolls underneath the pinned orb */}
-      <div className="space-y-3 px-4 pb-4 pt-4">
+      <div className="space-y-3 px-4 pb-24 pt-4">
         {msgs.map((m, i) =>
           m.role === "request" ? (
             <div key={i} className="flex justify-center">
@@ -730,15 +722,61 @@ export default function GuestApp() {
       </div>
       </div>
 
+      {/* Floating mic — compact so chat stays readable. */}
+      <div className="pointer-events-none absolute inset-x-0 bottom-[4.25rem] z-30 flex justify-end px-3">
+        <div className="pointer-events-auto flex max-w-[calc(100%-0.5rem)] items-center gap-2">
+          {voiceState !== "idle" && (
+            <div className="rounded-full border bg-white/95 px-3 py-1.5 text-xs font-medium shadow-md backdrop-blur">
+              <span className="mr-2 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500 align-middle" />
+              {orbLabel}
+              <button
+                type="button"
+                onClick={() => stopVoice()}
+                className="ml-2 text-muted-foreground underline"
+              >
+                End
+              </button>
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={toggleVoice}
+            disabled={!voiceAvailable || voiceState === "connecting"}
+            className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-full shadow-lg transition hover:scale-105 disabled:opacity-50"
+            style={{
+              background: !voiceAvailable
+                ? "#94a3b8"
+                : isListening && !isSpeaking
+                  ? "linear-gradient(135deg, #ef4444, #dc2626)"
+                  : `linear-gradient(135deg, ${brand}, ${brand}cc)`,
+              boxShadow: isSpeaking ? `0 0 18px ${brand}66` : undefined,
+            }}
+            aria-label={voiceState === "idle" ? "Start voice" : "Stop voice"}
+            title={voiceAvailable ? orbLabel : "Voice unavailable — type below"}
+          >
+            {voiceState === "connecting" ? (
+              <Loader2 className="h-5 w-5 animate-spin text-white" />
+            ) : voiceState === "connected" ? (
+              <MicOff className="h-5 w-5 text-white" />
+            ) : (
+              <Mic className="h-5 w-5 text-white" />
+            )}
+            {isListening && !isSpeaking && (
+              <span className="absolute inset-0 animate-ping rounded-full bg-white/20" />
+            )}
+          </button>
+        </div>
+      </div>
+
       {/* Typed input — TalkWeb style */}
       <form
         onSubmit={(e) => { e.preventDefault(); sendTyped(input); }}
-        className="flex items-center gap-2 border-t px-3 py-3"
+        className="relative z-20 flex items-center gap-2 border-t bg-background/95 px-3 py-3 backdrop-blur"
       >
         <Input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Or type your message…"
+          placeholder={voiceState === "connected" ? "Listening… or type here" : "Type your message…"}
           disabled={busy}
         />
         <Button type="submit" size="icon" disabled={busy || !input.trim()} style={{ backgroundColor: brand }}>
