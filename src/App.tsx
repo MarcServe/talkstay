@@ -12,6 +12,7 @@ const GuestApp = lazy(() => import("@/talkstay/pages/GuestApp"));
 const HotelApp = lazy(() => import("@/talkstay/pages/HotelApp"));
 const DemoApp = lazy(() => import("@/talkstay/pages/DemoApp"));
 const LiveView = lazy(() => import("@/talkstay/pages/LiveView"));
+const TalkStayAdminApp = lazy(() => import("@/talkstay/admin/TalkStayAdminApp"));
 const NotFound = lazy(() => import("@/talkstay/pages/NotFound"));
 
 const queryClient = new QueryClient({
@@ -56,6 +57,9 @@ const App = () => (
 
               {/* Read-only live ops share — token-gated, no signup */}
               <Route path="/live/:token" element={<LiveView />} />
+
+              {/* Platform admin — requires public.is_admin(user) */}
+              <Route path="/admin/*" element={<TalkStayAdminApp />} />
 
               <Route path="*" element={<NotFound />} />
             </Routes>
