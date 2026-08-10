@@ -24,15 +24,53 @@ export const DEMO_HOTEL: Hotel = {
   whatsapp_number: null,
   whatsapp_enabled: false,
   is_active: true,
+  require_checkin_code: false,
   branding: {
     primary_color: "#4c2bb8",
     tagline: "Rest easy. We're here for you.",
   },
 };
 
+export type DemoRoom = {
+  id: string;
+  room_number: string;
+  floor: string | null;
+  occupancy_status: "occupied" | "vacant";
+  checkin_code: string | null;
+  token: string;
+};
+
+export type DemoStaff = {
+  id: string;
+  name: string;
+  email: string;
+  department_key: string | null;
+  role: string;
+  status: string;
+};
+
+export type DemoDepartment = {
+  id: string;
+  key: string;
+  display_name: string;
+  is_active: boolean;
+};
+
+export type DemoKnowledge = {
+  id: string;
+  title: string;
+  kind: string;
+  preview: string;
+};
+
 type DemoDetail = RequestDetailData;
 
 export type DemoState = {
+  hotel: Hotel;
+  rooms: DemoRoom[];
+  departments: DemoDepartment[];
+  staff: DemoStaff[];
+  knowledge: DemoKnowledge[];
   requests: OpsRequest[];
   ack: OpsQueueData["ack"];
   escalations: OpsQueueData["escalations"];
@@ -334,7 +372,47 @@ export function createInitialDemoState(): DemoState {
     { id: "demo-esc-1", request_id: "demo-req-2", note: "Guest called twice — still warm in the room" },
   ];
 
+  const rooms: DemoRoom[] = [
+    { id: "demo-room-105", room_number: "105", floor: "1", occupancy_status: "occupied", checkin_code: "K7M2PQ", token: "demo-tok-105" },
+    { id: "demo-room-218", room_number: "218", floor: "2", occupancy_status: "occupied", checkin_code: "H4N9XR", token: "demo-tok-218" },
+    { id: "demo-room-330", room_number: "330", floor: "3", occupancy_status: "vacant", checkin_code: null, token: "demo-tok-330" },
+    { id: "demo-room-412", room_number: "412", floor: "4", occupancy_status: "occupied", checkin_code: "B2W8LT", token: "demo-tok-412" },
+    { id: "demo-room-507", room_number: "507", floor: "5", occupancy_status: "occupied", checkin_code: "Q9C3VZ", token: "demo-tok-507" },
+    { id: "demo-room-612", room_number: "612", floor: "6", occupancy_status: "occupied", checkin_code: "F6J1YD", token: "demo-tok-612" },
+  ];
+
+  const departments: DemoDepartment[] = [
+    { id: "demo-dept-hk", key: "housekeeping", display_name: "Housekeeping", is_active: true },
+    { id: "demo-dept-laundry", key: "laundry", display_name: "Laundry", is_active: true },
+    { id: "demo-dept-kitchen", key: "kitchen", display_name: "Kitchen", is_active: true },
+    { id: "demo-dept-bar", key: "bar", display_name: "Bar", is_active: true },
+    { id: "demo-dept-maint", key: "maintenance", display_name: "Maintenance", is_active: true },
+    { id: "demo-dept-conc", key: "concierge", display_name: "Concierge", is_active: true },
+    { id: "demo-dept-fd", key: "front_desk", display_name: "Front Desk", is_active: true },
+    { id: "demo-dept-dm", key: "duty_manager", display_name: "Duty Manager", is_active: true },
+  ];
+
+  const staff: DemoStaff[] = [
+    { id: "demo-staff-1", name: "Alex Rivera", email: "alex@grandhotel-demo.com", department_key: null, role: "manager", status: "active" },
+    { id: "demo-staff-2", name: "Helen Park", email: "helen@grandhotel-demo.com", department_key: "housekeeping", role: "staff", status: "active" },
+    { id: "demo-staff-3", name: "James Wright", email: "james@grandhotel-demo.com", department_key: "front_desk", role: "staff", status: "active" },
+    { id: "demo-staff-4", name: "Sara Campbell", email: "sara@grandhotel-demo.com", department_key: "kitchen", role: "staff", status: "active" },
+    { id: "demo-staff-5", name: "Omar Hassan", email: "omar@grandhotel-demo.com", department_key: "maintenance", role: "staff", status: "active" },
+  ];
+
+  const knowledge: DemoKnowledge[] = [
+    { id: "demo-kb-1", title: "Wi‑Fi password", kind: "FAQ", preview: "Network: GrandGuest · Password: GrandGuest2026" },
+    { id: "demo-kb-2", title: "Breakfast hours", kind: "FAQ", preview: "Breakfast is served daily from 7:00–10:30 in the Garden Restaurant." },
+    { id: "demo-kb-3", title: "Checkout time", kind: "FAQ", preview: "Checkout is at 11:00. Late checkout can be requested via TalkStay." },
+    { id: "demo-kb-4", title: "Property website", kind: "Website", preview: "Indexed pages: rooms, dining, spa, and contact details." },
+  ];
+
   return {
+    hotel: { ...DEMO_HOTEL, branding: { ...DEMO_HOTEL.branding } },
+    rooms,
+    departments,
+    staff,
+    knowledge,
     requests,
     ack,
     escalations,
@@ -519,6 +597,108 @@ export function ackDemoPulse(state: DemoState, pulseId: string): DemoState {
         p.id === pulseId ? { ...p, acknowledged_at: at } : p,
       ),
     },
+    version: state.version + 1,
+  };
+}
+
+export function updateDemoBranding(
+  state: DemoState,
+  patch: { primary_color?: string; tagline?: string; logo_url?: string | null },
+): DemoState {
+  return {
+    ...state,
+    hotel: {
+      ...state.hotel,
+      branding: { ...(state.hotel.branding ?? {}), ...patch },
+    },
+    version: state.version + 1,
+  };
+}
+
+export function addDemoRoom(state: DemoState, room_number: string, floor: string | null): DemoState {
+  const id = `demo-room-${room_number}-${Date.now()}`;
+  const room: DemoRoom = {
+    id,
+    room_number,
+    floor,
+    occupancy_status: "vacant",
+    checkin_code: null,
+    token: `demo-tok-${room_number}-${Date.now()}`,
+  };
+  return { ...state, rooms: [...state.rooms, room], version: state.version + 1 };
+}
+
+export function removeDemoRoom(state: DemoState, roomId: string): DemoState {
+  return {
+    ...state,
+    rooms: state.rooms.filter((r) => r.id !== roomId),
+    version: state.version + 1,
+  };
+}
+
+export function toggleDemoRoomOccupancy(state: DemoState, roomId: string): DemoState {
+  return {
+    ...state,
+    rooms: state.rooms.map((r) => {
+      if (r.id !== roomId) return r;
+      const next = r.occupancy_status === "occupied" ? "vacant" : "occupied";
+      return {
+        ...r,
+        occupancy_status: next,
+        checkin_code: next === "occupied" ? (r.checkin_code || "DEMO01") : null,
+      };
+    }),
+    version: state.version + 1,
+  };
+}
+
+export function addDemoStaff(
+  state: DemoState,
+  row: { name: string; email: string; department_key: string | null; role: string },
+): DemoState {
+  const staff: DemoStaff = {
+    id: `demo-staff-${Date.now()}`,
+    name: row.name,
+    email: row.email,
+    department_key: row.department_key,
+    role: row.role,
+    status: "active",
+  };
+  return { ...state, staff: [...state.staff, staff], version: state.version + 1 };
+}
+
+export function removeDemoStaff(state: DemoState, staffId: string): DemoState {
+  return {
+    ...state,
+    staff: state.staff.filter((s) => s.id !== staffId),
+    version: state.version + 1,
+  };
+}
+
+export function toggleDemoDepartment(state: DemoState, deptId: string): DemoState {
+  return {
+    ...state,
+    departments: state.departments.map((d) =>
+      d.id === deptId ? { ...d, is_active: !d.is_active } : d,
+    ),
+    version: state.version + 1,
+  };
+}
+
+export function addDemoKnowledge(state: DemoState, title: string, preview: string): DemoState {
+  const item: DemoKnowledge = {
+    id: `demo-kb-${Date.now()}`,
+    title,
+    kind: "FAQ",
+    preview,
+  };
+  return { ...state, knowledge: [item, ...state.knowledge], version: state.version + 1 };
+}
+
+export function removeDemoKnowledge(state: DemoState, id: string): DemoState {
+  return {
+    ...state,
+    knowledge: state.knowledge.filter((k) => k.id !== id),
     version: state.version + 1,
   };
 }

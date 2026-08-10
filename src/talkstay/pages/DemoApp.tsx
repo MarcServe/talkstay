@@ -2,24 +2,31 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import {
-  ArrowRight, BarChart3, BookOpen, Building2, CheckCircle2, Inbox, LogOut,
+  ArrowRight, BarChart3, BookOpen, Building2, Inbox, LogOut,
   Menu, Palette, PlayCircle, QrCode, RotateCcw, Users, X,
 } from "lucide-react";
 import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
 import OperationsPanel from "@/talkstay/components/OperationsPanel";
 import InsightsPanel from "@/talkstay/components/InsightsPanel";
 import {
+  DemoBrandingPanel,
+  DemoDepartmentsPanel,
+  DemoKnowledgePanel,
+  DemoRoomsPanel,
+  DemoStaffPanel,
+} from "@/talkstay/components/DemoSetupPanels";
+import {
   DemoProvider, clearDemoEntered, hasEnteredDemo, markDemoEntered, useDemo,
 } from "@/talkstay/demo/DemoContext";
 
 const NAV = [
-  { key: "operations", label: "Operations", icon: Inbox, live: true, desc: "Work the live request queue — accept, start, complete, reply." },
-  { key: "insights", label: "Insights", icon: BarChart3, live: true, desc: "See volumes, departments, ratings and guest pulse." },
-  { key: "rooms", label: "Rooms & QR", icon: QrCode, live: false, desc: "Add rooms and print guest QR codes." },
-  { key: "branding", label: "Branding", icon: Palette, live: false, desc: "Logo, colour and in-room poster." },
-  { key: "departments", label: "Departments", icon: Building2, live: false, desc: "Teams, routing and notifications." },
-  { key: "knowledge", label: "Knowledge", icon: BookOpen, live: false, desc: "What the assistant knows about your property." },
-  { key: "staff", label: "Staff", icon: Users, live: false, desc: "Invite your team and set roles." },
+  { key: "operations", label: "Operations", icon: Inbox, desc: "Work the live request queue — accept, start, complete, reply." },
+  { key: "insights", label: "Insights", icon: BarChart3, desc: "See volumes, departments, ratings and guest pulse." },
+  { key: "rooms", label: "Rooms & QR", icon: QrCode, desc: "Add rooms and print the QR code guests scan to reach you." },
+  { key: "branding", label: "Branding", icon: Palette, desc: "Your logo, colour and the printable in-room poster." },
+  { key: "departments", label: "Departments", icon: Building2, desc: "Teams, routing rules and per-department notifications." },
+  { key: "knowledge", label: "Knowledge", icon: BookOpen, desc: "What the assistant knows — website, documents and property info." },
+  { key: "staff", label: "Staff", icon: Users, desc: "Invite your team and manage their roles and access." },
 ] as const;
 
 type NavKey = (typeof NAV)[number]["key"];
@@ -27,23 +34,23 @@ type NavKey = (typeof NAV)[number]["key"];
 const STEPS = [
   {
     n: "1",
-    title: "Open a new request",
-    body: "In Operations, click a New card (try room 412 towels). Read the guest ask.",
+    title: "Run the operations queue",
+    body: "Accept → Start → Complete a New request. Reply to the guest from the card.",
   },
   {
     n: "2",
-    title: "Advance the lifecycle",
-    body: "Use Accept → Start → On the way → Complete. Watch the status colours change.",
+    title: "Explore Insights",
+    body: "See how managers track volume, teams, ratings and guest pulse.",
   },
   {
     n: "3",
-    title: "Reply to the guest",
-    body: "Open a request and send a staff reply — in the real product this reaches their phone.",
+    title: "Set up the property",
+    body: "Open Rooms & QR, Branding, Departments, Knowledge and Staff — everything is unlocked.",
   },
   {
     n: "4",
-    title: "Check Insights",
-    body: "Switch to Insights to see how request volume, teams and guest pulse look for managers.",
+    title: "Reset anytime",
+    body: "Use Reset demo data in the sidebar to restore the sample hotel.",
   },
 ] as const;
 
@@ -67,11 +74,11 @@ function DemoGate({ onEnter }: { onEnter: () => void }) {
             Interactive demo · no signup
           </p>
           <h1 className="mt-4 text-3xl font-bold tracking-tight sm:text-4xl">
-            Try the operations dashboard in 2 minutes.
+            Explore the full TalkStay dashboard.
           </h1>
           <p className="mt-3 text-muted-foreground">
-            This is a sandbox of The Grand Hotel II. Changes stay on your device only —
-            nothing is saved to a real property, and your real sign-in path is untouched.
+            A sandbox of The Grand Hotel II — Operations, Insights, Rooms, Branding, Departments,
+            Knowledge and Staff. Changes stay on your device only.
           </p>
 
           <ol className="mt-8 space-y-4">
@@ -103,22 +110,6 @@ function DemoGate({ onEnter }: { onEnter: () => void }) {
           </p>
         </div>
       </main>
-    </div>
-  );
-}
-
-function DemoTeaser({ label }: { label: string }) {
-  return (
-    <div className="rounded-2xl border border-dashed border-violet-200 bg-violet-50/50 px-6 py-12 text-center">
-      <CheckCircle2 className="mx-auto h-8 w-8 text-violet-500" />
-      <h3 className="mt-3 text-lg font-semibold tracking-tight">{label} is available on your real property</h3>
-      <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
-        The demo focuses on Operations and Insights — the workflows your team uses every day.
-        Create a free account to configure rooms, branding, departments, knowledge and staff.
-      </p>
-      <Button asChild className="mt-5 bg-violet-600 hover:bg-violet-700">
-        <Link to="/app">Get started for real <ArrowRight className="ml-1.5 h-4 w-4" /></Link>
-      </Button>
     </div>
   );
 }
@@ -156,7 +147,7 @@ function DemoDashboard() {
       </div>
 
       <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3">
-        {NAV.map(({ key, label, icon: Icon, live }) => (
+        {NAV.map(({ key, label, icon: Icon }) => (
           <button
             key={key}
             onClick={() => go(key)}
@@ -166,7 +157,6 @@ function DemoDashboard() {
           >
             <Icon className="h-4 w-4 shrink-0" />
             <span className="flex-1 text-left">{label}</span>
-            {!live && <span className="text-[10px] uppercase tracking-wide text-white/35">Locked</span>}
           </button>
         ))}
       </nav>
@@ -223,8 +213,8 @@ function DemoDashboard() {
                   <div>
                     <p className="text-sm font-semibold text-violet-900">How to explore</p>
                     <p className="mt-1 text-sm text-violet-800/80">
-                      Work a New request in Operations (Accept → Complete), send a reply, then open Insights.
-                      Reset anytime from the sidebar.
+                      Every section is open. Try Operations first, then Rooms, Branding, Departments,
+                      Knowledge and Staff. Reset anytime from the sidebar.
                     </p>
                   </div>
                   <button
@@ -246,9 +236,11 @@ function DemoDashboard() {
 
             {active === "operations" && <OperationsPanel hotel={demo.hotel} />}
             {active === "insights" && <InsightsPanel hotel={demo.hotel} />}
-            {active !== "operations" && active !== "insights" && (
-              <DemoTeaser label={activeNav.label} />
-            )}
+            {active === "rooms" && <DemoRoomsPanel />}
+            {active === "branding" && <DemoBrandingPanel />}
+            {active === "departments" && <DemoDepartmentsPanel />}
+            {active === "knowledge" && <DemoKnowledgePanel />}
+            {active === "staff" && <DemoStaffPanel />}
           </div>
         </main>
       </div>
