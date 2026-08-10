@@ -76,6 +76,60 @@ serve(async (req) => {
       });
     }
 
+    // ------- redeem_invite (NO auth): exchange one-time invite token → session -------
+    // Admin-generated links are not PKCE-compatible; the SPA redeems token_hash here
+    // and then calls setSession so "Join the team" has a real auth session.
+    if (action === "redeem_invite") {
+      const tokenHash = String(body.token_hash ?? "").trim();
+      const email = String(body.email ?? "").trim().toLowerCase();
+      const token = String(body.token ?? "").trim();
+      if (!tokenHash && !(email && token)) {
+        return json({ error: "token_hash or email+token required" }, 400);
+      }
+      const preferred = String(body.otp_type ?? "invite").toLowerCase();
+      const types = [...new Set([
+        preferred,
+        "invite",
+        "magiclink",
+        "email",
+        "signup",
+        "recovery",
+      ])];
+
+      const anon = Deno.env.get("SUPABASE_ANON_KEY") || SERVICE_KEY;
+      let lastErr = "Invite link invalid or expired";
+
+      for (const type of types) {
+        const payload: Record<string, string> = { type };
+        if (tokenHash) payload.token_hash = tokenHash;
+        else {
+          payload.email = email;
+          payload.token = token;
+        }
+        const r = await fetch(`${SUPABASE_URL}/auth/v1/verify`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            apikey: anon,
+            Authorization: `Bearer ${anon}`,
+          },
+          body: JSON.stringify(payload),
+        });
+        const data = await r.json().catch(() => ({} as Record<string, unknown>));
+        if (r.ok && data?.access_token && data?.refresh_token) {
+          return json({
+            ok: true,
+            access_token: data.access_token,
+            refresh_token: data.refresh_token,
+            user: data.user ?? null,
+          });
+        }
+        const msg = String((data as any)?.msg || (data as any)?.error_description || (data as any)?.error || "");
+        if (msg) lastErr = msg;
+      }
+      return json({ error: lastErr }, 400);
+    }
+
     const authHeader = req.headers.get("Authorization") || "";
     const jwt = authHeader.replace(/^Bearer\s+/i, "");
     const { data: userData, error: userErr } = await admin.auth.getUser(jwt);
@@ -156,10 +210,27 @@ serve(async (req) => {
         }
       };
 
-      const sendInviteEmail = async (actionLink: string): Promise<{ sent: boolean; reason?: string }> => {
+      /** Prefer a TalkStay deep link with token_hash. Admin generateLink action URLs
+       *  redirect with a PKCE ?code= that this browser never started — so
+       *  exchangeCodeForSession fails and Join the team shows "Auth session missing". */
+      const buildJoinUrl = (hashedToken: string, otpType: string, actionLink: string) => {
+        if (hashedToken) {
+          const q = new URLSearchParams({
+            type: "invite",
+            property: hotel.slug ?? "",
+            token_hash: hashedToken,
+            otp_type: otpType === "magiclink" || otpType === "email" ? "magiclink" : "invite",
+            email: cleanEmail,
+          });
+          return `${PUBLIC_BASE_URL}/app?${q.toString()}`;
+        }
+        return actionLink ? forceRedirect(actionLink) : "";
+      };
+
+      const sendInviteEmail = async (ctaUrl: string): Promise<{ sent: boolean; reason?: string }> => {
         const key = (Deno.env.get("RESEND_API_KEY") || "").trim();
         if (!key) return { sent: false, reason: "Email sending is not configured (RESEND_API_KEY)." };
-        if (!actionLink) return { sent: false, reason: "Could not generate invite link." };
+        if (!ctaUrl) return { sent: false, reason: "Could not generate invite link." };
         const deptLabel = department_key ? department_key.replace(/_/g, " ") : "";
         const html = renderEmail({
           hotelName: hotel.name ?? "Your hotel",
@@ -169,7 +240,7 @@ serve(async (req) => {
           bodyHtml: `
               <p style="margin:0 0 14px;">${escapeHtml(inviterName)} added you to their TalkStay team${deptLabel ? ` (${escapeHtml(deptLabel)})` : ""}. Open the link below to set your password and join the dashboard.</p>
               <p style="margin:0 0 14px;font-size:13px;color:#64748b;">This link opens TalkStay at talkstay.talkweb.io — not the TalkWeb dashboard.</p>`,
-          cta: { label: "Open TalkStay & set password", url: forceRedirect(actionLink) },
+          cta: { label: "Open TalkStay & set password", url: ctaUrl },
           footerNote: "If you weren't expecting this, you can safely ignore this email.",
         });
         try {
@@ -196,7 +267,18 @@ serve(async (req) => {
       const index = await loadEmailIndex();
       let userId: string | null = index.get(cleanEmail) ?? null;
       let actionLink = "";
+      let hashedToken = "";
+      let otpType = "invite";
       let isNewUser = false;
+
+      const takeLinkProps = (props: { action_link?: string; hashed_token?: string; verification_type?: string } | null | undefined, fallbackOtp: string) => {
+        if (!props) return;
+        if (props.action_link) actionLink = props.action_link;
+        if (props.hashed_token) {
+          hashedToken = props.hashed_token;
+          otpType = props.verification_type || fallbackOtp;
+        }
+      };
 
       if (!userId) {
         const { data: linkData, error: lErr } = await admin.auth.admin.generateLink({
@@ -212,7 +294,7 @@ serve(async (req) => {
           userId = linkData.user.id;
           index.set(cleanEmail, userId);
           isNewUser = true;
-          actionLink = linkData.properties?.action_link ?? "";
+          takeLinkProps(linkData.properties as any, "invite");
         } else {
           // Often: email already registered in the shared TalkWeb project.
           const msg = (lErr?.message || "").toLowerCase();
@@ -236,30 +318,34 @@ serve(async (req) => {
         }
       }
 
-      // Always email — including people who already have a TalkWeb/TalkStay account.
-      // Previously we only emailed brand-new users, so existing accounts got silent adds.
-      if (!actionLink) {
+      // Always mint a fresh email token for this send/resend. Prefer magiclink for
+      // anyone who already had an account — invite tokens often fail once confirmed.
+      // Brand-new users created via generateLink(invite) already have hashedToken.
+      if (!hashedToken || !isNewUser) {
+        const linkType = "magiclink";
         const { data: mag, error: magErr } = await admin.auth.admin.generateLink({
-          type: isNewUser ? "invite" : "magiclink",
+          type: linkType,
           email: cleanEmail,
           options: {
             data: staffName ? { full_name: staffName } : undefined,
             redirectTo,
           },
         });
-        actionLink = mag?.properties?.action_link ?? "";
-        if (!actionLink && magErr) {
-          // Fall back: still try a magic link if invite failed for an existing user.
+        takeLinkProps(mag?.properties as any, linkType);
+        if (!hashedToken && magErr) {
           const { data: mag2 } = await admin.auth.admin.generateLink({
-            type: "magiclink",
+            type: "invite",
             email: cleanEmail,
-            options: { redirectTo },
+            options: {
+              data: staffName ? { full_name: staffName } : undefined,
+              redirectTo,
+            },
           });
-          actionLink = mag2?.properties?.action_link ?? "";
+          takeLinkProps(mag2?.properties as any, "invite");
         }
       }
 
-      const mail = await sendInviteEmail(actionLink);
+      const mail = await sendInviteEmail(buildJoinUrl(hashedToken, otpType, actionLink));
 
       const { error: sErr } = await admin.from("ts_staff").upsert(
         {

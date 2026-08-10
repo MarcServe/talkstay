@@ -155,7 +155,108 @@ export function isPasswordSetupUrl(): boolean {
   const hash = window.location.hash.startsWith("#")
     ? new URLSearchParams(window.location.hash.slice(1)) : new URLSearchParams();
   const type = search.get("type") || hash.get("type");
+  // token_hash invites also count even if type is only in otp_type
+  if (search.get("token_hash") || hash.get("token_hash")) {
+    const otp = search.get("otp_type") || hash.get("type") || type;
+    if (otp === "invite" || otp === "recovery" || type === "invite" || type === "recovery") return true;
+  }
   return type === "recovery" || type === "invite";
+}
+
+function readAuthParams() {
+  const search = new URLSearchParams(window.location.search);
+  const hash = window.location.hash.startsWith("#")
+    ? new URLSearchParams(window.location.hash.slice(1)) : new URLSearchParams();
+  return { search, hash };
+}
+
+/** Establish a session from invite / recovery / magic-link URL params.
+ *  Staff invites are admin-generated (no PKCE verifier on this device). We redeem
+ *  token_hash via the talkstay-staff edge function, then setSession locally. */
+async function establishSessionFromUrl(): Promise<{ ok: boolean; error?: string }> {
+  const { data: existing } = await supabase.auth.getSession();
+  // Only reuse an existing session when the URL no longer carries a fresh token
+  // (after a successful redeem we strip token_hash). A stale session must not
+  // short-circuit a brand-new invite link.
+  const { search, hash } = readAuthParams();
+  const tokenHash = (search.get("token_hash") || hash.get("token_hash") || "").trim();
+  const code = search.get("code");
+  const access_token = hash.get("access_token");
+  const refresh_token = hash.get("refresh_token");
+  if (existing.session && !tokenHash && !code && !(access_token && refresh_token)) {
+    return { ok: true };
+  }
+
+  const rawType = (search.get("otp_type") || search.get("type") || hash.get("type") || "invite").toLowerCase();
+  const otpType =
+    rawType === "recovery" ? "recovery"
+    : rawType === "magiclink" || rawType === "email" ? "magiclink"
+    : rawType === "signup" ? "signup"
+    : "invite";
+  const email = (search.get("email") || hash.get("email") || "").trim().toLowerCase();
+
+  if (tokenHash) {
+    // 1) Server redeem — most reliable for admin-generated invite/magic links.
+    try {
+      const { data, error } = await supabase.functions.invoke("talkstay-staff", {
+        body: { action: "redeem_invite", token_hash: tokenHash, otp_type: otpType, email: email || undefined },
+      });
+      const access = (data as any)?.access_token as string | undefined;
+      const refresh = (data as any)?.refresh_token as string | undefined;
+      if (!error && access && refresh) {
+        const { error: sErr } = await supabase.auth.setSession({
+          access_token: access,
+          refresh_token: refresh,
+        });
+        if (!sErr) return { ok: true };
+        return { ok: false, error: sErr.message };
+      }
+      const bodyErr = (data as any)?.error as string | undefined;
+      // Fall through to client verifyOtp before giving up.
+      if (bodyErr) {
+        /* keep trying client paths */
+      }
+    } catch {
+      /* network — try client paths */
+    }
+
+    // 2) Client verifyOtp across common types.
+    const types = [...new Set([otpType, "magiclink", "invite", "email", "signup", "recovery"])] as const;
+    let lastMsg = "Invite link invalid or expired";
+    for (const type of types) {
+      const { error } = await supabase.auth.verifyOtp({
+        token_hash: tokenHash,
+        type: type as "invite" | "magiclink" | "recovery" | "email" | "signup",
+      });
+      if (!error) return { ok: true };
+      if (error.message) lastMsg = error.message;
+    }
+    return { ok: false, error: lastMsg };
+  }
+
+  if (access_token && refresh_token) {
+    const { error } = await supabase.auth.setSession({ access_token, refresh_token });
+    if (!error) return { ok: true };
+    return { ok: false, error: error.message };
+  }
+
+  if (code) {
+    const { error } = await supabase.auth.exchangeCodeForSession(window.location.href);
+    if (!error) return { ok: true };
+    return { ok: false, error: error.message };
+  }
+
+  return { ok: false, error: "Auth session missing" };
+}
+
+function cleanSetupUrl(keepType: string | null) {
+  const { search } = readAuthParams();
+  const next = new URLSearchParams();
+  if (keepType) next.set("type", keepType);
+  const property = search.get("property");
+  if (property) next.set("property", property);
+  const qs = next.toString();
+  window.history.replaceState({}, document.title, qs ? `${window.location.pathname}?${qs}` : window.location.pathname);
 }
 
 export default function AuthPage() {
@@ -169,6 +270,8 @@ export default function AuthPage() {
 
   const [setupMode, setSetupMode] = useState(false);
   const [isInvite, setIsInvite] = useState(false);
+  const [setupReady, setSetupReady] = useState(false);
+  const [setupError, setSetupError] = useState<string | null>(null);
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
 
@@ -176,20 +279,18 @@ export default function AuthPage() {
   const [forgotEmail, setForgotEmail] = useState("");
 
   useEffect(() => {
-    if (isPasswordSetupUrl()) {
+    const setup = isPasswordSetupUrl();
+    const { search, hash } = readAuthParams();
+    const uiType = search.get("type") || hash.get("type");
+    if (setup) {
       setSetupMode(true);
-      const search = new URLSearchParams(window.location.search);
-      setIsInvite(search.get("type") === "invite" || window.location.hash.includes("type=invite"));
+      setIsInvite(uiType === "invite" || search.get("otp_type") === "invite" || window.location.hash.includes("type=invite"));
     }
-
-    const params = new URLSearchParams(window.location.search);
-    const hash = window.location.hash.startsWith("#")
-      ? new URLSearchParams(window.location.hash.slice(1)) : new URLSearchParams();
 
     // OAuth / magic-link failures land here with ?error=… (and often a duplicate
     // in the hash). Surface them — otherwise Apple/Google look like a silent
     // "didn't redirect" when the callback actually succeeded but auth failed.
-    const oauthErr = params.get("error_description") || params.get("error")
+    const oauthErr = search.get("error_description") || search.get("error")
       || hash.get("error_description") || hash.get("error");
     if (oauthErr) {
       const decoded = decodeURIComponent(oauthErr.replace(/\+/g, " "));
@@ -199,38 +300,73 @@ export default function AuthPage() {
           ? "Apple sign-in failed — the Apple Secret Key in Supabase is likely expired. Regenerate it (Apple JWTs last 6 months) and try again."
           : decoded,
       );
-      const property = params.get("property") || hash.get("property");
-      const type = params.get("type") || hash.get("type");
+      const property = search.get("property") || hash.get("property");
+      const type = search.get("type") || hash.get("type");
       const keep = new URLSearchParams();
       if (property) keep.set("property", property);
       if (type) keep.set("type", type);
       const qs = keep.toString();
       window.history.replaceState({}, document.title, qs ? `${window.location.pathname}?${qs}` : window.location.pathname);
+      if (setup) {
+        setSetupError("That sign-in link failed. Ask a manager to resend your invite.");
+      }
       return;
     }
 
-    const code = params.get("code");
-    if (!code) return;
-
     let cancelled = false;
     (async () => {
-      const { error } = await supabase.auth.exchangeCodeForSession(window.location.href);
-      if (cancelled) return;
-      if (error) {
-        toast.error(isPasswordSetupUrl()
-          ? "That link has expired or was already used — request a new one."
-          : "That confirmation link has expired or is invalid.");
+      if (!setup) {
+        // Non-setup email confirmations may still carry ?code=
+        const code = search.get("code");
+        if (!code) return;
+        const { error } = await supabase.auth.exchangeCodeForSession(window.location.href);
+        if (cancelled) return;
+        if (error) {
+          toast.error("That confirmation link has expired or is invalid.");
+        }
+        window.history.replaceState({}, document.title, window.location.pathname);
+        return;
       }
-      const type = params.get("type");
-      const clean = type ? `${window.location.pathname}?type=${type}` : window.location.pathname;
-      window.history.replaceState({}, document.title, clean);
+
+      const result = await establishSessionFromUrl();
+      if (cancelled) return;
+      if (result.ok) {
+        setSetupReady(true);
+        setSetupError(null);
+        // Keep type=invite in the URL so HotelApp still shows this screen, but
+        // drop the one-time token so a refresh doesn't try to redeem twice.
+        cleanSetupUrl(uiType === "recovery" ? "recovery" : "invite");
+      } else {
+        setSetupReady(false);
+        const detail = result.error || "";
+        setSetupError(
+          detail && detail.length < 140
+            ? `${detail}. Ask a manager to click Resend invite, then open the new email.`
+            : "That invite link has expired or was already used. Ask a manager to click Resend invite, then open the new email.",
+        );
+        toast.error(
+          /expired|invalid|otp|used/i.test(detail)
+            ? "That invite link has expired or was already used."
+            : "Couldn't open your invite session — request a fresh invite email.",
+        );
+        // Leave token in the URL so a refresh can retry if it was a transient error.
+      }
     })();
     return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "PASSWORD_RECOVERY") { setSetupMode(true); setIsInvite(false); }
+      if (event === "PASSWORD_RECOVERY") {
+        setSetupMode(true);
+        setIsInvite(false);
+        setSetupReady(true);
+        setSetupError(null);
+      }
+      if (event === "SIGNED_IN" && isPasswordSetupUrl()) {
+        setSetupReady(true);
+        setSetupError(null);
+      }
     });
     return () => subscription.unsubscribe();
   }, []);
@@ -319,13 +455,28 @@ export default function AuthPage() {
     if (newPassword !== confirmPassword) { toast.error("Passwords don't match."); return; }
     setBusy(true);
     try {
+      const { data: sess } = await supabase.auth.getSession();
+      if (!sess.session) {
+        const recovered = await establishSessionFromUrl();
+        if (!recovered.ok) {
+          throw new Error(setupError || "Auth session missing — open a fresh invite email from your manager.");
+        }
+      }
       const { error } = await supabase.auth.updateUser({ password: newPassword });
       if (error) throw error;
       toast.success(isInvite ? "Welcome to the team!" : "Password updated.");
       setSetupMode(false);
-      window.history.replaceState({}, document.title, window.location.pathname);
+      const property = brand?.slug;
+      window.history.replaceState(
+        {},
+        document.title,
+        property ? `${window.location.pathname}?property=${encodeURIComponent(property)}` : window.location.pathname,
+      );
     } catch (err: any) {
-      toast.error(err?.message ?? "Couldn't set your password.");
+      const msg = err?.message ?? "Couldn't set your password.";
+      toast.error(msg === "Auth session missing!"
+        ? "Your invite session expired — ask a manager to Resend invite, then use the new email."
+        : msg);
     } finally {
       setBusy(false);
     }
@@ -342,28 +493,54 @@ export default function AuthPage() {
           {isInvite ? "Join the team" : "Set a new password"}
         </h1>
         <p className="mt-1.5 text-sm text-white/50">
-          {isInvite ? "Choose a password to finish setting up your account." : "Choose a new password for your account."}
+          {setupError
+            ? setupError
+            : !setupReady
+              ? "Opening your invite…"
+              : isInvite
+                ? "Choose a password to finish setting up your account."
+                : "Choose a new password for your account."}
         </p>
-        <div className="mt-7 space-y-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="new-password" className="text-sm text-white/80">New password</Label>
-            <AuthInput id="new-password" type="password" autoFocus autoComplete="new-password"
-              value={newPassword} onChange={setNewPassword} icon={Lock} />
+        {setupError ? (
+          <div className="mt-7 space-y-3">
+            <p className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/70">
+              Open the newest invite email and tap the button once — older links stop working after they’re used.
+            </p>
+            <Button
+              className="h-11 w-full rounded-xl border-0 text-white shadow-lg hover:opacity-90"
+              style={primaryBtnStyle}
+              onClick={() => { setSetupMode(false); window.history.replaceState({}, document.title, window.location.pathname); }}
+            >
+              Back to sign in
+            </Button>
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="confirm-password" className="text-sm text-white/80">Confirm password</Label>
-            <AuthInput id="confirm-password" type="password" autoComplete="new-password"
-              value={confirmPassword} onChange={setConfirmPassword} icon={Lock} />
+        ) : !setupReady ? (
+          <div className="mt-10 flex items-center gap-2 text-sm text-white/60">
+            <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+            Checking your invite link…
           </div>
-          <Button
-            className="h-11 w-full rounded-xl border-0 text-white shadow-lg hover:opacity-90"
-            style={primaryBtnStyle}
-            disabled={busy || !newPassword || !confirmPassword}
-            onClick={finishSetup}
-          >
-            {busy ? "Please wait…" : isInvite ? "Join the team" : "Update password"}
-          </Button>
-        </div>
+        ) : (
+          <div className="mt-7 space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="new-password" className="text-sm text-white/80">New password</Label>
+              <AuthInput id="new-password" type="password" autoFocus autoComplete="new-password"
+                value={newPassword} onChange={setNewPassword} icon={Lock} />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="confirm-password" className="text-sm text-white/80">Confirm password</Label>
+              <AuthInput id="confirm-password" type="password" autoComplete="new-password"
+                value={confirmPassword} onChange={setConfirmPassword} icon={Lock} />
+            </div>
+            <Button
+              className="h-11 w-full rounded-xl border-0 text-white shadow-lg hover:opacity-90"
+              style={primaryBtnStyle}
+              disabled={busy || !newPassword || !confirmPassword}
+              onClick={finishSetup}
+            >
+              {busy ? "Please wait…" : isInvite ? "Join the team" : "Update password"}
+            </Button>
+          </div>
+        )}
       </AuthShell>
     );
   }
