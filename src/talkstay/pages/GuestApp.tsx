@@ -220,6 +220,8 @@ export default function GuestApp() {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const chatRef = useRef<RealtimeChat | null>(null);
   const liveAssistantRef = useRef("");
+  // Dedupe voice→hotel-brain routing so one spoken ask can't open two tickets.
+  const lastRoutedVoiceRef = useRef<{ text: string; at: number }>({ text: "", at: 0 });
 
   const sid = hotelSlug && roomId ? getSessionId(hotelSlug, roomId) : "";
   const scroller = useRef<HTMLDivElement>(null);
@@ -349,10 +351,18 @@ export default function GuestApp() {
         onUserSpeechStop: () => setIsListening(false),
         onUserTranscript: (text, isFinal) => {
           if (isFinal && text.trim()) {
-            append({ role: "user", content: text.trim() });
-            conversationMemory.addMessage("user", text.trim(), "voice");
+            const cleaned = text.trim();
+            append({ role: "user", content: cleaned });
+            conversationMemory.addMessage("user", cleaned, "voice");
             // Hotel layer in background; spoken reply comes from the voice session.
-            routeThroughHotelBrain(text.trim(), false);
+            // Skip near-duplicate finals (common with Realtime) to avoid double tickets.
+            const now = Date.now();
+            const prev = lastRoutedVoiceRef.current;
+            const same = prev.text.toLowerCase() === cleaned.toLowerCase() && now - prev.at < 8_000;
+            if (!same) {
+              lastRoutedVoiceRef.current = { text: cleaned, at: now };
+              routeThroughHotelBrain(cleaned, false);
+            }
           }
         },
         onAssistantTranscript: (text, isDone) => {

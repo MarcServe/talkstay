@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import * as XLSX from "xlsx";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,6 +36,8 @@ const isExcelFile = (file: File) =>
 
 /** First sheet → CSV text so Excel and CSV share one parser. */
 async function excelFileToCsv(file: File): Promise<string> {
+  // Lazy-load SheetJS so the ops dashboard doesn't pay ~300kb until import.
+  const XLSX = await import("xlsx");
   const buf = await file.arrayBuffer();
   const wb = XLSX.read(buf, { type: "array", cellDates: true });
   const sheetName = wb.SheetNames[0];

@@ -81,13 +81,9 @@ export function useOpsRealtime(hotelId: string | undefined) {
           void qc.invalidateQueries({ queryKey: talkstayKeys.insightsHotel(hotelId) });
         },
       )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "ts_request_events" },
-        () => {
-          void qc.invalidateQueries({ queryKey: talkstayKeys.opsHotel(hotelId) });
-        },
-      )
+      // Intentionally no ts_request_events subscription: that table isn't hotel-
+      // filtered in Realtime and isn't in the publication — request-row changes
+      // already cover queue invalidation without cross-hotel fan-out.
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
   }, [hotelId, qc]);

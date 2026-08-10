@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import webpush from "npm:web-push@3.6.7";
 import { renderEmail, quoteBlock, escapeHtml } from "../_shared/email.ts";
+import { authorizeRequestSideEffect } from "../_shared/talkstayAuth.ts";
 
 // Tells the GUEST their request moved on (accepted / on the way / completed).
 // Email and "notify this device" (web push) are independent opt-ins — a guest
@@ -36,6 +37,14 @@ serve(async (req) => {
       .select("id, hotel_id, room_id, summary, session_id")
       .eq("id", requestId).maybeSingle();
     if (!r?.session_id) return json({ ok: true, skipped: "no guest session" });
+
+    const authz = await authorizeRequestSideEffect(req, admin, {
+      hotelId: r.hotel_id,
+      requestId: r.id,
+      // Status trigger posts with anon immediately after the row update.
+      allowRecentStatusChange: true,
+    });
+    if (!authz.ok) return json({ error: authz.error }, authz.status);
 
     const [{ data: sess }, { data: hotel }, { data: room }, { data: pushSubs }] = await Promise.all([
       admin.from("ts_guest_sessions")

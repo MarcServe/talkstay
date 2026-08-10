@@ -70,11 +70,20 @@ export default function RequestDetailSheet({
   const closeAs = async (to: "completed" | "cancelled") => {
     if (!req) return;
     const { data: { user } } = await supabase.auth.getUser();
-    const { error: err } = await supabase
+    const { data: updated, error: err } = await supabase
       .from("ts_service_requests")
       .update({ status: to, assigned_staff_id: user?.id ?? null })
-      .eq("id", req.id);
+      .eq("id", req.id)
+      .eq("status", req.status)
+      .select("id")
+      .maybeSingle();
     if (err) { toast.error(err.message); return; }
+    if (!updated) {
+      toast.message("That request just changed — reloading.");
+      await refetch();
+      onChanged?.();
+      return;
+    }
     await supabase.from("ts_request_events").insert({
       request_id: req.id, status: to, actor_type: "staff", actor_id: user?.id ?? null,
       note: user?.email ?? "staff",

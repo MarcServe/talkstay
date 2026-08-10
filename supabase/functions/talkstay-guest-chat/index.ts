@@ -80,23 +80,35 @@ async function resolveRoom(
     .eq("token", token).eq("room_id", roomId).eq("is_active", true).maybeSingle();
   if (!tok) return null;
 
-  const { data: hotel } = await admin
-    .from("ts_hotels")
-    .select("id, name, slug, assistant_id, default_language, branding, pulse_enabled")
-    .eq("id", tok.hotel_id).maybeSingle();
+  // Prefer pulse_enabled; fall back if that migration isn't applied yet so
+  // guests don't hard-fail on every context/message call.
+  let hotel: any = null;
+  {
+    const withPulse = await admin
+      .from("ts_hotels")
+      .select("id, name, slug, assistant_id, default_language, branding, pulse_enabled")
+      .eq("id", tok.hotel_id).maybeSingle();
+    if (withPulse.error) {
+      const base = await admin
+        .from("ts_hotels")
+        .select("id, name, slug, assistant_id, default_language, branding")
+        .eq("id", tok.hotel_id).maybeSingle();
+      hotel = base.data;
+    } else {
+      hotel = withPulse.data;
+    }
+  }
   if (!hotel || hotel.slug !== hotelSlug) return null;
 
-  const { data: room } = await admin
-    .from("ts_rooms").select("id, room_number, occupancy_status").eq("id", roomId).maybeSingle();
+  const [{ data: room }, { data: depts }, { data: rules }] = await Promise.all([
+    admin.from("ts_rooms").select("id, room_number, occupancy_status").eq("id", roomId).maybeSingle(),
+    admin.from("ts_departments").select("key").eq("hotel_id", hotel.id).eq("is_active", true),
+    admin.from("ts_routing_rules").select("department_key, keywords").eq("hotel_id", hotel.id).eq("is_active", true),
+  ]);
   if (!room) return null;
   // Checked out → every saved link/bookmark stops working immediately, anywhere.
   // The printed QR is unchanged and revives when the next guest is checked in.
   if (room.occupancy_status === "vacant") return "checked_out";
-
-  const [{ data: depts }, { data: rules }] = await Promise.all([
-    admin.from("ts_departments").select("key").eq("hotel_id", hotel.id).eq("is_active", true),
-    admin.from("ts_routing_rules").select("department_key, keywords").eq("hotel_id", hotel.id).eq("is_active", true),
-  ]);
 
   return {
     hotelId: hotel.id, hotelName: hotel.name, assistantId: hotel.assistant_id,
@@ -500,7 +512,11 @@ serve(async (req) => {
     // ex-guest refreshing a saved link after the room was re-let) is rejected;
     // brand-new devices enrol up to the hotel's per-room cap. When the hotel
     // requires a check-in code, a new device must supply the current stay's code.
-    const { data: claim } = await admin.rpc("ts_claim_device", { p_room: ctx.roomId, p_device: deviceId ?? null, p_code: code ?? null });
+    // Missing deviceId used to skip binding entirely — reject it explicitly.
+    if (!deviceId || !String(deviceId).trim()) {
+      return json({ error: "checked_out" }, 403);
+    }
+    const { data: claim } = await admin.rpc("ts_claim_device", { p_room: ctx.roomId, p_device: String(deviceId).trim(), p_code: code ?? null });
     if (claim === "ended") return json({ error: "checked_out" }, 403);
     if (claim === "full") return json({ error: "room_full" }, 403);
     if (claim === "need_code") return json({ error: "need_code" }, 403);

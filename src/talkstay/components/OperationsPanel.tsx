@@ -170,11 +170,20 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
 
   const advance = async (r: Req, to: string) => {
     const { data: { user } } = await supabase.auth.getUser();
-    const { error } = await supabase
+    // Optimistic lock — refuse if another staff/guest already moved the status.
+    const { data: updated, error } = await supabase
       .from("ts_service_requests")
       .update({ status: to, assigned_staff_id: user?.id ?? null })
-      .eq("id", r.id);
+      .eq("id", r.id)
+      .eq("status", r.status)
+      .select("id")
+      .maybeSingle();
     if (error) { toast.error(error.message); return; }
+    if (!updated) {
+      toast.message("That request just changed — refreshing the queue.");
+      refresh();
+      return;
+    }
     // note = acting staff's "Name · Department" → powers the acknowledgement line.
     const label = await actorLabel(user?.id, user?.email);
     await supabase.from("ts_request_events").insert({

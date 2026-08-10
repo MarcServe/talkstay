@@ -41,7 +41,7 @@ export const talkstayKeys = {
   rooms: (hotelId: string) => [...talkstayKeys.all, "rooms", hotelId] as const,
 };
 
-/** PostgREST `.in()` URLs blow up past ~100 uuids — chunk them. */
+/** PostgREST `.in()` URLs blow up past ~100 uuids — chunk them (in parallel). */
 async function selectInChunks<T>(
   table: string,
   select: string,
@@ -54,17 +54,17 @@ async function selectInChunks<T>(
 ): Promise<T[]> {
   if (!ids.length) return [];
   const chunkSize = 80;
-  const out: T[] = [];
-  for (let i = 0; i < ids.length; i += chunkSize) {
-    const slice = ids.slice(i, i + chunkSize);
+  const slices: string[][] = [];
+  for (let i = 0; i < ids.length; i += chunkSize) slices.push(ids.slice(i, i + chunkSize));
+  const parts = await Promise.all(slices.map(async (slice) => {
     let q = supabase.from(table).select(select).in(column, slice);
     if (refine) q = refine(q);
     if (order) q = q.order(order.column, { ascending: order.ascending });
     const { data, error } = await q;
     if (error) throw error;
-    if (data?.length) out.push(...(data as T[]));
-  }
-  return out;
+    return (data as T[]) ?? [];
+  }));
+  return parts.flat();
 }
 
 // ─── Ops queue ───────────────────────────────────────────────────────────────
@@ -98,19 +98,39 @@ const OPS_SELECT =
 
 export async function fetchOpsQueue(hotelId: string, timeRange: OpsTimeRange): Promise<OpsQueueData> {
   const ms = OPS_TIME_MS[timeRange];
-  let q = supabase
+  // Split open vs closed: a single `.limit(200)` on mixed rows hides older open
+  // tickets once a busy property has more than 200 matching rows.
+  const openQ = supabase
     .from("ts_service_requests")
     .select(OPS_SELECT)
     .eq("hotel_id", hotelId)
+    .in("status", [...OPEN_STATUSES])
     .order("created_at", { ascending: false })
-    .limit(200);
+    .limit(500);
+
+  let closedQ = supabase
+    .from("ts_service_requests")
+    .select(OPS_SELECT)
+    .eq("hotel_id", hotelId)
+    .not("status", "in", `(${OPEN_STATUSES.join(",")})`)
+    .order("created_at", { ascending: false })
+    .limit(150);
   if (ms != null) {
-    const sinceIso = new Date(Date.now() - ms).toISOString();
-    q = q.or(`created_at.gte."${sinceIso}",status.in.(${OPEN_STATUSES.join(",")})`);
+    closedQ = closedQ.gte("created_at", new Date(Date.now() - ms).toISOString());
   }
-  const { data, error } = await q;
-  if (error) throw error;
-  const requests = (data as unknown as OpsRequest[]) ?? [];
+
+  const [openRes, closedRes] = await Promise.all([openQ, closedQ]);
+  if (openRes.error) throw openRes.error;
+  if (closedRes.error) throw closedRes.error;
+
+  const seen = new Set<string>();
+  const requests: OpsRequest[] = [];
+  for (const row of [...(openRes.data ?? []), ...(closedRes.data ?? [])] as unknown as OpsRequest[]) {
+    if (seen.has(row.id)) continue;
+    seen.add(row.id);
+    requests.push(row);
+  }
+  requests.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
   const ids = requests.map((r) => r.id);
   // Only ack + escalation events — keeps the second hop small as the queue grows.
@@ -289,7 +309,11 @@ export async function fetchInsights(hotelId: string, timeRange: InsightsTimeRang
       .eq("hotel_id", hotelId)
       .gte("created_at", sinceIso)
       .order("created_at", { ascending: false }).limit(500),
-    supabase.from("ts_request_reviews").select("request_id, rating, comment").eq("hotel_id", hotelId).limit(1000),
+    // Time-bound reviews — all-time pulls grow forever and skew KPIs.
+    supabase.from("ts_request_reviews").select("request_id, rating, comment, created_at")
+      .eq("hotel_id", hotelId)
+      .gte("created_at", sinceIso)
+      .limit(1000),
     supabase.from("ts_guest_pulse")
       .select("id, body, rating, sentiment, severity, department_key, issue_key, issue_label, request_id, acknowledged_at, created_at, ts_rooms(room_number)")
       .eq("hotel_id", hotelId)
@@ -299,12 +323,14 @@ export async function fetchInsights(hotelId: string, timeRange: InsightsTimeRang
 
   const requests = (rq as unknown as InsightsData["requests"]) ?? [];
   const ids = requests.map((r) => r.id);
+  // Only lifecycle events Insights needs — not every note/status ping.
   const events = await selectInChunks<InsightsData["events"][number]>(
     "ts_request_events",
     "request_id, status, note, created_at",
     "request_id",
     ids,
     { column: "created_at", ascending: true },
+    (q) => q.in("status", ["accepted", "completed", "guest_confirmed", "reopened", "escalated", "cancelled"]),
   );
 
   return {

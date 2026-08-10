@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
@@ -19,13 +19,14 @@ import InsightsPanel from "@/talkstay/components/InsightsPanel";
 import RoomsPanel from "@/talkstay/components/RoomsPanel";
 import DepartmentsPanel from "@/talkstay/components/DepartmentsPanel";
 import KnowledgePanel from "@/talkstay/components/KnowledgePanel";
-import StaffPanel from "@/talkstay/components/StaffPanel";
 import BrandingPanel from "@/talkstay/components/BrandingPanel";
 import { createHotel, ingestHotelWebsite, DEPARTMENTS, type Hotel } from "@/talkstay/lib/hotels";
 import { talkstayKeys } from "@/talkstay/lib/data";
 import {
   useHotelAccess, usePrefetchHotelData,
 } from "@/talkstay/hooks/useTalkStayQueries";
+
+const StaffPanel = lazy(() => import("@/talkstay/components/StaffPanel"));
 
 const NAV = [
   // `admin: true` = owner/manager only. Department staff see just Operations.
@@ -149,7 +150,11 @@ function Panel({ active, hotel, onHotel, departmentKey }: {
     case "branding": return <BrandingPanel hotel={hotel} onSaved={(b) => onHotel({ ...hotel, branding: b })} />;
     case "departments": return <DepartmentsPanel hotel={hotel} />;
     case "knowledge": return <KnowledgePanel hotel={hotel} />;
-    case "staff": return <StaffPanel hotel={hotel} />;
+    case "staff": return (
+      <Suspense fallback={<div className="flex justify-center py-16"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>}>
+        <StaffPanel hotel={hotel} />
+      </Suspense>
+    );
   }
 }
 

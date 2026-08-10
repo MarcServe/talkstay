@@ -49,7 +49,10 @@ serve(async (req) => {
     // Same stay+device gate as the chat path (rejects a previous guest's device).
     // By the time voice starts, the device is normally enrolled via the chat
     // context call, so this returns 'ok'; the code branches are here for safety.
-    const { data: claim } = await admin.rpc("ts_claim_device", { p_room: roomId, p_device: deviceId ?? null, p_code: code ?? null });
+    if (!deviceId || !String(deviceId).trim()) {
+      return json({ error: "checked_out" }, 403);
+    }
+    const { data: claim } = await admin.rpc("ts_claim_device", { p_room: roomId, p_device: String(deviceId).trim(), p_code: code ?? null });
     if (claim === "ended") return json({ error: "checked_out" }, 403);
     if (claim === "full") return json({ error: "room_full" }, 403);
     if (claim === "need_code" || claim === "bad_code") return json({ error: claim }, 403);

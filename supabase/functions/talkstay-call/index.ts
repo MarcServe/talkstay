@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { authorizeRequestSideEffect } from "../_shared/talkstayAuth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -26,8 +27,15 @@ serve(async (req) => {
     if (!requestId) return json({ error: "requestId required" }, 400);
 
     const { data: r } = await admin
-      .from("ts_service_requests").select("hotel_id, room_id, department_key, summary").eq("id", requestId).maybeSingle();
+      .from("ts_service_requests").select("id, hotel_id, room_id, department_key, summary").eq("id", requestId).maybeSingle();
     if (!r) return json({ error: "request not found" }, 404);
+
+    const authz = await authorizeRequestSideEffect(req, admin, {
+      hotelId: r.hotel_id,
+      requestId: r.id,
+      allowCronEscalate: true,
+    });
+    if (!authz.ok) return json({ error: authz.error }, authz.status);
 
     const [{ data: hotel }, { data: room }] = await Promise.all([
       admin.from("ts_hotels").select("name, escalation_phone").eq("id", r.hotel_id).maybeSingle(),
