@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -59,10 +59,50 @@ const timeAgo = (iso: string) => {
 };
 
 type Filter = "all" | "new" | "active" | "done" | "followup";
+/** Drill from the BI cards into the queue below. */
+type BoardFocus = "today" | "active" | "doneToday" | "acceptedToday" | null;
 
 const FILTER_LABEL: Record<Filter, string> = {
   all: "All", new: "New", active: "Active", done: "Done", followup: "Follow-up",
 };
+
+const startOfTodayMs = () => {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+};
+
+function OpsStat({
+  label, value, sub, active, onClick, accent,
+}: {
+  label: string;
+  value: string | number;
+  sub?: ReactNode;
+  active?: boolean;
+  onClick?: () => void;
+  accent?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`min-w-0 rounded-2xl border bg-card p-3 text-left shadow-sm transition-all sm:p-4 ${
+        onClick
+          ? "cursor-pointer hover:border-violet-400/70 hover:bg-white/60 hover:shadow-md active:scale-[0.99]"
+          : "cursor-default"
+      } ${active ? "border-violet-500 bg-violet-50/80 ring-2 ring-violet-500/20" : ""}`}
+    >
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="mt-1 text-2xl font-semibold">{value}</div>
+      {sub && <div className={`mt-1 text-xs ${accent ?? "text-muted-foreground"}`}>{sub}</div>}
+      <div className={`mt-2 text-[10px] font-medium uppercase tracking-wide ${
+        active ? "text-violet-700" : "text-muted-foreground/80"
+      }`}>
+        {active ? "Showing below ↓" : "Click to explore"}
+      </div>
+    </button>
+  );
+}
 
 type TimeRange = OpsTimeRange;
 const DAY_MS = 86_400_000;
@@ -87,6 +127,9 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
   const [timeRange, setTimeRange] = useState<TimeRange>("3d");
   // Department staff are hard-scoped to their own team's queue.
   const [dept, setDept] = useState<string>(lockedDepartment ?? "all");
+  // BI card drill-down (today / active / completed today / accepted today).
+  const [boardFocus, setBoardFocus] = useState<BoardFocus>(null);
+  const queueRef = useRef<HTMLDivElement>(null);
   // Per-request "reply to guest" composer state.
   const [replyOpen, setReplyOpen] = useState<Record<string, boolean>>({});
   const [replyText, setReplyText] = useState<Record<string, string>>({});
@@ -244,11 +287,53 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
     return new Date(r.created_at).getTime() >= Date.now() - range.ms;
   };
 
+  const matchesBoardFocus = (r: Req, focus: BoardFocus) => {
+    if (!focus) return true;
+    const todayStart = startOfTodayMs();
+    const createdToday = new Date(r.created_at).getTime() >= todayStart;
+    if (focus === "today") return createdToday;
+    if (focus === "active") return matchesFilter(r, "active");
+    if (focus === "doneToday") {
+      return ["completed", "guest_confirmed"].includes(r.status) && createdToday;
+    }
+    if (focus === "acceptedToday") {
+      return createdToday && !!ack[r.id];
+    }
+    return true;
+  };
+
   const filtered = useMemo(
-    () => reqs.filter((r) => inDept(r) && inTime(r) && matchesFilter(r, filter)),
+    () => reqs.filter((r) =>
+      inDept(r) && inTime(r) && matchesFilter(r, filter) && matchesBoardFocus(r, boardFocus),
+    ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [reqs, filter, dept, escalations, timeRange]
+    [reqs, filter, dept, escalations, timeRange, boardFocus, ack]
   );
+
+  const revealQueue = (note?: string) => {
+    if (note) toast.message(note, { duration: 1800 });
+    requestAnimationFrame(() => {
+      queueRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  };
+
+  const exploreBoard = (focus: BoardFocus, nextFilter: Filter, note: string) => {
+    setBoardFocus(focus);
+    setFilter(nextFilter);
+    revealQueue(note);
+  };
+
+  const exploreDept = (key: string) => {
+    if (lockedDepartment) {
+      // Department staff stay locked — still drill into today's work for their team.
+      exploreBoard("today", "all", `${deptLabel(key)} · today`);
+      return;
+    }
+    setDept(key);
+    setBoardFocus("today");
+    setFilter("all");
+    revealQueue(`${deptLabel(key)} · today`);
+  };
 
   /** Full export scope: current department + time window (all statuses). */
   const exportScope = useMemo(
@@ -379,57 +464,83 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
 
   return (
     <div className="min-w-0 space-y-4 overflow-x-hidden">
-      {/* BI strip — today's pulse for the watched queue */}
+      {/* BI strip — click a card to filter the queue below */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <div className="min-w-0 rounded-2xl border bg-card p-3 shadow-sm sm:p-4">
-          <div className="text-xs text-muted-foreground">Total requests today</div>
-          <div className="mt-1 text-2xl font-semibold">{bi.totalToday}</div>
-          <div className="mt-1 inline-flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
-            <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-violet-600" />
-            <span className="truncate">live queue scope</span>
-          </div>
-        </div>
-        <div className="min-w-0 rounded-2xl border bg-card p-3 shadow-sm sm:p-4">
-          <div className="text-xs text-muted-foreground">In progress</div>
-          <div className="mt-1 text-2xl font-semibold">{bi.inProgress}</div>
-          <div className="mt-1 text-xs text-violet-600">Active now</div>
-        </div>
-        <div className="min-w-0 rounded-2xl border bg-card p-3 shadow-sm sm:p-4">
-          <div className="text-xs text-muted-foreground">Completed today</div>
-          <div className="mt-1 text-2xl font-semibold">{bi.completedToday}</div>
-          <div className="mt-1 inline-flex min-w-0 items-center gap-1 text-xs text-green-600">
-            <ArrowDownRight className="h-3.5 w-3.5 shrink-0" />
-            <span className="truncate">closed same day</span>
-          </div>
-        </div>
-        <div className="min-w-0 rounded-2xl border bg-card p-3 shadow-sm sm:p-4">
-          <div className="text-xs text-muted-foreground">Avg. time to accept</div>
-          <div className="mt-1 flex items-center gap-2 text-2xl font-semibold">
-            <Clock3 className="h-5 w-5 shrink-0 text-muted-foreground" />
-            {bi.avgAcceptLabel}
-          </div>
-          <div className="mt-1 truncate text-xs text-muted-foreground">request → staff accepted</div>
-        </div>
+        <OpsStat
+          label="Total requests today"
+          value={bi.totalToday}
+          active={boardFocus === "today" && filter === "all"}
+          onClick={() => exploreBoard("today", "all", "Today's requests")}
+          sub={(
+            <span className="inline-flex min-w-0 items-center gap-1">
+              <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-violet-600" />
+              <span className="truncate">live queue scope</span>
+            </span>
+          )}
+        />
+        <OpsStat
+          label="In progress"
+          value={bi.inProgress}
+          active={boardFocus === "active" || (boardFocus == null && filter === "active")}
+          onClick={() => exploreBoard("active", "active", "Active queue")}
+          accent="text-violet-600"
+          sub="Active now"
+        />
+        <OpsStat
+          label="Completed today"
+          value={bi.completedToday}
+          active={boardFocus === "doneToday"}
+          onClick={() => exploreBoard("doneToday", "done", "Completed today")}
+          accent="text-green-600"
+          sub={(
+            <span className="inline-flex min-w-0 items-center gap-1 text-green-600">
+              <ArrowDownRight className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">closed same day</span>
+            </span>
+          )}
+        />
+        <OpsStat
+          label="Avg. time to accept"
+          value={bi.avgAcceptLabel}
+          active={boardFocus === "acceptedToday"}
+          onClick={() => exploreBoard("acceptedToday", "all", "Accepted today · timing sample")}
+          sub={(
+            <span className="inline-flex min-w-0 items-center gap-1.5">
+              <Clock3 className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">request → staff accepted</span>
+            </span>
+          )}
+        />
       </div>
 
       <div className="grid min-w-0 gap-3 lg:grid-cols-3">
         <div className="min-w-0 overflow-hidden rounded-2xl border bg-card p-4 shadow-sm lg:col-span-1">
           <h3 className="text-sm font-medium">Requests by department today</h3>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">Click a team to open their queue</p>
           {bi.deptRows.length === 0 ? (
             <p className="mt-3 text-sm text-muted-foreground">No requests yet today.</p>
           ) : (
-            <ul className="mt-3 space-y-2.5">
+            <ul className="mt-3 space-y-1.5">
               {bi.deptRows.slice(0, 6).map((d) => {
                 const pct = Math.round((d.count / bi.deptTotal) * 100);
+                const on = dept === d.key && boardFocus === "today";
                 return (
                   <li key={d.key} className="min-w-0">
-                    <div className="mb-1 flex min-w-0 items-center justify-between gap-2 text-xs">
-                      <span className="min-w-0 truncate font-medium">{d.label}</span>
-                      <span className="shrink-0 text-muted-foreground">{d.count} · {pct}%</span>
-                    </div>
-                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                      <div className="h-full max-w-full rounded-full bg-violet-500" style={{ width: `${pct}%` }} />
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => exploreDept(d.key)}
+                      className={`w-full min-w-0 rounded-xl px-2 py-2 text-left transition-colors hover:bg-violet-50 ${
+                        on ? "bg-violet-50 ring-1 ring-violet-300" : ""
+                      }`}
+                    >
+                      <div className="mb-1 flex min-w-0 items-center justify-between gap-2 text-xs">
+                        <span className="min-w-0 truncate font-medium">{d.label}</span>
+                        <span className="shrink-0 text-muted-foreground">{d.count} · {pct}%</span>
+                      </div>
+                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                        <div className="h-full max-w-full rounded-full bg-violet-500" style={{ width: `${pct}%` }} />
+                      </div>
+                    </button>
                   </li>
                 );
               })}
@@ -440,7 +551,11 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
         <div className="min-w-0 overflow-hidden rounded-2xl border bg-card p-4 shadow-sm">
           <div className="flex items-center justify-between gap-2">
             <h3 className="min-w-0 truncate text-sm font-medium">Recent requests</h3>
-            <button type="button" className="shrink-0 text-xs text-violet-600 hover:underline" onClick={() => setFilter("all")}>
+            <button
+              type="button"
+              className="shrink-0 text-xs text-violet-600 hover:underline"
+              onClick={() => exploreBoard(null, "all", "All requests")}
+            >
               View all
             </button>
           </div>
@@ -472,7 +587,11 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
         <div className="min-w-0 overflow-hidden rounded-2xl border bg-card p-4 shadow-sm">
           <div className="flex items-center justify-between gap-2">
             <h3 className="min-w-0 truncate text-sm font-medium">Live requests</h3>
-            <button type="button" className="shrink-0 text-xs text-violet-600 hover:underline" onClick={() => setFilter("active")}>
+            <button
+              type="button"
+              className="shrink-0 text-xs text-violet-600 hover:underline"
+              onClick={() => exploreBoard("active", "active", "Active queue")}
+            >
               View all
             </button>
           </div>
@@ -502,14 +621,15 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap gap-1.5">
+      <div ref={queueRef} className="flex flex-wrap items-center justify-between gap-3 scroll-mt-4">
+        <div className="flex flex-wrap items-center gap-1.5">
           {(["all", "new", "active", "done", "followup"] as Filter[]).map((f) => {
             const on = filter === f;
             return (
               <button
                 key={f}
-                onClick={() => setFilter(f)}
+                type="button"
+                onClick={() => { setBoardFocus(null); setFilter(f); }}
                 className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
                   on ? "bg-violet-600 text-white" : "border bg-background text-muted-foreground hover:bg-muted"
                 }`}
@@ -519,6 +639,15 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
               </button>
             );
           })}
+          {boardFocus && (
+            <button
+              type="button"
+              onClick={() => { setBoardFocus(null); setFilter("active"); }}
+              className="rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-1.5 text-xs font-medium text-violet-700 hover:bg-violet-100"
+            >
+              Clear board filter
+            </button>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex rounded-lg border bg-background p-0.5" title="How far back to show closed requests">
@@ -526,7 +655,7 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
               <button
                 key={r.id}
                 type="button"
-                onClick={() => setTimeRange(r.id)}
+                onClick={() => { setTimeRange(r.id); setBoardFocus(null); }}
                 className={`rounded-md px-2 py-1 text-xs font-medium transition-colors ${
                   timeRange === r.id ? "bg-violet-600 text-white" : "text-muted-foreground hover:text-foreground"
                 }`}
@@ -538,8 +667,11 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
           {lockedDepartment ? (
             <Badge variant="secondary" className="px-2 py-1">{deptLabel(lockedDepartment)}</Badge>
           ) : (
-            <select className="rounded-md border bg-background px-2 py-1.5 text-sm"
-              value={dept} onChange={(e) => setDept(e.target.value)}>
+            <select
+              className="rounded-md border bg-background px-2 py-1.5 text-sm"
+              value={dept}
+              onChange={(e) => { setDept(e.target.value); setBoardFocus(null); }}
+            >
               <option value="all">All departments</option>
               {DEPARTMENTS.map((d) => <option key={d.key} value={d.key}>{d.display_name}</option>)}
             </select>
