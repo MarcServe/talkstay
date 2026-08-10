@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -86,7 +87,7 @@ function AuthShell({ children, brand }: { children: React.ReactNode; brand: Prop
         }}
       >
         <div className="relative mx-auto w-full max-w-sm">
-          <div className="mb-8 flex items-center gap-2.5">
+          <Link to="/" className="mb-8 flex items-center gap-2.5 transition-opacity hover:opacity-80">
             {brand?.logoUrl ? (
               <img src={brand.logoUrl} alt={brand.name}
                 className="h-10 max-w-[160px] object-contain" />
@@ -96,7 +97,7 @@ function AuthShell({ children, brand }: { children: React.ReactNode; brand: Prop
                 <span className="text-xl font-semibold tracking-tight text-white">TalkStay</span>
               </>
             )}
-          </div>
+          </Link>
           {brand && (
             <p className="-mt-5 mb-6 text-sm font-medium text-violet-300/80">{brand.name}</p>
           )}

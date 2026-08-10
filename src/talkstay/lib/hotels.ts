@@ -25,9 +25,8 @@ export interface PosterConfig {
   bg_image_url?: string | null; // optional background photo (over the colour)
   bg_overlay?: number;          // 0..1 dark overlay for text legibility over a photo
   text_color?: string;          // primary text colour
-  business_name?: string;       // shown in place of the logo when none is set
-                                 // (e.g. an apartment/host with no uploaded logo)
-  eyebrow?: string;             // small line under the logo
+  business_name?: string;       // bold property name on the poster; leave blank to hide
+  eyebrow?: string;             // small line under the name (optional; blank to hide)
   headline?: string;            // the big prompt
   subheadline?: string;         // supporting line
   features?: string[];          // four "what you can do" labels (icons are fixed slots)

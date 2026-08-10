@@ -1,17 +1,108 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { PlayCircle, Hotel, House, ArrowRight } from "lucide-react";
+import {
+  PlayCircle, Hotel, House, ArrowRight, Volume2, VolumeX,
+  Building2, KeyRound, AudioLines, Globe2,
+} from "lucide-react";
 import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
 
+const DEMO_VIDEO_ID = "83u9qLpVlQ8";
+
+/** Tell the YouTube iframe player to run a command (requires enablejsapi=1). */
+function ytCommand(iframe: HTMLIFrameElement | null, func: string, args: unknown[] = []) {
+  iframe?.contentWindow?.postMessage(
+    JSON.stringify({ event: "command", func, args }),
+    "*",
+  );
+}
+
+/** Full-bleed-feel demo player: loops while the section is on screen, pauses
+ *  when scrolled away, starts muted (browser autoplay policy), mute toggle. */
+function DemoVideo({ videoId }: { videoId: string }) {
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const mutedRef = useRef(true);
+  const [muted, setMuted] = useState(true);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el || !ready) return;
+
+    const setPlaying = (visible: boolean) => {
+      ytCommand(iframeRef.current, visible ? "playVideo" : "pauseVideo");
+      ytCommand(iframeRef.current, mutedRef.current ? "mute" : "unMute");
+    };
+
+    const io = new IntersectionObserver(
+      ([entry]) => {
+        setPlaying(entry.isIntersecting && entry.intersectionRatio >= 0.4);
+      },
+      { threshold: [0, 0.4, 0.7] },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [ready]);
+
+  const toggleMute = () => {
+    const next = !muted;
+    mutedRef.current = next;
+    setMuted(next);
+    ytCommand(iframeRef.current, next ? "mute" : "unMute");
+  };
+
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  const src =
+    `https://www.youtube.com/embed/${videoId}` +
+    `?enablejsapi=1&mute=1&autoplay=0&loop=1&playlist=${videoId}` +
+    `&playsinline=1&rel=0&modestbranding=1&controls=1` +
+    // Hide captions/auto-transcript by default (viewers can still turn CC on).
+    `&cc_load_policy=0` +
+    (origin ? `&origin=${encodeURIComponent(origin)}` : "");
+
+  return (
+    <div ref={wrapRef} className="relative overflow-hidden rounded-3xl border bg-black shadow-sm">
+      <div className="aspect-video w-full">
+        <iframe
+          ref={iframeRef}
+          title="TalkStay demo"
+          src={src}
+          className="h-full w-full"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          allowFullScreen
+          loading="lazy"
+          onLoad={() => setReady(true)}
+        />
+      </div>
+      <button
+        type="button"
+        onClick={toggleMute}
+        className="absolute bottom-4 right-4 inline-flex h-10 w-10 items-center justify-center rounded-full bg-black/70 text-white shadow-md backdrop-blur-sm transition hover:bg-black/85"
+        aria-label={muted ? "Unmute video" : "Mute video"}
+        title={muted ? "Unmute" : "Mute"}
+      >
+        {muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+      </button>
+    </div>
+  );
+}
+
 // --- Imagery -----------------------------------------------------------------
-// The owner's marketing graphics (text + branding baked in), used as full
-// showcase bands. Swap by replacing the file in public/marketing/ (same name).
+// Marketing photos in public/marketing/. The hero headline is real HTML now
+// (readable on mobile); only the scan photo stays as an image.
 const IMG = {
-  heroBanner: "/marketing/hero-banner.jpg",
+  heroScan: "/marketing/hero-scan.jpg",
   howItWorks: "/marketing/how-it-works.jpg",
   guestSquare: "/marketing/guest-square.jpg",
 };
+
+const AUDIENCES = [
+  { label: "Hotels", Icon: Hotel },
+  { label: "Short Stays", Icon: KeyRound },
+  { label: "Serviced Apartments", Icon: Building2 },
+  { label: "Airbnb", Icon: House },
+] as const;
 
 /** Image with a graceful, on-brand fallback so a missing file never breaks. */
 function Photo({ src, alt, className = "", eager = false }: {
@@ -28,6 +119,110 @@ function Photo({ src, alt, className = "", eager = false }: {
           <TalkStayLogo size={44} className="opacity-60" />
         </div>
       )}
+    </div>
+  );
+}
+
+/** Coded hero: photo stays visual; brand, headline and hospitality bar are live text. */
+function HeroBanner() {
+  return (
+    <div className="overflow-hidden rounded-3xl border bg-white shadow-xl">
+      <div className="grid md:grid-cols-[minmax(0,0.9fr)_1.2fr]">
+        <Photo
+          src={IMG.heroScan}
+          alt="Guest scanning a TalkStay room QR code with their phone"
+          eager
+          className="aspect-[4/5] w-full md:aspect-auto md:min-h-[340px] md:h-full"
+        />
+
+        <div className="relative flex flex-col justify-center px-6 py-8 sm:px-10 sm:py-12">
+          {/* Soft rings behind the mark — atmosphere without baking text into a JPG */}
+          <div
+            aria-hidden
+            className="pointer-events-none absolute -right-8 top-1/2 hidden h-56 w-56 -translate-y-1/2 rounded-full border border-violet-200/70 md:block"
+          />
+          <div
+            aria-hidden
+            className="pointer-events-none absolute -right-2 top-1/2 hidden h-40 w-40 -translate-y-1/2 rounded-full border border-violet-200/50 md:block"
+          />
+          <div
+            aria-hidden
+            className="pointer-events-none absolute right-6 top-[42%] hidden -translate-y-1/2 md:block"
+          >
+            <div className="flex h-24 w-24 items-center justify-center rounded-[1.75rem] bg-gradient-to-br from-violet-500 to-indigo-700 shadow-lg shadow-violet-500/30">
+              <AudioLines className="h-10 w-10 text-white" strokeWidth={2.2} />
+            </div>
+          </div>
+
+          <div className="relative animate-[fadeInFloat_0.7s_ease-out]">
+            <div className="flex items-center gap-2.5">
+              <TalkStayLogo size={40} />
+              <span className="text-2xl font-bold tracking-tight text-slate-900">TalkStay</span>
+            </div>
+
+            <div className="mt-5 flex flex-wrap items-center gap-2">
+              <div className="inline-flex items-center gap-1.5 rounded-full bg-violet-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-violet-700">
+                <AudioLines className="h-3.5 w-3.5" />
+                Voice-first guest service
+              </div>
+              <div className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-700">
+                <Globe2 className="h-3.5 w-3.5" />
+                Guests speak any language
+              </div>
+            </div>
+
+            <h1 className="mt-6 max-w-lg text-[2.15rem] font-extrabold leading-[1.05] tracking-tight text-slate-950 sm:text-5xl lg:text-[3.35rem]">
+              <span className="block">Guest requests.</span>
+              <span className="block">
+                Handled{" "}
+                <span
+                  className="bg-gradient-to-r from-violet-600 via-violet-500 to-indigo-600 bg-clip-text italic text-transparent"
+                  style={{ fontFamily: '"Instrument Serif", Georgia, serif', fontWeight: 400 }}
+                >
+                  beautifully.
+                </span>
+              </span>
+              <span
+                className="mt-2 block bg-gradient-to-r from-violet-700 to-indigo-600 bg-clip-text text-[1.65rem] italic leading-none text-transparent sm:text-4xl lg:text-[2.65rem]"
+                style={{ fontFamily: '"Instrument Serif", Georgia, serif', fontWeight: 400 }}
+              >
+                from anywhere.
+              </span>
+            </h1>
+
+            <p className="mt-5 max-w-md text-base font-medium leading-relaxed text-slate-700 sm:text-lg">
+              No app download. Just scan and speak — in any language.
+            </p>
+            <p className="mt-2 max-w-md text-sm leading-relaxed text-slate-500">
+              Multilingual guest conversations. Clear requests for your team in your property language.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-gradient-to-r from-[#1e1458] via-[#2d1b69] to-[#3b2178] px-5 py-5 text-white sm:px-8">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-start gap-3 sm:items-center">
+            <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/10">
+              <Hotel className="h-5 w-5 text-white" />
+            </div>
+            <div>
+              <p className="text-base font-semibold tracking-tight sm:text-lg">Built for modern hospitality.</p>
+              <p className="mt-0.5 text-sm text-white/70">
+                Everything you need to deliver exceptional guest service, every time.
+              </p>
+            </div>
+          </div>
+          <ul className="grid grid-cols-2 gap-x-5 gap-y-3 sm:flex sm:flex-wrap sm:items-center sm:gap-6">
+            {AUDIENCES.map(({ label, Icon }) => (
+              <li key={label} className="flex items-center gap-2 text-sm text-white/90">
+                <Icon className="h-4 w-4 shrink-0 text-violet-200" />
+                <span>{label}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
     </div>
   );
 }
@@ -76,13 +271,14 @@ export default function Landing() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
-        <div className="flex items-center gap-2.5">
+        <Link to="/" className="flex items-center gap-2.5 transition-opacity hover:opacity-80">
           <TalkStayLogo size={30} />
           <span className="text-lg font-semibold tracking-tight">TalkStay</span>
           <span className="hidden rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground sm:inline">by TalkWeb</span>
-        </div>
+        </Link>
         <nav className="hidden items-center gap-7 text-sm text-muted-foreground md:flex">
           <a href="#how" className="transition-colors hover:text-foreground">How it works</a>
+          <a href="#demo" className="transition-colors hover:text-foreground">Watch demo</a>
           <a href="#why" className="transition-colors hover:text-foreground">Why TalkStay</a>
           <a href="#properties" className="transition-colors hover:text-foreground">For properties</a>
         </nav>
@@ -97,34 +293,19 @@ export default function Landing() {
       </header>
 
       <main>
-        {/* Hero — the brand banner ends on "Handled beautifully". */}
+        {/* Hero — photo stays; headline + hospitality bar are live text (mobile-readable). */}
         <section className="mx-auto max-w-6xl px-6 pt-6 sm:pt-10">
-          <h1 className="sr-only">TalkStay — voice-first guest service. Guest requests, handled beautifully, from anywhere.</h1>
-          <Photo
-            src={IMG.heroBanner}
-            alt="TalkStay — guest requests, handled beautifully. Voice-first guest service for hotels, short stays, serviced apartments and Airbnb."
-            eager
-            className="aspect-[1672/941] w-full rounded-3xl shadow-xl"
-          />
-          {/* Reads as the end of the headline baked into the banner
-              ("…Handled beautifully.") rather than a caption under it. */}
-          <div className="mt-7 flex items-center justify-center gap-3 sm:gap-5">
-            <span className="h-px w-6 shrink-0 bg-gradient-to-r from-transparent to-violet-300 sm:w-16 dark:to-violet-500/50" />
-            <span className="bg-gradient-to-r from-violet-600 to-indigo-600 bg-clip-text px-1 font-serif text-2xl italic leading-snug tracking-tight text-transparent sm:text-3xl lg:text-4xl">
-              from anywhere.
-            </span>
-            <span className="h-px w-6 shrink-0 bg-gradient-to-l from-transparent to-violet-300 sm:w-16 dark:to-violet-500/50" />
-          </div>
+          <HeroBanner />
           <p className="mx-auto mt-8 max-w-2xl text-center text-lg text-muted-foreground">
-            TalkStay lets guests scan a QR code and simply speak. Requests are understood, routed
-            to the right team and tracked to completion — without another app for the guest.
+            Guests speak naturally in their own language. TalkStay understands, routes to the right
+            team, and tracks every request to completion — no app required.
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
             <Button asChild size="lg" className="bg-violet-600 hover:bg-violet-700">
               <Link to="/app">Get started</Link>
             </Button>
             <Button asChild size="lg" variant="outline">
-              <a href="#how"><PlayCircle className="mr-1.5 h-4 w-4" /> See how it works</a>
+              <a href="#demo"><PlayCircle className="mr-1.5 h-4 w-4" /> Watch demo</a>
             </Button>
           </div>
         </section>
@@ -148,7 +329,7 @@ export default function Landing() {
           <div className="text-center">
             <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">How it works</h2>
             <p className="mx-auto mt-3 max-w-xl text-sm text-muted-foreground">
-              Scan. Speak. Consider it done — the whole journey, from the guest's phone to your team.
+              No app to download. Guests scan the room QR, speak, and it’s done — from their phone to your team.
             </p>
           </div>
           <Photo
@@ -156,6 +337,19 @@ export default function Landing() {
             alt="Six steps: scan to connect, speak your request, we take care of it, come back to a clean room, relax, and guest requests handled beautifully."
             className="mt-10 aspect-[1536/1024] w-full rounded-3xl border shadow-sm"
           />
+        </section>
+
+        {/* Product demo — plays only while this section is on screen. */}
+        <section id="demo" className="mx-auto mt-20 max-w-6xl px-6 sm:mt-28">
+          <div className="text-center">
+            <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">See TalkStay in action</h2>
+            <p className="mx-auto mt-3 max-w-xl text-sm text-muted-foreground">
+              Scroll to watch. The video pauses when you leave this section — unmute anytime with the control.
+            </p>
+          </div>
+          <div className="mx-auto mt-10 max-w-4xl">
+            <DemoVideo videoId={DEMO_VIDEO_ID} />
+          </div>
         </section>
 
         {/* Old way vs TalkStay. */}
@@ -246,10 +440,10 @@ export default function Landing() {
 
       <footer className="border-t">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-6 py-8 text-sm text-muted-foreground">
-          <div className="flex items-center gap-2">
+          <Link to="/" className="flex items-center gap-2 transition-colors hover:text-foreground">
             <TalkStayLogo size={22} />
             <span>© {new Date().getFullYear()} TalkStay by TalkWeb</span>
-          </div>
+          </Link>
           <Link to="/app" className="transition-colors hover:text-foreground">Property sign in</Link>
         </div>
       </footer>

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -23,8 +24,8 @@ import { createHotel, getMyAccess, ingestHotelWebsite, DEPARTMENTS, type Hotel, 
 
 const NAV = [
   // `admin: true` = owner/manager only. Department staff see just Operations.
-  { key: "operations", label: "Operations", icon: Inbox, admin: false, desc: "Manage and track all guest requests in real time." },
-  { key: "insights", label: "Insights", icon: BarChart3, admin: true, desc: "Response times, volumes and guest satisfaction at a glance." },
+  { key: "operations", label: "Operations", icon: Inbox, admin: false, desc: "Live queue with today’s volumes — click any request for the full chat and timeline." },
+  { key: "insights", label: "Insights", icon: BarChart3, admin: true, desc: "Interactive analytics board — click charts and KPIs to drill into the data." },
   { key: "rooms", label: "Rooms & QR", icon: QrCode, admin: true, desc: "Add rooms and print the QR code guests scan to reach you." },
   { key: "branding", label: "Branding", icon: Palette, admin: true, desc: "Your logo, colour and the printable in-room poster." },
   { key: "departments", label: "Departments", icon: Building2, admin: true, desc: "Teams, routing rules and per-department notifications." },
@@ -199,10 +200,10 @@ export default function HotelApp() {
   const SidebarBody = (
     <div className="flex h-full flex-col bg-[#15111f] text-white/70">
       <div className="flex items-center justify-between px-5 py-4">
-        <div className="flex min-w-0 items-center gap-2.5">
+        <Link to="/" className="flex min-w-0 items-center gap-2.5 transition-opacity hover:opacity-80">
           <TalkStayLogo size={30} />
           <div className="min-w-0 font-semibold tracking-tight text-white">TalkStay</div>
-        </div>
+        </Link>
         <button className="md:hidden" onClick={() => setNavOpen(false)} aria-label="Close menu">
           <X className="h-5 w-5 text-white/60" />
         </button>
@@ -262,15 +263,15 @@ export default function HotelApp() {
   return (
     <div className="flex min-h-screen bg-muted/20">
       {/* Desktop sidebar */}
-      <aside className="hidden w-64 shrink-0 md:block">
+      <aside className="hidden w-64 shrink-0 print:hidden md:block">
         <div className="sticky top-0 h-screen">{SidebarBody}</div>
       </aside>
 
       {/* Mobile drawer */}
       {navOpen && (
         <>
-          <div className="fixed inset-0 z-40 bg-black/40 md:hidden" onClick={() => setNavOpen(false)} />
-          <aside className="fixed inset-y-0 left-0 z-50 w-64 md:hidden">{SidebarBody}</aside>
+          <div className="fixed inset-0 z-40 bg-black/40 md:hidden print:hidden" onClick={() => setNavOpen(false)} />
+          <aside className="fixed inset-y-0 left-0 z-50 w-64 print:hidden md:hidden">{SidebarBody}</aside>
         </>
       )}
 
@@ -279,17 +280,20 @@ export default function HotelApp() {
         {/* Compact top bar — only carries the mobile menu button + hotel context.
             The real page title/subtitle live in the page header below, so every
             tab gets the same designed heading Operations has in the mockup. */}
-        <header className="sticky top-0 z-20 flex items-center gap-3 border-b bg-background/95 px-4 py-3 backdrop-blur md:hidden">
+        <header className="sticky top-0 z-20 flex items-center gap-3 border-b bg-background/95 px-4 py-3 backdrop-blur print:hidden md:hidden">
           <button onClick={() => setNavOpen(true)} aria-label="Open menu">
             <Menu className="h-5 w-5" />
           </button>
           <span className="truncate text-sm font-medium">{hotel.name}</span>
         </header>
-        <main className="flex-1 p-4 md:p-8">
-          <div className="mx-auto max-w-5xl">
-            <div className="mb-6">
+        <main className="flex-1 p-4 md:p-8 print:p-0">
+          <div className="mx-auto max-w-5xl print:max-w-none">
+            <div className="mb-6 print:mb-4">
               <h1 className="text-2xl font-bold tracking-tight">{activeLabel}</h1>
-              {activeDesc && <p className="mt-1 text-sm text-muted-foreground">{activeDesc}</p>}
+              {activeDesc && <p className="mt-1 text-sm text-muted-foreground print:hidden">{activeDesc}</p>}
+              <p className="mt-1 hidden text-sm text-muted-foreground print:block">
+                {hotel.name} · printed {new Date().toLocaleString()}
+              </p>
             </div>
             <Panel active={effectiveActive} hotel={hotel} onHotel={setHotel} departmentKey={lockedDepartment} />
           </div>

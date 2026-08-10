@@ -191,6 +191,16 @@ export async function reopenRequest(args: {
   return true;
 }
 
+/** Guest cancels an open request — staff are notified. */
+export async function cancelRequest(args: {
+  hotelSlug: string; roomId: string; token: string; sessionId: string; requestId: string;
+}) {
+  const { data, error } = await fn({ action: "cancel", ...args });
+  if (error) throw await realError(error);
+  if ((data as any)?.error) throw new Error((data as any).error);
+  return true;
+}
+
 /** Mid-stay pulse check. `notifiedManager` is true when the answer was negative
  *  enough that a manager was alerted — the guest is told so explicitly, because
  *  "someone is coming" is the whole reason to speak up during the stay. */

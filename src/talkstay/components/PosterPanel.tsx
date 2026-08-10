@@ -23,36 +23,59 @@ const BADGE_ICONS = [ShieldCheck, Zap, Globe];
 function PosterView({ p, hotelName, logo, qrUrl, accent }: {
   p: Required<PosterConfig>; hotelName: string; logo?: string; qrUrl: string; accent: string;
 }) {
-  // Business name is only editable for the "no logo" case — an apartment/host
-  // without a logo can still show a proper name instead of the raw hotel record
-  // name. Falls back to the hotel's own name when left blank.
-  const displayName = p.business_name.trim() || hotelName;
-  const caption = p.qr_caption.replace(/\{hotel\}/gi, displayName);
+  // Property name is optional — blank hides it. When set, it's always bold
+  // (above the eyebrow), whether or not a logo is uploaded.
+  const displayName = p.business_name.trim();
+  const nameForCaption = displayName || hotelName;
+  const caption = p.qr_caption.replace(/\{hotel\}/gi, nameForCaption);
+  const features = p.features.slice(0, 4).map((f, i) => ({ text: f.trim(), i })).filter((f) => f.text);
+  const badges = p.badges.slice(0, 3).map((b, i) => ({ text: b.trim(), i })).filter((b) => b.text);
   return (
     <div className="ts-poster-wrap" id="ts-poster-print">
-      <div className="ts-poster" style={{ ["--txt" as any]: p.text_color, background: p.bg_color }}>
-        {p.bg_image_url && <div className="ts-poster-bg" style={{ backgroundImage: `url(${p.bg_image_url})` }} />}
-        <div className="ts-poster-overlay" style={{ background: `linear-gradient(180deg, ${hexA(p.bg_color, p.bg_overlay)}, ${hexA(p.bg_color, Math.min(1, p.bg_overlay + 0.15))})` }} />
+      <div
+        className="ts-poster"
+        style={{
+          ["--txt" as any]: p.text_color,
+          ["--poster-bg" as any]: p.bg_color,
+          backgroundColor: p.bg_color,
+          color: p.text_color,
+        }}
+      >
+        {/* Real <img> prints more reliably than CSS background-image. */}
+        {p.bg_image_url && (
+          <img src={p.bg_image_url} alt="" className="ts-poster-bg-img" />
+        )}
+        <div
+          className="ts-poster-overlay"
+          style={{
+            background: `linear-gradient(180deg, ${hexA(p.bg_color, p.bg_overlay)}, ${hexA(p.bg_color, Math.min(1, p.bg_overlay + 0.15))})`,
+          }}
+        />
         <div className="ts-poster-body">
-          {logo
-            ? <img src={logo} alt="" className="ts-poster-logo" />
-            : <div className="ts-poster-name">{displayName}</div>}
-          {p.eyebrow && <div className="ts-poster-eyebrow" style={{ color: accent }}>{p.eyebrow}</div>}
+          {logo && <img src={logo} alt="" className="ts-poster-logo" />}
+          {displayName && <div className="ts-poster-name">{displayName}</div>}
+          {p.eyebrow.trim() && (
+            <div className="ts-poster-eyebrow" style={{ color: accent }}>{p.eyebrow}</div>
+          )}
 
-          <h1 className="ts-poster-headline">{p.headline}</h1>
-          <p className="ts-poster-sub" style={{ color: accent }}>{p.subheadline}</p>
+          {p.headline.trim() && <h1 className="ts-poster-headline">{p.headline}</h1>}
+          {p.subheadline.trim() && (
+            <p className="ts-poster-sub" style={{ color: accent }}>{p.subheadline}</p>
+          )}
 
-          <div className="ts-poster-features">
-            {p.features.slice(0, 4).map((f, i) => {
-              const Icon = FEATURE_ICONS[i] ?? Info;
-              return (
-                <div key={i} className="ts-poster-feat">
-                  <Icon className="ts-poster-feat-icon" style={{ color: accent }} />
-                  <span>{f}</span>
-                </div>
-              );
-            })}
-          </div>
+          {features.length > 0 && (
+            <div className="ts-poster-features">
+              {features.map(({ text, i }) => {
+                const Icon = FEATURE_ICONS[i] ?? Info;
+                return (
+                  <div key={i} className="ts-poster-feat">
+                    <Icon className="ts-poster-feat-icon" style={{ color: accent }} />
+                    <span>{text}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           <div className="ts-poster-qrcard" style={{ borderColor: hexA(p.text_color, 0.25) }}>
             <div className="ts-poster-qr">
@@ -61,32 +84,44 @@ function PosterView({ p, hotelName, logo, qrUrl, accent }: {
                 <Building2 className="ts-poster-qr-badge-icon" />
               </div>
             </div>
-            <div className="ts-poster-caption">
-              <Smartphone className="ts-poster-caption-icon" />
-              <span dangerouslySetInnerHTML={{ __html: escapeAccent(caption, hotelName, accent) }} />
+            {p.qr_caption.trim() && (
+              <div className="ts-poster-caption">
+                <Smartphone className="ts-poster-caption-icon" />
+                <span dangerouslySetInnerHTML={{ __html: escapeAccent(caption, nameForCaption, accent) }} />
+              </div>
+            )}
+          </div>
+
+          {badges.length > 0 && (
+            <div className="ts-poster-badges">
+              {badges.map(({ text, i }) => {
+                const Icon = BADGE_ICONS[i] ?? ShieldCheck;
+                return (
+                  <div key={i} className="ts-poster-badge">
+                    <Icon className="ts-poster-badge-icon" style={{ color: accent }} />
+                    <span>{text}</span>
+                  </div>
+                );
+              })}
             </div>
-          </div>
-
-          <div className="ts-poster-badges">
-            {p.badges.slice(0, 3).map((b, i) => {
-              const Icon = BADGE_ICONS[i] ?? ShieldCheck;
-              return (
-                <div key={i} className="ts-poster-badge">
-                  <Icon className="ts-poster-badge-icon" style={{ color: accent }} />
-                  <span>{b}</span>
-                </div>
-              );
-            })}
-          </div>
+          )}
         </div>
 
-        <div className="ts-poster-footer">
-          <span>{p.footer_left}</span>
-          <span className="ts-poster-footer-right">
-            {p.footer_right}
+        {(p.footer_left.trim() || p.footer_right.trim()) && (
+          <div className="ts-poster-footer">
+            <span>{p.footer_left}</span>
+            <span className="ts-poster-footer-right">
+              {p.footer_right}
+              <em className="ts-poster-powered">Powered by TalkStay</em>
+            </span>
+          </div>
+        )}
+        {!p.footer_left.trim() && !p.footer_right.trim() && (
+          <div className="ts-poster-footer ts-poster-footer-powered-only">
+            <span />
             <em className="ts-poster-powered">Powered by TalkStay</em>
-          </span>
-        </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -120,6 +155,16 @@ export default function PosterPanel({ hotel, onSaved }: { hotel: Hotel; onSaved?
       if (rs.length) setRoomId(rs[0].id);
     }).catch(() => {});
   }, [hotel.id]);
+
+  // Keep poster CSS in <head> so print can hide #root without killing the stylesheet.
+  useEffect(() => {
+    const id = "ts-poster-print-css";
+    if (document.getElementById(id)) return;
+    const el = document.createElement("style");
+    el.id = id;
+    el.textContent = POSTER_CSS;
+    document.head.appendChild(el);
+  }, []);
 
   // Resolve the selected room's live QR URL (real token) for an accurate printout.
   useEffect(() => {
@@ -165,8 +210,6 @@ export default function PosterPanel({ hotel, onSaved }: { hotel: Hotel; onSaved?
 
   return (
     <div className="grid gap-8 lg:grid-cols-[1fr_420px]">
-      <style>{POSTER_CSS}</style>
-
       {/* Controls */}
       <div className="space-y-6">
         <p className="text-sm text-muted-foreground">
@@ -226,13 +269,17 @@ export default function PosterPanel({ hotel, onSaved }: { hotel: Hotel; onSaved?
         </div>
 
         <Field
-          label="Business name"
+          label="Property name (bold)"
           value={cfg.business_name}
           onChange={(v) => set("business_name", v)}
           placeholder={hotel.name}
         />
         <p className="-mt-4 text-xs text-muted-foreground">
-          Shown on the poster when there's no logo (set a logo in the Identity tab) — useful for apartments or hosts without a business logo.
+          Shown boldly above the eyebrow (with or without a logo). Clear the field to hide it.
+        </p>
+
+        <p className="text-xs text-muted-foreground">
+          Tip: leave any line blank to hide that part on the poster.
         </p>
 
         <Field label="Eyebrow line" value={cfg.eyebrow} onChange={(v) => set("eyebrow", v)} placeholder={POSTER_DEFAULTS.eyebrow} />
@@ -240,7 +287,7 @@ export default function PosterPanel({ hotel, onSaved }: { hotel: Hotel; onSaved?
         <Field label="Subheadline" value={cfg.subheadline} onChange={(v) => set("subheadline", v)} placeholder={POSTER_DEFAULTS.subheadline} />
 
         <div className="space-y-2">
-          <Label>What guests can do (four)</Label>
+          <Label>What guests can do (four — blank to hide a slot)</Label>
           <div className="grid gap-2 sm:grid-cols-2">
             {cfg.features.slice(0, 4).map((f, i) => (
               <Input key={i} value={f} onChange={(e) => setFeature(i, e.target.value)} placeholder={POSTER_DEFAULTS.features[i]} />
@@ -248,10 +295,10 @@ export default function PosterPanel({ hotel, onSaved }: { hotel: Hotel; onSaved?
           </div>
         </div>
 
-        <Field label="QR caption ( {hotel} inserts the hotel name )" value={cfg.qr_caption} onChange={(v) => set("qr_caption", v)} placeholder={POSTER_DEFAULTS.qr_caption} />
+        <Field label="QR caption ( {hotel} inserts the property name — blank to hide )" value={cfg.qr_caption} onChange={(v) => set("qr_caption", v)} placeholder={POSTER_DEFAULTS.qr_caption} />
 
         <div className="space-y-2">
-          <Label>Trust badges (three)</Label>
+          <Label>Trust badges (three — blank to hide)</Label>
           <div className="grid gap-2 sm:grid-cols-3">
             {cfg.badges.slice(0, 3).map((b, i) => (
               <Input key={i} value={b} onChange={(e) => setBadge(i, e.target.value)} placeholder={POSTER_DEFAULTS.badges[i]} />
@@ -284,7 +331,7 @@ export default function PosterPanel({ hotel, onSaved }: { hotel: Hotel; onSaved?
               </SelectContent>
             </Select>
           </div>
-          <Button className="mt-4" onClick={() => window.print()}>
+          <Button className="mt-4" onClick={printPoster}>
             <Printer className="mr-1 h-4 w-4" /> Print
           </Button>
         </div>
@@ -293,7 +340,7 @@ export default function PosterPanel({ hotel, onSaved }: { hotel: Hotel; onSaved?
           <PosterView p={cfg} hotelName={hotel.name} logo={logo} qrUrl={qrUrl} accent={accent} />
         </div>
         <p className="text-[11px] text-muted-foreground">
-          Tip: in the print dialog choose <strong>Save as PDF</strong>, paper size A4, and enable “Background graphics” so the colours print.
+          Tip: choose <strong>Save as PDF</strong>, A4, and margins <strong>None</strong> (or Default). Colours and the photo are forced in the print stylesheet.
         </p>
       </div>
     </div>
@@ -328,51 +375,177 @@ function escapeAccent(text: string, hotelName: string, accent: string): string {
   return safe.replace(name, `<b style="color:${accent}">${name}</b>`);
 }
 
+/**
+ * Print a single A4 page with colours/photo intact.
+ * Clones the poster onto <body> so we can hide the rest of the app without
+ * `display:none` on ancestors (which would hide the poster too). Canvas QR
+ * pixels are copied to an <img> because cloneNode does not keep canvas bits.
+ */
+function printPoster() {
+  const src = document.getElementById("ts-poster-print");
+  if (!src) {
+    window.print();
+    return;
+  }
+
+  const clone = src.cloneNode(true) as HTMLElement;
+  clone.id = "ts-poster-print-clone";
+  clone.setAttribute("aria-hidden", "true");
+
+  const srcCanvases = src.querySelectorAll("canvas");
+  const cloneCanvases = clone.querySelectorAll("canvas");
+  srcCanvases.forEach((canvas, i) => {
+    const target = cloneCanvases[i];
+    if (!target) return;
+    try {
+      const img = document.createElement("img");
+      img.src = canvas.toDataURL("image/png");
+      img.alt = "";
+      img.style.width = "100%";
+      img.style.height = "auto";
+      img.style.display = "block";
+      target.replaceWith(img);
+    } catch {
+      /* tainted canvas — leave as-is */
+    }
+  });
+
+  document.body.appendChild(clone);
+  document.documentElement.classList.add("ts-printing-poster");
+
+  let cleaned = false;
+  const cleanup = () => {
+    if (cleaned) return;
+    cleaned = true;
+    clone.remove();
+    document.documentElement.classList.remove("ts-printing-poster");
+    window.removeEventListener("afterprint", cleanup);
+  };
+  window.addEventListener("afterprint", cleanup);
+
+  // Let the clone paint (and QR data-URL decode) before the dialog opens.
+  // window.print() blocks in most browsers until the dialog closes; afterprint
+  // covers the async cases. Do not time-out cleanup — that can blank mid-dialog.
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      window.print();
+      cleanup();
+    });
+  });
+}
+
 const POSTER_CSS = `
 .ts-poster-wrap { container-type: inline-size; width: 100%; }
-/* Height is intentionally NOT fixed via aspect-ratio: with a fixed height +
-   overflow:hidden, longer editable text (or the QR block) silently clipped
-   the bottom of the poster. Instead the box grows to fit its content — sized
-   defaults below target ~one A4 page, and custom text just makes it taller
-   instead of losing the footer. */
-.ts-poster { position: relative; width: 100%; overflow: hidden; border-radius: 2.2cqw;
-  font-family: system-ui, -apple-system, sans-serif; color: var(--txt, #fff); }
-.ts-poster-bg { position: absolute; inset: 0; background-size: cover; background-position: center; }
-.ts-poster-overlay { position: absolute; inset: 0; }
-.ts-poster-body { position: relative; display: flex; flex-direction: column; align-items: center; text-align: center;
-  padding: 6cqw 7cqw 3cqw; gap: 1.6cqw; }
-.ts-poster-logo { height: 12cqw; max-width: 60cqw; object-fit: contain; margin-bottom: 1cqw; }
-.ts-poster-name { font-size: 6cqw; font-weight: 800; letter-spacing: -0.02em; }
-.ts-poster-eyebrow { font-size: 2.6cqw; font-weight: 600; opacity: 0.95; }
-.ts-poster-headline { font-size: 9cqw; font-weight: 800; line-height: 1.05; letter-spacing: -0.02em; margin: 1cqw 0 0; }
-.ts-poster-sub { font-size: 4cqw; font-weight: 600; margin: 0 0 1cqw; }
-.ts-poster-features { display: flex; align-items: flex-start; justify-content: center; gap: 2cqw; width: 100%; margin: 1.2cqw 0; }
-.ts-poster-feat { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 1.2cqw; font-size: 2.4cqw;
-  font-weight: 600; line-height: 1.15; padding: 0 1cqw; }
+.ts-poster {
+  position: relative; width: 100%; overflow: hidden; border-radius: 2.2cqw;
+  font-family: system-ui, -apple-system, sans-serif; color: var(--txt, #fff);
+  background-color: var(--poster-bg, #2e1065);
+  -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+.ts-poster-bg-img {
+  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center;
+  z-index: 0; pointer-events: none;
+}
+.ts-poster-overlay { position: absolute; inset: 0; z-index: 1;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+.ts-poster-body { position: relative; z-index: 2; display: flex; flex-direction: column; align-items: center;
+  text-align: center; padding: 5cqw 7cqw 2.5cqw; gap: 1.2cqw; }
+.ts-poster-logo { height: 10cqw; max-width: 55cqw; object-fit: contain; margin-bottom: 0.5cqw; }
+.ts-poster-name { font-size: 6.2cqw; font-weight: 800; letter-spacing: -0.03em; line-height: 1.1; margin: 0.2cqw 0 0.4cqw; }
+.ts-poster-eyebrow { font-size: 2.4cqw; font-weight: 600; opacity: 0.95; }
+.ts-poster-footer-powered-only { justify-content: flex-end; }
+.ts-poster-headline { font-size: 8cqw; font-weight: 800; line-height: 1.05; letter-spacing: -0.02em; margin: 0.6cqw 0 0; }
+.ts-poster-sub { font-size: 3.6cqw; font-weight: 600; margin: 0; }
+.ts-poster-features { display: flex; align-items: flex-start; justify-content: center; gap: 1.6cqw; width: 100%; margin: 0.6cqw 0; }
+.ts-poster-feat { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 0.9cqw; font-size: 2.2cqw;
+  font-weight: 600; line-height: 1.15; padding: 0 0.8cqw; }
 .ts-poster-feat + .ts-poster-feat { border-left: 0.2cqw solid rgba(255,255,255,0.18); }
-.ts-poster-feat-icon { width: 6cqw; height: 6cqw; }
-.ts-poster-qrcard { width: 100%; border: 0.35cqw solid; border-radius: 4cqw; padding: 3cqw; margin: 1.2cqw 0;
-  background: rgba(255,255,255,0.06); backdrop-filter: blur(2px); }
-.ts-poster-qr { position: relative; width: 44cqw; margin: 0 auto 2cqw; background: #fff; border-radius: 2.6cqw; padding: 2.5cqw; }
-.ts-poster-qr canvas { width: 100% !important; height: auto !important; display: block; }
+.ts-poster-feat-icon { width: 5.2cqw; height: 5.2cqw; }
+.ts-poster-qrcard { width: 100%; border: 0.35cqw solid; border-radius: 3.5cqw; padding: 2.4cqw; margin: 0.6cqw 0;
+  background: rgba(255,255,255,0.08); -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.ts-poster-qr { position: relative; width: 38cqw; margin: 0 auto 1.6cqw; background: #fff; border-radius: 2.4cqw; padding: 2cqw;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.ts-poster-qr canvas,
+.ts-poster-qr img { width: 100% !important; height: auto !important; display: block; }
 .ts-poster-qr-badge { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-  width: 8cqw; height: 8cqw; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
-.ts-poster-qr-badge-icon { width: 4.4cqw; height: 4.4cqw; color: #fff; }
-.ts-poster-caption { display: flex; align-items: center; justify-content: center; gap: 1.6cqw; font-size: 3.2cqw; font-weight: 600; }
-.ts-poster-caption-icon { width: 4.4cqw; height: 4.4cqw; opacity: 0.9; flex-shrink: 0; }
-.ts-poster-badges { display: flex; align-items: center; justify-content: center; gap: 2.4cqw; width: 100%; margin-top: 0.8cqw; }
-.ts-poster-badge { display: flex; align-items: center; gap: 1.2cqw; font-size: 2.4cqw; font-weight: 600; }
-.ts-poster-badge + .ts-poster-badge { border-left: 0.2cqw solid rgba(255,255,255,0.18); padding-left: 2.4cqw; }
-.ts-poster-badge-icon { width: 4cqw; height: 4cqw; }
-.ts-poster-footer { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 3cqw;
-  background: rgba(255,255,255,0.86); color: #3b0764; padding: 3cqw 7cqw; font-size: 2.5cqw; font-weight: 600; }
-.ts-poster-footer-right { display: flex; flex-direction: column; align-items: flex-end; gap: 0.6cqw; }
-.ts-poster-powered { font-style: normal; font-size: 2.3cqw; opacity: 0.7; }
+  width: 7cqw; height: 7cqw; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.ts-poster-qr-badge-icon { width: 3.8cqw; height: 3.8cqw; color: #fff; }
+.ts-poster-caption { display: flex; align-items: center; justify-content: center; gap: 1.4cqw; font-size: 2.9cqw; font-weight: 600; }
+.ts-poster-caption-icon { width: 3.8cqw; height: 3.8cqw; opacity: 0.9; flex-shrink: 0; }
+.ts-poster-badges { display: flex; align-items: center; justify-content: center; gap: 2cqw; width: 100%; margin-top: 0.4cqw; }
+.ts-poster-badge { display: flex; align-items: center; gap: 1cqw; font-size: 2.2cqw; font-weight: 600; }
+.ts-poster-badge + .ts-poster-badge { border-left: 0.2cqw solid rgba(255,255,255,0.18); padding-left: 2cqw; }
+.ts-poster-badge-icon { width: 3.6cqw; height: 3.6cqw; }
+.ts-poster-footer { position: relative; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 2.5cqw;
+  background: rgba(255,255,255,0.92); color: #3b0764; padding: 2.4cqw 6cqw; font-size: 2.3cqw; font-weight: 600;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.ts-poster-footer-right { display: flex; flex-direction: column; align-items: flex-end; gap: 0.4cqw; }
+.ts-poster-powered { font-style: normal; font-size: 2.1cqw; opacity: 0.7; }
 
+/* Screen-only: keep the print clone out of the live layout */
+#ts-poster-print-clone { display: none !important; }
+
+/* One A4 sheet: print only the body-level clone (see printPoster()). */
 @media print {
-  body * { visibility: hidden !important; }
-  #ts-poster-print, #ts-poster-print * { visibility: visible !important; }
-  #ts-poster-print { position: fixed; inset: 0; margin: 0 auto; width: 190mm; }
-  @page { size: A4 portrait; margin: 8mm; }
+  @page { size: A4 portrait; margin: 0; }
+  html.ts-printing-poster,
+  html.ts-printing-poster body {
+    width: 210mm !important; height: 297mm !important;
+    margin: 0 !important; padding: 0 !important;
+    overflow: hidden !important; background: #fff !important;
+    -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important;
+  }
+  html.ts-printing-poster body > *:not(#ts-poster-print-clone) {
+    display: none !important;
+  }
+  html.ts-printing-poster #ts-poster-print-clone {
+    display: block !important;
+    position: fixed !important;
+    left: 0 !important; top: 0 !important;
+    width: 210mm !important; height: 297mm !important;
+    margin: 0 !important; padding: 0 !important;
+    overflow: hidden !important;
+    z-index: 99999 !important;
+    container-type: inline-size;
+    -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important;
+  }
+  html.ts-printing-poster #ts-poster-print-clone .ts-poster {
+    width: 210mm !important; height: 297mm !important; border-radius: 0 !important;
+    display: flex !important; flex-direction: column !important;
+    -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important;
+  }
+  html.ts-printing-poster #ts-poster-print-clone .ts-poster-body {
+    display: flex !important; flex-direction: column !important; align-items: center !important;
+    flex: 1 1 auto; justify-content: center; min-height: 0;
+  }
+  html.ts-printing-poster #ts-poster-print-clone .ts-poster-features,
+  html.ts-printing-poster #ts-poster-print-clone .ts-poster-feat,
+  html.ts-printing-poster #ts-poster-print-clone .ts-poster-caption,
+  html.ts-printing-poster #ts-poster-print-clone .ts-poster-badges,
+  html.ts-printing-poster #ts-poster-print-clone .ts-poster-badge,
+  html.ts-printing-poster #ts-poster-print-clone .ts-poster-footer,
+  html.ts-printing-poster #ts-poster-print-clone .ts-poster-footer-right,
+  html.ts-printing-poster #ts-poster-print-clone .ts-poster-qr-badge {
+    display: flex !important;
+  }
+  html.ts-printing-poster #ts-poster-print-clone .ts-poster-feat,
+  html.ts-printing-poster #ts-poster-print-clone .ts-poster-footer-right {
+    flex-direction: column !important;
+  }
+  html.ts-printing-poster #ts-poster-print-clone .ts-poster-footer { flex: 0 0 auto; }
+  html.ts-printing-poster #ts-poster-print-clone .ts-poster-bg-img,
+  html.ts-printing-poster #ts-poster-print-clone .ts-poster-overlay,
+  html.ts-printing-poster #ts-poster-print-clone .ts-poster-qrcard,
+  html.ts-printing-poster #ts-poster-print-clone .ts-poster-qr,
+  html.ts-printing-poster #ts-poster-print-clone .ts-poster-qr-badge,
+  html.ts-printing-poster #ts-poster-print-clone .ts-poster-footer {
+    -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important;
+  }
+  html.ts-printing-poster #ts-poster-print-clone img,
+  html.ts-printing-poster #ts-poster-print-clone svg {
+    -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important;
+  }
 }
 `;

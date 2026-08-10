@@ -20,6 +20,7 @@ const LINE: Record<string, string> = {
   accepted: "is being prepared",
   on_the_way: "is on the way",
   completed: "is complete",
+  cancelled: "has been cancelled",
 };
 
 serve(async (req) => {
@@ -77,6 +78,8 @@ serve(async (req) => {
             ${quoteBlock(r.summary)}
             ${status === "completed"
               ? `<p style="margin:14px 0 0;">If everything arrived, you can rate it from the assistant in your room.</p>`
+              : status === "cancelled"
+              ? `<p style="margin:14px 0 0;">If you still need help, scan the QR in your room and ask again.</p>`
               : ""}`,
           footerNote: "You asked for updates about this stay. Scan the QR code in your room to see your requests.",
         });

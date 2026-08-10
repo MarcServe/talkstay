@@ -1,14 +1,15 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Loader2, Send, ClipboardList, Star, X, Mic, MicOff, Globe, Check, MessageCircle, Smile, Meh, Frown, BellRing } from "lucide-react";
 import { toast } from "sonner";
 import { RealtimeChat } from "@/utils/RealtimeChat";
+import { conversationMemory } from "@/utils/ConversationMemory";
 import { pushSupported } from "@/talkstay/lib/push";
 import {
   fetchContext, sendMessage, fetchMyRequests, submitReview, saveGuestContact,
-  confirmRequest, reopenRequest, fetchStaffMessages, enableDevicePush, disableDevicePush,
+  confirmRequest, reopenRequest, cancelRequest, fetchStaffMessages, enableDevicePush, disableDevicePush,
   getSessionId, getDeviceId, loadHistory, saveHistory, getNotifyChoice, setNotifyChoice,
   submitPulse, getPulseState, setPulseState,
   STATUS_LABEL, type ChatMsg, type GuestRequest, type GuestBranding,
@@ -40,6 +41,8 @@ export default function GuestApp() {
   const [notifyOpen, setNotifyOpen] = useState(false);
   const [requestsOpen, setRequestsOpen] = useState(false);
   const [pulseHidden, setPulseHidden] = useState(false);
+  // Pulse only appears after a calm pause — never mid-request / mid-typing.
+  const [pulseReady, setPulseReady] = useState(false);
 
   // Voice state (TalkWeb realtime stack)
   const [voiceState, setVoiceState] = useState<"idle" | "connecting" | "connected">("idle");
@@ -148,17 +151,30 @@ export default function GuestApp() {
     setBusy(false);
   };
 
+  // Seed TalkWeb conversation memory from the on-screen transcript so voice
+  // picks up mid-thread (typed request → continue by speaking, and vice versa).
+  const syncVoiceMemoryFromChat = () => {
+    conversationMemory.clearMessages();
+    for (const m of msgs) {
+      if ((m.role === "user" || m.role === "assistant") && m.content?.trim()) {
+        conversationMemory.addMessage(m.role, m.content.trim(), "chat");
+      }
+    }
+  };
+
   // Voice path (TalkWeb RealtimeChat → realtime-token, WebRTC).
   const startVoice = async () => {
     if (!ctx?.assistantId) return;
     setVoiceState("connecting");
     try {
+      syncVoiceMemoryFromChat();
       const chat = new RealtimeChat(ctx.assistantId, {
         onUserSpeechStart: () => setIsListening(true),
         onUserSpeechStop: () => setIsListening(false),
         onUserTranscript: (text, isFinal) => {
           if (isFinal && text.trim()) {
             append({ role: "user", content: text.trim() });
+            conversationMemory.addMessage("user", text.trim(), "voice");
             // Hotel layer in background; spoken reply comes from the voice session.
             routeThroughHotelBrain(text.trim(), false);
           }
@@ -167,6 +183,7 @@ export default function GuestApp() {
           if (isDone && text.trim() && text.trim() !== liveAssistantRef.current) {
             liveAssistantRef.current = text.trim();
             append({ role: "assistant", content: text.trim() });
+            conversationMemory.addMessage("assistant", text.trim(), "voice");
           }
         },
         onAssistantAudioStart: () => setIsSpeaking(true),
@@ -199,6 +216,45 @@ export default function GuestApp() {
   };
 
   const toggleVoice = () => (voiceState === "idle" ? startVoice() : stopVoice());
+
+  // Pulse check eligibility — never interrupt someone mid-request or mid-type.
+  // Needs a real exchange, a settled assistant turn, and a calm pause first.
+  const pulseEligible = useMemo(() => {
+    if (!ctx?.pulseAsk || pulseHidden || getPulseState(sid)) return false;
+    if (busy || voiceState !== "idle" || notifyOpen || requestsOpen) return false;
+    if (input.trim()) return false; // still composing
+
+    const userTurns = msgs.filter((m) => m.role === "user");
+    if (userTurns.length < 2) return false;
+
+    // Walk from the end: last conversational turn must be an assistant reply
+    // (not the guest waiting, not a just-filed request chip).
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const m = msgs[i];
+      if (m.role === "notice" || m.role === "staff") continue;
+      if (m.role === "request") return false;
+      if (m.role === "user") return false;
+      if (m.role === "assistant") break;
+    }
+
+    // If a request was filed in the last two transcript items, give them space.
+    const tail = msgs.slice(-3);
+    if (tail.some((m) => m.role === "request")) return false;
+
+    return true;
+  }, [ctx?.pulseAsk, pulseHidden, sid, busy, voiceState, notifyOpen, requestsOpen, input, msgs]);
+
+  useEffect(() => {
+    if (!pulseEligible) {
+      setPulseReady(false);
+      return;
+    }
+    // Quiet pause after things settle — short if they've chatted a bit, longer early on.
+    const userTurns = msgs.filter((m) => m.role === "user").length;
+    const waitMs = userTurns >= 4 ? 35_000 : 55_000;
+    const t = window.setTimeout(() => setPulseReady(true), waitMs);
+    return () => window.clearTimeout(t);
+  }, [pulseEligible, msgs.length]);
 
   if (checkedOut) {
     return (
@@ -400,9 +456,8 @@ export default function GuestApp() {
             <div className="rounded-2xl bg-muted px-4 py-2 text-sm text-muted-foreground">…</div>
           </div>
         )}
-        {/* Only once the guest has actually said something — asking a stranger
-            how their stay is going before they've engaged reads as a survey. */}
-        {ctx?.pulseAsk && !pulseHidden && !getPulseState(sid) && msgs.some((m) => m.role === "user") && (
+        {/* After a real exchange + calm pause — never while ordering or composing. */}
+        {pulseEligible && pulseReady && (
           <PulseCard
             hotelSlug={hotelSlug} roomId={roomId} token={token} sid={sid} brand={brand}
             onFinished={() => setPulseHidden(true)}
@@ -453,9 +508,72 @@ function PulseCard({ hotelSlug, roomId, token, sid, brand, onFinished }: {
   const [rating, setRating] = useState<number | null>(null);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
+  const [listening, setListening] = useState(false);
   const [result, setResult] = useState<{ reply: string; notifiedManager: boolean } | null>(null);
+  const recogRef = useRef<any>(null);
+  const baseTextRef = useRef("");
+
+  const speechOk = typeof window !== "undefined" &&
+    !!(window.SpeechRecognition || (window as any).webkitSpeechRecognition);
+
+  const stopListening = () => {
+    try { recogRef.current?.stop(); } catch { /* already stopped */ }
+    recogRef.current = null;
+    setListening(false);
+  };
+
+  useEffect(() => () => { try { recogRef.current?.stop(); } catch { /* */ } }, []);
+
+  const startListening = () => {
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) {
+      toast.error("Voice isn't available here — please type instead.");
+      return;
+    }
+    stopListening();
+    baseTextRef.current = text.trim();
+    const r = new SR();
+    r.lang = navigator.language || "en-US";
+    r.interimResults = true;
+    r.continuous = true;
+    r.onstart = () => setListening(true);
+    r.onerror = (e: any) => {
+      if (e.error !== "aborted" && e.error !== "no-speech") {
+        toast.error(
+          e.error === "not-allowed"
+            ? "Microphone permission needed to speak your feedback."
+            : "Couldn't hear that — try again or type instead.",
+        );
+      }
+      setListening(false);
+    };
+    r.onend = () => setListening(false);
+    r.onresult = (event: any) => {
+      let interim = "";
+      let finals = "";
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const piece = event.results[i][0].transcript as string;
+        if (event.results[i].isFinal) finals += piece;
+        else interim += piece;
+      }
+      if (finals.trim()) {
+        baseTextRef.current = [baseTextRef.current, finals.trim()].filter(Boolean).join(" ");
+        setText(baseTextRef.current);
+      } else if (interim) {
+        setText([baseTextRef.current, interim.trim()].filter(Boolean).join(" "));
+      }
+    };
+    recogRef.current = r;
+    try {
+      r.start();
+    } catch {
+      toast.error("Couldn't start the microphone.");
+      setListening(false);
+    }
+  };
 
   const send = async (withRating: number) => {
+    stopListening();
     setBusy(true);
     try {
       const res = await submitPulse({ hotelSlug, roomId, token, sessionId: sid, rating: withRating, text: text.trim() || undefined });
@@ -491,7 +609,7 @@ function PulseCard({ hotelSlug, roomId, token, sid, brand, onFinished }: {
     <div className="rounded-2xl border p-4" style={{ borderColor: `${brand}55` }}>
       <div className="flex items-start justify-between gap-2">
         <p className="text-sm font-semibold">How has your stay been so far?</p>
-        <button onClick={() => { setPulseState(sid, "dismissed"); onFinished("dismissed"); }}
+        <button onClick={() => { stopListening(); setPulseState(sid, "dismissed"); onFinished("dismissed"); }}
           aria-label="Dismiss" className="-mr-1 -mt-1 rounded-full p-1 text-muted-foreground hover:bg-muted">
           <X className="h-4 w-4" />
         </button>
@@ -517,13 +635,40 @@ function PulseCard({ hotelSlug, roomId, token, sid, brand, onFinished }: {
 
       {rating != null && (
         <div className="mt-3 space-y-2">
-          <Input
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder={rating >= 4 ? "What stood out? (optional)" : "What would you like us to fix? (optional)"}
-            disabled={busy}
-            autoFocus
-          />
+          <div className="flex items-center gap-2">
+            <Input
+              value={text}
+              onChange={(e) => {
+                setText(e.target.value);
+                if (!listening) baseTextRef.current = e.target.value;
+              }}
+              placeholder={rating >= 4 ? "What stood out? (optional)" : "What would you like us to fix? (optional)"}
+              disabled={busy}
+              autoFocus={!speechOk}
+              className="flex-1"
+            />
+            {speechOk && (
+              <Button
+                type="button"
+                size="icon"
+                variant={listening ? "default" : "outline"}
+                disabled={busy}
+                onClick={() => (listening ? stopListening() : startListening())}
+                aria-label={listening ? "Stop listening" : "Speak your feedback"}
+                title={listening ? "Stop listening" : "Speak instead of typing"}
+                style={listening ? { backgroundColor: brand } : undefined}
+              >
+                {listening
+                  ? <MicOff className="h-4 w-4 animate-pulse" />
+                  : <Mic className="h-4 w-4" />}
+              </Button>
+            )}
+          </div>
+          {listening ? (
+            <p className="text-xs" style={{ color: brand }}>Listening… tap the mic when you're done.</p>
+          ) : speechOk ? (
+            <p className="text-xs text-muted-foreground">Or tap the mic and tell us in your own words.</p>
+          ) : null}
           <Button onClick={() => send(rating)} disabled={busy} className="w-full" style={{ backgroundColor: brand }}>
             {busy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null} Send
           </Button>
@@ -652,8 +797,8 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
   const [rated, setRated] = useState<Record<string, number>>({});
   const [comments, setComments] = useState<Record<string, string>>({});
   const [sent, setSent] = useState<Record<string, boolean>>({});
-  // Optimistic guest close-out: id → "confirmed" | "reopened" (before refetch).
-  const [resolved, setResolved] = useState<Record<string, "confirmed" | "reopened">>({});
+  // Optimistic guest close-out: id → "confirmed" | "reopened" | "cancelled".
+  const [resolved, setResolved] = useState<Record<string, "confirmed" | "reopened" | "cancelled">>({});
 
   useEffect(() => {
     fetchMyRequests(hotelSlug, roomId, token, sid).then(setReqs).catch(() => setReqs([]));
@@ -665,6 +810,17 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
       await confirmRequest({ hotelSlug, roomId, token, sessionId: sid, requestId: r.id });
     } catch {
       setResolved((p) => { const n = { ...p }; delete n[r.id]; return n; });
+    }
+  };
+
+  const cancelOpen = async (r: GuestRequest) => {
+    setResolved((p) => ({ ...p, [r.id]: "cancelled" }));
+    try {
+      await cancelRequest({ hotelSlug, roomId, token, sessionId: sid, requestId: r.id });
+      toast.success("Request cancelled — we've let the team know.");
+    } catch {
+      setResolved((p) => { const n = { ...p }; delete n[r.id]; return n; });
+      toast.error("Couldn't cancel that request. Please try again.");
     }
   };
 
@@ -717,10 +873,12 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
               const effStatus =
                 resolved[r.id] === "confirmed" ? "guest_confirmed"
                 : resolved[r.id] === "reopened" ? "reopened"
+                : resolved[r.id] === "cancelled" ? "cancelled"
                 : r.status;
               const awaitingConfirm = effStatus === "completed";
               const confirmed = effStatus === "guest_confirmed";
               const wasReopened = effStatus === "reopened";
+              const isOpen = ["new", "accepted", "in_progress", "on_the_way", "reopened"].includes(effStatus);
               return (
                 <div key={r.id} className="rounded-2xl border p-4 shadow-sm">
                   <div className="text-[15px] font-medium leading-snug">{r.summary}</div>
@@ -738,6 +896,19 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
                         <Button size="sm" variant="outline" onClick={() => reopen(r)}>Not yet</Button>
                       </div>
                     </div>
+                  )}
+
+                  {/* Guest can cancel an open request — team is notified. */}
+                  {isOpen && (
+                    <div className="mt-3">
+                      <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={() => cancelOpen(r)}>
+                        Cancel request
+                      </Button>
+                    </div>
+                  )}
+
+                  {effStatus === "cancelled" && (
+                    <p className="mt-3 text-xs text-muted-foreground">Cancelled. Ask again anytime if you still need help.</p>
                   )}
 
                   {wasReopened && (

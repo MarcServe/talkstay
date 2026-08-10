@@ -7,9 +7,11 @@ import { toast } from "sonner";
 import {
   Loader2, AlertTriangle, RefreshCw, MessageCircle, Send,
   UtensilsCrossed, BedDouble, Wrench, Wine, Shirt, ConciergeBell, KeyRound, ShieldAlert,
+  ArrowDownRight, ArrowUpRight, Clock3,
 } from "lucide-react";
 import { DEPARTMENTS, type Hotel } from "@/talkstay/lib/hotels";
 import { playChime } from "@/talkstay/lib/chime";
+import RequestDetailSheet from "@/talkstay/components/RequestDetailSheet";
 
 // Each department gets a distinct icon + soft tint, so staff can scan the
 // queue by shape/colour instead of reading every card's department label.
@@ -78,6 +80,19 @@ const FILTER_LABEL: Record<Filter, string> = {
   all: "All", new: "New", active: "Active", done: "Done", followup: "Follow-up",
 };
 
+type TimeRange = "24h" | "3d" | "7d" | "30d" | "all";
+const DAY_MS = 86_400_000;
+const HOUR_MS = 3_600_000;
+const TIME_RANGES: { id: TimeRange; short: string; ms: number | null }[] = [
+  { id: "24h", short: "24h", ms: 24 * HOUR_MS },
+  { id: "3d", short: "3d", ms: 3 * DAY_MS },
+  { id: "7d", short: "7d", ms: 7 * DAY_MS },
+  { id: "30d", short: "30d", ms: 30 * DAY_MS },
+  { id: "all", short: "All", ms: null },
+];
+/** Still-open statuses — never hidden by the time window. */
+const OPEN_STATUSES = ["new", "accepted", "in_progress", "on_the_way", "reopened", "escalated"];
+
 const OVERDUE_MIN = 5; // a 'new' request older than this is flagged overdue
 const minsSince = (iso: string) => (Date.now() - new Date(iso).getTime()) / 60000;
 
@@ -89,6 +104,8 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
   const [escalations, setEscalations] = useState<Record<string, { note: string | null; at: string }>>({});
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<Filter>("active");
+  // Cap history so Done/All don't drown the board; open work always stays visible.
+  const [timeRange, setTimeRange] = useState<TimeRange>("3d");
   // Department staff are hard-scoped to their own team's queue.
   const [dept, setDept] = useState<string>(lockedDepartment ?? "all");
   // Per-request "reply to guest" composer state.
@@ -100,18 +117,27 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
   // escalate_request updates an EXISTING row rather than creating a new one,
   // so it needs its own "is this genuinely new" tracking for the chime.
   const seenEscalations = useRef<Set<string> | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   // The queue this operator actually watches (locked team, or the dropdown).
   const watchedDept = lockedDepartment ?? dept;
   const watchedRef = useRef(watchedDept);
   watchedRef.current = watchedDept;
 
   const refresh = async () => {
-    const { data, error } = await supabase
+    const range = TIME_RANGES.find((r) => r.id === timeRange) ?? TIME_RANGES[1];
+    let q = supabase
       .from("ts_service_requests")
       .select("id, room_id, department_key, summary, summary_staff, status, priority, is_complaint, needs_triage, guest_language, created_at, ts_rooms(room_number)")
       .eq("hotel_id", hotel.id)
       .order("created_at", { ascending: false })
       .limit(200);
+    // Recent rows OR anything still open (so a stuck request never disappears).
+    if (range.ms != null) {
+      const sinceIso = new Date(Date.now() - range.ms).toISOString();
+      // Quote the ISO timestamp — colons break unquoted PostgREST .or() values.
+      q = q.or(`created_at.gte."${sinceIso}",status.in.(${OPEN_STATUSES.join(",")})`);
+    }
+    const { data, error } = await q;
     if (error) toast.error(error.message);
     const list = (data as any as Req[]) ?? [];
 
@@ -192,7 +218,7 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
       .subscribe();
     return () => { supabase.removeChannel(channel); };
     // eslint-disable-next-line
-  }, [hotel.id]);
+  }, [hotel.id, timeRange]);
 
   // Resolve the current user's display identity for this hotel: "Name · Department".
   const actorLabel = async (userId?: string, email?: string | null): Promise<string> => {
@@ -203,6 +229,8 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
     const nm = s?.name || email || "staff";
     return s?.department_key ? `${nm} · ${deptLabel(s.department_key)}` : nm;
   };
+
+  const TERMINAL = ["completed", "guest_confirmed", "cancelled"];
 
   const advance = async (r: Req, to: string) => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -217,6 +245,12 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
       request_id: r.id, status: to, actor_type: "staff", actor_id: user?.id ?? null,
       note: label,
     });
+    // Close-loop: guest is notified via DB trigger; alert the rest of the team.
+    if (to === "completed" || to === "cancelled") {
+      supabase.functions.invoke("talkstay-notify", {
+        body: { requestId: r.id, event: to },
+      }).then(() => {}, () => {});
+    }
     refresh();
   };
 
@@ -255,15 +289,22 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
 
   const inDept = (r: Req) => dept === "all" || r.department_key === dept;
 
+  const inTime = (r: Req) => {
+    const range = TIME_RANGES.find((t) => t.id === timeRange);
+    if (!range?.ms) return true;
+    if (OPEN_STATUSES.includes(r.status)) return true;
+    return new Date(r.created_at).getTime() >= Date.now() - range.ms;
+  };
+
   const filtered = useMemo(
-    () => reqs.filter((r) => inDept(r) && matchesFilter(r, filter)),
+    () => reqs.filter((r) => inDept(r) && inTime(r) && matchesFilter(r, filter)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [reqs, filter, dept, escalations]
+    [reqs, filter, dept, escalations, timeRange]
   );
 
-  // Counts shown on each pill reflect the current department scope.
+  // Counts shown on each pill reflect the current department + time scope.
   const counts = useMemo(() => {
-    const scoped = reqs.filter(inDept);
+    const scoped = reqs.filter((r) => inDept(r) && inTime(r));
     return {
       all: scoped.length,
       new: scoped.filter((r) => matchesFilter(r, "new")).length,
@@ -272,10 +313,179 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
       followup: scoped.filter((r) => matchesFilter(r, "followup")).length,
     } as Record<Filter, number>;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reqs, dept, escalations]);
+  }, [reqs, dept, escalations, timeRange]);
+
+  // Day-of BI for the ops board — scoped to the watched department.
+  const bi = useMemo(() => {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    const startMs = start.getTime();
+    const scoped = reqs.filter(inDept);
+    const today = scoped.filter((r) => new Date(r.created_at).getTime() >= startMs);
+    const active = scoped.filter((r) => !["completed", "guest_confirmed", "cancelled"].includes(r.status));
+    const completedToday = scoped.filter(
+      (r) => ["completed", "guest_confirmed"].includes(r.status) && new Date(r.created_at).getTime() >= startMs,
+    );
+    const acceptMins = today
+      .map((r) => {
+        const a = ack[r.id];
+        if (!a) return null;
+        return (new Date(a.at).getTime() - new Date(r.created_at).getTime()) / 60000;
+      })
+      .filter((n): n is number => n != null && n >= 0);
+    const avgAccept = acceptMins.length
+      ? acceptMins.reduce((a, b) => a + b, 0) / acceptMins.length
+      : null;
+    const byDept = new Map<string, number>();
+    for (const r of today) byDept.set(r.department_key, (byDept.get(r.department_key) ?? 0) + 1);
+    const deptRows = [...byDept.entries()]
+      .map(([key, count]) => ({ key, count, label: deptLabel(key) }))
+      .sort((a, b) => b.count - a.count);
+    const deptTotal = today.length || 1;
+    const fmtAvg = (min: number | null) => {
+      if (min == null) return "—";
+      if (min < 1) return "<1m";
+      if (min < 60) return `${Math.round(min)}m`;
+      const h = Math.floor(min / 60);
+      const m = Math.round(min % 60);
+      return m ? `${h}h ${m}m` : `${h}h`;
+    };
+    return {
+      totalToday: today.length,
+      inProgress: active.length,
+      completedToday: completedToday.length,
+      avgAcceptLabel: fmtAvg(avgAccept),
+      deptRows,
+      deptTotal,
+      live: active.slice(0, 6),
+      recent: scoped.slice(0, 6),
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reqs, dept, ack]);
 
   return (
     <div className="space-y-4">
+      {/* BI strip — today's pulse for the watched queue */}
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <div className="rounded-2xl border bg-card p-4 shadow-sm">
+          <div className="text-xs text-muted-foreground">Total requests today</div>
+          <div className="mt-1 text-2xl font-semibold">{bi.totalToday}</div>
+          <div className="mt-1 inline-flex items-center gap-1 text-xs text-muted-foreground">
+            <ArrowUpRight className="h-3.5 w-3.5 text-violet-600" /> live queue scope
+          </div>
+        </div>
+        <div className="rounded-2xl border bg-card p-4 shadow-sm">
+          <div className="text-xs text-muted-foreground">In progress</div>
+          <div className="mt-1 text-2xl font-semibold">{bi.inProgress}</div>
+          <div className="mt-1 text-xs text-violet-600">Active now</div>
+        </div>
+        <div className="rounded-2xl border bg-card p-4 shadow-sm">
+          <div className="text-xs text-muted-foreground">Completed today</div>
+          <div className="mt-1 text-2xl font-semibold">{bi.completedToday}</div>
+          <div className="mt-1 inline-flex items-center gap-1 text-xs text-green-600">
+            <ArrowDownRight className="h-3.5 w-3.5" /> closed same day
+          </div>
+        </div>
+        <div className="rounded-2xl border bg-card p-4 shadow-sm">
+          <div className="text-xs text-muted-foreground">Avg. time to accept</div>
+          <div className="mt-1 flex items-center gap-2 text-2xl font-semibold">
+            <Clock3 className="h-5 w-5 text-muted-foreground" />
+            {bi.avgAcceptLabel}
+          </div>
+          <div className="mt-1 text-xs text-muted-foreground">request → staff accepted</div>
+        </div>
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-3">
+        <div className="rounded-2xl border bg-card p-4 shadow-sm lg:col-span-1">
+          <h3 className="text-sm font-medium">Requests by department today</h3>
+          {bi.deptRows.length === 0 ? (
+            <p className="mt-3 text-sm text-muted-foreground">No requests yet today.</p>
+          ) : (
+            <ul className="mt-3 space-y-2.5">
+              {bi.deptRows.slice(0, 6).map((d) => {
+                const pct = Math.round((d.count / bi.deptTotal) * 100);
+                return (
+                  <li key={d.key}>
+                    <div className="mb-1 flex items-center justify-between text-xs">
+                      <span className="truncate font-medium">{d.label}</span>
+                      <span className="text-muted-foreground">{d.count} · {pct}%</span>
+                    </div>
+                    <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                      <div className="h-full rounded-full bg-violet-500" style={{ width: `${pct}%` }} />
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+
+        <div className="rounded-2xl border bg-card p-4 shadow-sm">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-medium">Recent requests</h3>
+            <button type="button" className="text-xs text-violet-600 hover:underline" onClick={() => setFilter("all")}>
+              View all
+            </button>
+          </div>
+          <ul className="mt-3 divide-y">
+            {bi.recent.length === 0 ? (
+              <li className="py-4 text-sm text-muted-foreground">Nothing yet.</li>
+            ) : bi.recent.map((r) => (
+              <li key={r.id}>
+                <button
+                  type="button"
+                  onClick={() => setSelectedId(r.id)}
+                  className="flex w-full items-start gap-2 py-2.5 text-left transition-colors hover:bg-muted/40"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{r.summary_staff || r.summary}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {deptLabel(r.department_key)} · {timeAgo(r.created_at)}
+                    </p>
+                  </div>
+                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] ${STATUS_STYLE[r.status] ?? "bg-muted"}`}>
+                    {r.status.replace(/_/g, " ")}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="rounded-2xl border bg-card p-4 shadow-sm">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-medium">Live requests</h3>
+            <button type="button" className="text-xs text-violet-600 hover:underline" onClick={() => setFilter("active")}>
+              View all
+            </button>
+          </div>
+          <ul className="mt-3 divide-y">
+            {bi.live.length === 0 ? (
+              <li className="py-4 text-sm text-muted-foreground">Queue is clear.</li>
+            ) : bi.live.map((r) => (
+              <li key={r.id}>
+                <button
+                  type="button"
+                  onClick={() => setSelectedId(r.id)}
+                  className="flex w-full items-center gap-3 py-2.5 text-left transition-colors hover:bg-muted/40"
+                >
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-xs font-semibold text-violet-700">
+                    {r.ts_rooms?.room_number ?? "—"}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">Room {r.ts_rooms?.room_number ?? "—"}</p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {deptLabel(r.department_key)} · {timeAgo(r.created_at)}
+                    </p>
+                  </div>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-1.5">
           {(["all", "new", "active", "done", "followup"] as Filter[]).map((f) => {
@@ -294,7 +504,21 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
             );
           })}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex rounded-lg border bg-background p-0.5" title="How far back to show closed requests">
+            {TIME_RANGES.map((r) => (
+              <button
+                key={r.id}
+                type="button"
+                onClick={() => setTimeRange(r.id)}
+                className={`rounded-md px-2 py-1 text-xs font-medium transition-colors ${
+                  timeRange === r.id ? "bg-violet-600 text-white" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {r.short}
+              </button>
+            ))}
+          </div>
           {lockedDepartment ? (
             <Badge variant="secondary" className="px-2 py-1">{deptLabel(lockedDepartment)}</Badge>
           ) : (
@@ -324,7 +548,11 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
             return (
               <div key={r.id} className={`rounded-2xl border bg-card p-4 shadow-sm ${
                 r.is_complaint || overdue ? "border-red-400/50 bg-red-500/5" : ""}`}>
-                <div className="flex items-start justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={() => setSelectedId(r.id)}
+                  className="flex w-full items-start justify-between gap-3 rounded-xl text-left transition-colors hover:bg-muted/30"
+                >
                   <div className={`hidden h-11 w-11 shrink-0 items-center justify-center rounded-xl sm:flex ${visual.tint}`}>
                     <DeptIcon className="h-5 w-5" />
                   </div>
@@ -348,6 +576,7 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
                     )}
                     <p className="mt-1 text-xs text-muted-foreground">
                       {timeAgo(r.created_at)}{r.guest_language ? ` · ${r.guest_language}` : ""}
+                      <span className="ml-2 text-violet-600">View details</span>
                     </p>
                     {acked && (
                       <p className="mt-1 text-xs text-green-600">✓ Accepted by {acked.by} · {timeAgo(acked.at)}</p>
@@ -361,16 +590,22 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
                   <span className={`whitespace-nowrap rounded-full px-2 py-1 text-xs ${STATUS_STYLE[r.status] ?? "bg-muted"}`}>
                     {r.status.replace(/_/g, " ")}
                   </span>
-                </div>
-                <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+                </button>
+                <div className="mt-3 flex flex-wrap items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>
+                  <Button size="sm" variant="ghost" onClick={() => setSelectedId(r.id)}>
+                    <MessageCircle className="mr-1 h-4 w-4" /> Open
+                  </Button>
                   <Button size="sm" variant="ghost" onClick={() => setReplyOpen((p) => ({ ...p, [r.id]: !p[r.id] }))}>
                     <MessageCircle className="mr-1 h-4 w-4" /> Reply
                   </Button>
                   {overdue && r.priority !== "urgent" && (
                     <Button size="sm" variant="outline" className="text-red-600" onClick={() => escalate(r)}>Escalate</Button>
                   )}
-                  {next && r.status !== "new" && (
+                  {!TERMINAL.includes(r.status) && (
                     <Button size="sm" variant="ghost" onClick={() => advance(r, "cancelled")}>Cancel</Button>
+                  )}
+                  {!TERMINAL.includes(r.status) && r.status !== "on_the_way" && (
+                    <Button size="sm" variant="outline" onClick={() => advance(r, "completed")}>Mark complete</Button>
                   )}
                   {next && <Button size="sm" onClick={() => advance(r, next.to)}>{next.label}</Button>}
                 </div>
@@ -394,6 +629,13 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
           })}
         </div>
       )}
+
+      <RequestDetailSheet
+        requestId={selectedId}
+        open={!!selectedId}
+        onOpenChange={(o) => { if (!o) setSelectedId(null); }}
+        onChanged={refresh}
+      />
     </div>
   );
 }

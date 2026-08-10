@@ -3,12 +3,32 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import {
   Loader2, MessageSquare, Users, HelpCircle, ClipboardList, CheckCircle2, Star, Timer,
-  Heart, TrendingDown, TrendingUp, Minus, BellRing,
+  Heart, TrendingDown, TrendingUp, Minus, BellRing, X, Printer, Download,
 } from "lucide-react";
+import {
+  ResponsiveContainer, AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+} from "recharts";
+import { Button } from "@/components/ui/button";
 import { DEPARTMENTS, type Hotel } from "@/talkstay/lib/hotels";
+import RequestDetailSheet from "@/talkstay/components/RequestDetailSheet";
+import { exportToCSV } from "@/utils/exportAnalytics";
+
+const CHART_COLORS = ["#7c3aed", "#6366f1", "#0ea5e9", "#10b981", "#f59e0b", "#f43f5e", "#8b5cf6", "#64748b"];
+
+type TimeRange = "24h" | "3d" | "7d" | "30d" | "90d";
+const DAY_MS = 86_400_000;
+const HOUR_MS = 3_600_000;
+const TIME_RANGES: { id: TimeRange; label: string; short: string; ms: number }[] = [
+  { id: "24h", label: "24 hours", short: "24h", ms: 24 * HOUR_MS },
+  { id: "3d", label: "3 days", short: "3d", ms: 3 * DAY_MS },
+  { id: "7d", label: "7 days", short: "7d", ms: 7 * DAY_MS },
+  { id: "30d", label: "30 days", short: "30d", ms: 30 * DAY_MS },
+  { id: "90d", label: "90 days", short: "90d", ms: 90 * DAY_MS },
+];
 
 interface Interaction { session_id: string | null; role: string; content: string | null; intent: string | null; language: string | null; created_at: string; }
-interface Req { id: string; room_id: string | null; department_key: string; summary: string; status: string; is_complaint: boolean; classification_method: string | null; created_at: string; updated_at: string; ts_rooms?: { room_number: string } | null; }
+interface Req { id: string; room_id: string | null; department_key: string; summary: string; status: string; is_complaint: boolean; classification_method: string | null; session_id: string | null; created_at: string; updated_at: string; ts_rooms?: { room_number: string } | null; }
 interface Ev { request_id: string; status: string; note: string | null; created_at: string; }
 interface Pulse {
   id: string; body: string; rating: number | null; sentiment: string; severity: string;
@@ -17,7 +37,6 @@ interface Pulse {
   ts_rooms?: { room_number: string } | null;
 }
 
-const DAY_MS = 86_400_000;
 const PERIOD_DAYS = 30;
 
 const SENTIMENT_STYLE: Record<string, string> = {
@@ -74,17 +93,31 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
   const [ratings, setRatings] = useState<{ request_id: string; rating: number; comment: string | null }[]>([]);
   const [pulses, setPulses] = useState<Pulse[]>([]);
   const [loading, setLoading] = useState(true);
-  const [drill, setDrill] = useState<Drill>("completed");
+  const [drill, setDrill] = useState<Drill>("requests");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [timeRange, setTimeRange] = useState<TimeRange>("7d");
+  // Clickable chart filters — managers drill from a slice into the table below.
+  const [deptFilter, setDeptFilter] = useState<string | null>(null);
+  const [dayFilter, setDayFilter] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<string | null>(null);
+
+  const rangeMeta = TIME_RANGES.find((r) => r.id === timeRange) ?? TIME_RANGES[2];
+  const sinceMs = Date.now() - rangeMeta.ms;
 
   useEffect(() => {
     (async () => {
       setLoading(true);
+      const sinceIso = new Date(Date.now() - rangeMeta.ms).toISOString();
       const [{ data: ix }, { data: rq }, { data: rv }, { data: pl }] = await Promise.all([
         supabase.from("ts_interactions").select("session_id, role, content, intent, language, created_at")
-          .eq("hotel_id", hotel.id).order("created_at", { ascending: false }).limit(1000),
+          .eq("hotel_id", hotel.id)
+          .gte("created_at", sinceIso)
+          .order("created_at", { ascending: false }).limit(1000),
         supabase.from("ts_service_requests")
-          .select("id, room_id, department_key, summary, status, is_complaint, classification_method, created_at, updated_at, ts_rooms(room_number)")
-          .eq("hotel_id", hotel.id).order("created_at", { ascending: false }).limit(500),
+          .select("id, room_id, department_key, summary, status, is_complaint, classification_method, session_id, created_at, updated_at, ts_rooms(room_number)")
+          .eq("hotel_id", hotel.id)
+          .gte("created_at", sinceIso)
+          .order("created_at", { ascending: false }).limit(500),
         supabase.from("ts_request_reviews").select("request_id, rating, comment").eq("hotel_id", hotel.id).limit(1000),
         // Two full periods so "this month vs last month" is always computable.
         supabase.from("ts_guest_pulse")
@@ -106,7 +139,7 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
       } else setEvents([]);
       setLoading(false);
     })();
-  }, [hotel.id]);
+  }, [hotel.id, timeRange, rangeMeta.ms]);
 
   // Per-request audit model with timings.
   const audit = useMemo(() => {
@@ -120,8 +153,10 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
       const done = firstEvent(r.id, ["completed", "guest_confirmed"]);
       const doneAt = done ? new Date(done.created_at).getTime()
         : (["completed", "guest_confirmed"].includes(r.status) ? new Date(r.updated_at).getTime() : null);
+      const dayKey = r.created_at.slice(0, 10);
       return {
         ...r,
+        dayKey,
         room: r.ts_rooms?.room_number ?? "—",
         acceptedAt: acc?.created_at ?? null,
         acceptedBy: acc?.note ?? null,
@@ -135,23 +170,133 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
     });
   }, [reqs, events, ratings]);
 
+  const rangedAudit = useMemo(
+    () => audit.filter((a) => new Date(a.created_at).getTime() >= sinceMs),
+    [audit, sinceMs],
+  );
+  const rangedRows = useMemo(
+    () => rows.filter((r) => new Date(r.created_at).getTime() >= sinceMs),
+    [rows, sinceMs],
+  );
+  const rangedRatings = useMemo(() => {
+    const ids = new Set(rangedAudit.map((a) => a.id));
+    return ratings.filter((r) => ids.has(r.request_id));
+  }, [ratings, rangedAudit]);
+
   const m = useMemo(() => {
-    const guestTurns = rows.filter((r) => r.role === "guest");
+    const guestTurns = rangedRows.filter((r) => r.role === "guest");
     const sessions = new Set(guestTurns.map((r) => r.session_id).filter(Boolean));
     const questions = guestTurns.filter((r) => r.intent === "question").length;
-    const doneRows = audit.filter((a) => a.isDone);
-    const completion = reqs.length ? Math.round((doneRows.length / reqs.length) * 100) : 0;
-    const avg = ratings.length ? ratings.reduce((a, b) => a + b.rating, 0) / ratings.length : 0;
-    const acceptTimes = audit.map((a) => a.toAcceptMin).filter((n): n is number => n != null && n >= 0);
+    const doneRows = rangedAudit.filter((a) => a.isDone);
+    const completion = rangedAudit.length ? Math.round((doneRows.length / rangedAudit.length) * 100) : 0;
+    const avg = rangedRatings.length ? rangedRatings.reduce((a, b) => a + b.rating, 0) / rangedRatings.length : 0;
+    const acceptTimes = rangedAudit.map((a) => a.toAcceptMin).filter((n): n is number => n != null && n >= 0);
     const completeTimes = doneRows.map((a) => a.toCompleteMin).filter((n): n is number => n != null && n >= 0);
     const avgAccept = acceptTimes.length ? acceptTimes.reduce((a, b) => a + b, 0) / acceptTimes.length : null;
     const avgComplete = completeTimes.length ? completeTimes.reduce((a, b) => a + b, 0) / completeTimes.length : null;
     return {
       guests: sessions.size, conversations: guestTurns.length, questions,
-      requestsTotal: reqs.length, done: doneRows.length, completion, avg, avgAccept, avgComplete,
+      requestsTotal: rangedAudit.length, done: doneRows.length, completion, avg, avgAccept, avgComplete,
       feed: guestTurns,
     };
-  }, [rows, audit, reqs, ratings]);
+  }, [rangedRows, rangedAudit, rangedRatings]);
+
+  /** Chart series for the BI board — click any slice to filter the table. */
+  const charts = useMemo(() => {
+    const hourly = timeRange === "24h";
+    const byBucket = new Map<string, { day: string; label: string; requests: number; completed: number }>();
+    if (hourly) {
+      for (let i = 23; i >= 0; i--) {
+        const d = new Date(Date.now() - i * HOUR_MS);
+        const key = d.toISOString().slice(0, 13); // YYYY-MM-DDTHH
+        byBucket.set(key, {
+          day: key,
+          label: d.toLocaleTimeString(undefined, { hour: "numeric" }),
+          requests: 0,
+          completed: 0,
+        });
+      }
+    } else {
+      const days = Math.max(1, Math.round(rangeMeta.ms / DAY_MS));
+      for (let i = days - 1; i >= 0; i--) {
+        const d = new Date(Date.now() - i * DAY_MS);
+        const key = d.toISOString().slice(0, 10);
+        byBucket.set(key, {
+          day: key,
+          label: d.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+          requests: 0,
+          completed: 0,
+        });
+      }
+    }
+    const byDept = new Map<string, number>();
+    const byStatus = new Map<string, number>();
+    for (const a of rangedAudit) {
+      const key = hourly ? a.created_at.slice(0, 13) : a.dayKey;
+      const bucket = byBucket.get(key);
+      if (bucket) {
+        bucket.requests += 1;
+        if (a.isDone) bucket.completed += 1;
+      }
+      byDept.set(a.department_key, (byDept.get(a.department_key) ?? 0) + 1);
+      byStatus.set(a.status, (byStatus.get(a.status) ?? 0) + 1);
+    }
+    const deptPie = [...byDept.entries()]
+      .map(([key, value]) => ({ key, name: deptLabel(key), value }))
+      .sort((a, b) => b.value - a.value);
+    const statusBars = [...byStatus.entries()]
+      .map(([key, value]) => ({ key, name: key.replace(/_/g, " "), value }))
+      .sort((a, b) => b.value - a.value);
+    const ratingDist = [1, 2, 3, 4, 5].map((star) => ({
+      star: `${star}★`,
+      value: rangedRatings.filter((r) => r.rating === star).length,
+    }));
+    return {
+      volume: [...byBucket.values()],
+      deptPie,
+      statusBars,
+      ratingDist,
+      hourly,
+    };
+  }, [rangedAudit, rangedRatings, timeRange, rangeMeta.ms]);
+
+  const filteredAudit = useMemo(() => {
+    let rows = rangedAudit;
+    if (deptFilter) rows = rows.filter((r) => r.department_key === deptFilter);
+    if (dayFilter) rows = rows.filter((r) => r.created_at.startsWith(dayFilter) || r.dayKey === dayFilter);
+    if (statusFilter) rows = rows.filter((r) => r.status === statusFilter);
+    if (drill === "completed") rows = rows.filter((r) => r.isDone);
+    return rows;
+  }, [rangedAudit, deptFilter, dayFilter, statusFilter, drill]);
+
+  const clearChartFilters = () => {
+    setDeptFilter(null);
+    setDayFilter(null);
+    setStatusFilter(null);
+  };
+
+  const saveCsv = () => {
+    const rows = filteredAudit.map((a) => ({
+      Room: a.room,
+      Department: deptLabel(a.department_key),
+      Request: a.summary,
+      Status: a.status,
+      Created: fmtWhen(a.created_at),
+      "To accept": fmtDur(a.toAcceptMin),
+      "To complete": fmtDur(a.toCompleteMin),
+      "Handled by": a.acceptedBy ?? "",
+      Rating: a.rating ?? "",
+      Comment: a.comment ?? "",
+      Complaint: a.is_complaint ? "yes" : "",
+    }));
+    if (!rows.length) {
+      toast.error("Nothing to save for this range and filter.");
+      return;
+    }
+    const slug = (hotel.slug || hotel.name || "property").replace(/\s+/g, "-").toLowerCase();
+    exportToCSV(rows, `talkstay-${slug}-insights-${timeRange}`);
+    toast.success(`Saved ${rows.length} request rows as CSV.`);
+  };
 
   // Improvement tracking: the same issue, this period vs the one before it.
   // Counting complaints is easy; showing whether they went DOWN is the point.
@@ -217,53 +362,258 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
     return <div className="flex items-center gap-2 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading insights…</div>;
   }
 
+  const hasChartFilter = !!(deptFilter || dayFilter || statusFilter);
+
   return (
     <div className="space-y-6">
-      <p className="text-sm text-muted-foreground">
-        Every interaction is measured here. Click any card to audit the underlying records — see who handled each request and exactly how long it took.
-      </p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="text-base font-semibold tracking-tight">Analytics board</h2>
+          <p className="text-sm text-muted-foreground">
+            Click any KPI, bar, or pie slice to filter the records below.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 print:hidden">
+          <div className="flex flex-wrap rounded-lg border bg-background p-0.5">
+            {TIME_RANGES.map((r) => (
+              <button
+                key={r.id}
+                type="button"
+                onClick={() => { setTimeRange(r.id); clearChartFilters(); }}
+                className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                  timeRange === r.id ? "bg-violet-600 text-white" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {r.short}
+              </button>
+            ))}
+          </div>
+          <Button size="sm" variant="outline" onClick={saveCsv}>
+            <Download className="mr-1.5 h-3.5 w-3.5" /> Save CSV
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => window.print()}>
+            <Printer className="mr-1.5 h-3.5 w-3.5" /> Print
+          </Button>
+        </div>
+      </div>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-        <Stat icon={Users} label="Guests engaged" value={m.guests} sub="unique device sessions" active={drill === "conversations"} onClick={() => setDrill("conversations")} />
-        <Stat icon={MessageSquare} label="Conversations" value={m.conversations} sub="guest messages" active={drill === "conversations"} onClick={() => setDrill("conversations")} />
-        <Stat icon={HelpCircle} label="Questions answered" value={m.questions} active={drill === "questions"} onClick={() => setDrill("questions")} />
-        <Stat icon={ClipboardList} label="Requests" value={m.requestsTotal} active={drill === "requests"} onClick={() => setDrill("requests")} />
-        <Stat icon={CheckCircle2} label="Completed" value={`${m.done} · ${m.completion}%`} active={drill === "completed"} onClick={() => setDrill("completed")} />
-        <Stat icon={Star} label="Avg rating" value={m.avg ? m.avg.toFixed(1) : "—"} sub={m.avg ? `${ratings.length} reviews` : "no reviews yet"} active={drill === "ratings"} onClick={() => setDrill("ratings")} />
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
+        <Stat icon={Users} label="Guests engaged" value={m.guests} sub={`last ${rangeMeta.label}`} active={drill === "conversations"} onClick={() => { clearChartFilters(); setDrill("conversations"); }} />
+        <Stat icon={MessageSquare} label="Conversations" value={m.conversations} sub="guest messages" active={drill === "conversations"} onClick={() => { clearChartFilters(); setDrill("conversations"); }} />
+        <Stat icon={HelpCircle} label="Questions answered" value={m.questions} active={drill === "questions"} onClick={() => { clearChartFilters(); setDrill("questions"); }} />
+        <Stat icon={ClipboardList} label="Requests" value={m.requestsTotal} active={drill === "requests"} onClick={() => { clearChartFilters(); setDrill("requests"); }} />
+        <Stat icon={CheckCircle2} label="Completed" value={`${m.done} · ${m.completion}%`} active={drill === "completed"} onClick={() => { clearChartFilters(); setDrill("completed"); }} />
+        <Stat icon={Star} label="Avg rating" value={m.avg ? m.avg.toFixed(1) : "—"} sub={m.avg ? `${rangedRatings.length} reviews` : "no reviews yet"} active={drill === "ratings"} onClick={() => { clearChartFilters(); setDrill("ratings"); }} />
         <Stat
           icon={Heart} label="Caught during the stay"
           value={pulse.caughtInStay}
           sub={`of ${pulse.current.length} pulse checks · last ${PERIOD_DAYS} days`}
-          active={drill === "pulse"} onClick={() => setDrill("pulse")}
+          active={drill === "pulse"} onClick={() => { clearChartFilters(); setDrill("pulse"); }}
         />
+        <Stat icon={Timer} label="Avg accept / complete" value={`${fmtDur(m.avgAccept)} · ${fmtDur(m.avgComplete)}`} sub="request → accept → done" />
       </div>
 
-      {/* Headline comparison band */}
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="rounded-2xl border bg-muted/30 p-4">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground"><Timer className="h-4 w-4" /> Avg time to accept</div>
-          <div className="mt-1 text-2xl font-semibold">{fmtDur(m.avgAccept)}</div>
-          <div className="text-xs text-muted-foreground">from request → staff accepted</div>
+      {/* Interactive BI charts */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="rounded-2xl border bg-card p-4 shadow-sm">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <div>
+              <h3 className="text-sm font-medium">Request volume</h3>
+              <p className="text-xs text-muted-foreground">
+                {charts.hourly ? "Click an hour to filter the table" : "Click a day to filter the table"}
+              </p>
+            </div>
+          </div>
+          <div className="h-56">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart
+                data={charts.volume}
+                margin={{ top: 8, right: 8, left: -16, bottom: 0 }}
+                style={{ cursor: "pointer" }}
+                onClick={(state: any) => {
+                  const day = state?.activePayload?.[0]?.payload?.day as string | undefined;
+                  if (!day) return;
+                  setDayFilter(day); setDeptFilter(null); setStatusFilter(null); setDrill("requests");
+                }}
+              >
+                <defs>
+                  <linearGradient id="tsVol" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#7c3aed" stopOpacity={0.35} />
+                    <stop offset="100%" stopColor="#7c3aed" stopOpacity={0.02} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                <XAxis dataKey="label" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
+                <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                <Tooltip />
+                <Legend />
+                <Area type="monotone" dataKey="requests" name="Requests" stroke="#7c3aed" fill="url(#tsVol)" strokeWidth={2} />
+                <Area type="monotone" dataKey="completed" name="Completed" stroke="#10b981" fill="transparent" strokeWidth={2} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
         </div>
-        <div className="rounded-2xl border bg-muted/30 p-4">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground"><CheckCircle2 className="h-4 w-4" /> Avg time to complete</div>
-          <div className="mt-1 text-2xl font-semibold">{fmtDur(m.avgComplete)}</div>
-          <div className="text-xs text-muted-foreground">from request → completed</div>
+
+        <div className="rounded-2xl border bg-card p-4 shadow-sm">
+          <div className="mb-3">
+            <h3 className="text-sm font-medium">By department</h3>
+            <p className="text-xs text-muted-foreground">Click a slice to open that team’s requests</p>
+          </div>
+          <div className="h-56">
+            {charts.deptPie.length === 0 ? (
+              <p className="flex h-full items-center justify-center text-sm text-muted-foreground">No requests in this range.</p>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={charts.deptPie}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={48}
+                    outerRadius={78}
+                    paddingAngle={2}
+                    cursor="pointer"
+                    onClick={(entry: any) => {
+                      const key = entry?.key ?? entry?.payload?.key;
+                      if (!key) return;
+                      setDeptFilter(key); setDayFilter(null); setStatusFilter(null); setDrill("requests");
+                    }}
+                  >
+                    {charts.deptPie.map((_, i) => (
+                      <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]}
+                        opacity={!deptFilter || charts.deptPie[i].key === deptFilter ? 1 : 0.35} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                </PieChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border bg-card p-4 shadow-sm">
+          <div className="mb-3">
+            <h3 className="text-sm font-medium">Status mix</h3>
+            <p className="text-xs text-muted-foreground">Click a bar to filter by status</p>
+          </div>
+          <div className="h-56">
+            {charts.statusBars.length === 0 ? (
+              <p className="flex h-full items-center justify-center text-sm text-muted-foreground">No status data yet.</p>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={charts.statusBars} layout="vertical" margin={{ top: 4, right: 12, left: 8, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-border" horizontal={false} />
+                  <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
+                  <YAxis type="category" dataKey="name" width={88} tick={{ fontSize: 11 }} />
+                  <Tooltip />
+                  <Bar
+                    dataKey="value" name="Requests" radius={[0, 6, 6, 0]} cursor="pointer"
+                    onClick={(entry: any) => {
+                      const key = entry?.key ?? entry?.payload?.key;
+                      if (!key) return;
+                      setStatusFilter(key); setDeptFilter(null); setDayFilter(null); setDrill("requests");
+                    }}
+                  >
+                    {charts.statusBars.map((s, i) => (
+                      <Cell key={s.key} fill={CHART_COLORS[i % CHART_COLORS.length]}
+                        opacity={!statusFilter || s.key === statusFilter ? 1 : 0.35} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border bg-card p-4 shadow-sm">
+          <div className="mb-3">
+            <h3 className="text-sm font-medium">Guest ratings</h3>
+            <p className="text-xs text-muted-foreground">Star distribution — click Reviews KPI for detail</p>
+          </div>
+          <div className="h-56">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={charts.ratingDist} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                <XAxis dataKey="star" tick={{ fontSize: 11 }} />
+                <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                <Tooltip />
+                <Bar
+                  dataKey="value" name="Reviews" fill="#f59e0b" radius={[6, 6, 0, 0]} cursor="pointer"
+                  onClick={() => { clearChartFilters(); setDrill("ratings"); }}
+                />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
         </div>
       </div>
 
       <ImprovementTracker pulse={pulse} />
 
+      {(hasChartFilter || drill === "requests" || drill === "completed") && (
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span className="text-muted-foreground">Showing:</span>
+          {dayFilter && (
+            <button type="button" onClick={() => setDayFilter(null)}
+              className="inline-flex items-center gap-1 rounded-full bg-violet-100 px-2.5 py-1 font-medium text-violet-700">
+              Day {new Date(dayFilter).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+              <X className="h-3 w-3" />
+            </button>
+          )}
+          {deptFilter && (
+            <button type="button" onClick={() => setDeptFilter(null)}
+              className="inline-flex items-center gap-1 rounded-full bg-violet-100 px-2.5 py-1 font-medium text-violet-700">
+              {deptLabel(deptFilter)}
+              <X className="h-3 w-3" />
+            </button>
+          )}
+          {statusFilter && (
+            <button type="button" onClick={() => setStatusFilter(null)}
+              className="inline-flex items-center gap-1 rounded-full bg-violet-100 px-2.5 py-1 font-medium text-violet-700">
+              {statusFilter.replace(/_/g, " ")}
+              <X className="h-3 w-3" />
+            </button>
+          )}
+          {hasChartFilter && (
+            <button type="button" onClick={clearChartFilters} className="text-muted-foreground underline hover:text-foreground">
+              Clear filters
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Drill-down */}
       {(drill === "requests" || drill === "completed") ? (
-        <AuditTable rows={drill === "completed" ? audit.filter((a) => a.isDone) : audit} />
+        <AuditTable
+          rows={filteredAudit}
+          onOpen={(id) => setSelectedId(id)}
+        />
       ) : drill === "ratings" ? (
-        <ReviewsList audit={audit.filter((a) => a.rating != null)} />
+        <ReviewsList
+          audit={rangedAudit.filter((a) => a.rating != null)}
+          onOpen={(id) => setSelectedId(id)}
+        />
       ) : drill === "pulse" ? (
-        <PulseFeed pulses={pulse.all} onAcknowledge={acknowledge} />
+        <PulseFeed
+          pulses={pulse.all}
+          onAcknowledge={acknowledge}
+          onOpenRequest={(id) => setSelectedId(id)}
+        />
       ) : (
-        <ActivityFeed feed={drill === "questions" ? m.feed.filter((f) => f.intent === "question") : m.feed} />
+        <ActivityFeed
+          feed={drill === "questions" ? m.feed.filter((f) => f.intent === "question") : m.feed}
+          requests={reqs}
+          onOpen={(id) => setSelectedId(id)}
+        />
       )}
+
+      <RequestDetailSheet
+        requestId={selectedId}
+        open={!!selectedId}
+        onOpenChange={(o) => { if (!o) setSelectedId(null); }}
+      />
     </div>
   );
 }
@@ -339,14 +689,23 @@ function ImprovementTracker({ pulse }: { pulse: any }) {
   );
 }
 
-function PulseFeed({ pulses, onAcknowledge }: { pulses: Pulse[]; onAcknowledge: (id: string) => void }) {
+function PulseFeed({ pulses, onAcknowledge, onOpenRequest }: {
+  pulses: Pulse[];
+  onAcknowledge: (id: string) => void;
+  onOpenRequest: (requestId: string) => void;
+}) {
   if (pulses.length === 0) return <p className="text-sm text-muted-foreground">No pulse checks yet.</p>;
   return (
     <div>
       <h3 className="mb-2 text-sm font-medium">What guests told us ({pulses.length})</h3>
       <div className="space-y-3">
         {pulses.slice(0, 60).map((p) => (
-          <div key={p.id} className="rounded-2xl border p-4">
+          <div
+            key={p.id}
+            className={`rounded-2xl border p-4 ${p.request_id ? "cursor-pointer transition-colors hover:border-violet-300 hover:bg-muted/30" : ""}`}
+            onClick={() => { if (p.request_id) onOpenRequest(p.request_id); }}
+            role={p.request_id ? "button" : undefined}
+          >
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <span className={`rounded-full px-2 py-0.5 ${SENTIMENT_STYLE[p.sentiment] ?? SENTIMENT_STYLE.neutral}`}>{p.sentiment}</span>
               {p.sentiment === "negative" && (
@@ -360,13 +719,17 @@ function PulseFeed({ pulses, onAcknowledge }: { pulses: Pulse[]; onAcknowledge: 
             <div className="mt-2 flex items-center gap-3 text-xs">
               {p.request_id && (
                 <span className="inline-flex items-center gap-1 text-violet-600">
-                  <BellRing className="h-3.5 w-3.5" /> Raised to a manager during the stay
+                  <BellRing className="h-3.5 w-3.5" /> Raised to a manager — click to open
                 </span>
               )}
               {p.acknowledged_at ? (
                 <span className="text-muted-foreground">Acknowledged</span>
               ) : (
-                <button onClick={() => onAcknowledge(p.id)} className="text-muted-foreground underline hover:text-foreground">
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); onAcknowledge(p.id); }}
+                  className="text-muted-foreground underline hover:text-foreground"
+                >
                   Mark as seen
                 </button>
               )}
@@ -378,7 +741,7 @@ function PulseFeed({ pulses, onAcknowledge }: { pulses: Pulse[]; onAcknowledge: 
   );
 }
 
-function AuditTable({ rows }: { rows: any[] }) {
+function AuditTable({ rows, onOpen }: { rows: any[]; onOpen: (id: string) => void }) {
   if (rows.length === 0) return <p className="text-sm text-muted-foreground">No requests yet.</p>;
   return (
     <div>
@@ -395,10 +758,14 @@ function AuditTable({ rows }: { rows: any[] }) {
           </thead>
           <tbody>
             {rows.map((r) => (
-              <tr key={r.id} className="border-t align-top">
+              <tr
+                key={r.id}
+                className="cursor-pointer border-t align-top transition-colors hover:bg-muted/40"
+                onClick={() => onOpen(r.id)}
+              >
                 <td className="px-3 py-2 font-medium">{r.room}</td>
                 <td className="px-3 py-2 text-muted-foreground">{deptLabel(r.department_key)}</td>
-                <td className="px-3 py-2 max-w-[220px] truncate">{r.summary}{r.is_complaint ? " ⚠️" : ""}</td>
+                <td className="px-3 py-2 max-w-[220px] truncate text-violet-700">{r.summary}{r.is_complaint ? " ⚠️" : ""}</td>
                 <td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 text-xs ${STATUS_STYLE[r.status] ?? "bg-muted"}`}>{r.status.replace(/_/g, " ")}</span></td>
                 <td className="px-3 py-2 whitespace-nowrap text-xs text-muted-foreground">{fmtWhen(r.created_at)}</td>
                 <td className="px-3 py-2 whitespace-nowrap">{fmtDur(r.toAcceptMin)}</td>
@@ -414,14 +781,19 @@ function AuditTable({ rows }: { rows: any[] }) {
   );
 }
 
-function ReviewsList({ audit }: { audit: any[] }) {
+function ReviewsList({ audit, onOpen }: { audit: any[]; onOpen: (id: string) => void }) {
   if (audit.length === 0) return <p className="text-sm text-muted-foreground">No reviews yet.</p>;
   return (
     <div>
       <h3 className="mb-2 text-sm font-medium">Reviews ({audit.length})</h3>
       <div className="divide-y rounded-2xl border">
         {audit.map((r) => (
-          <div key={r.id} className="px-4 py-2.5 text-sm">
+          <button
+            type="button"
+            key={r.id}
+            onClick={() => onOpen(r.id)}
+            className="block w-full px-4 py-2.5 text-left text-sm transition-colors hover:bg-muted/40"
+          >
             <div className="flex items-center justify-between">
               <span className="min-w-0 flex-1 truncate">Room {r.room} · {r.summary}</span>
               <span className="ml-3 whitespace-nowrap text-yellow-500">{"★".repeat(r.rating)}</span>
@@ -431,26 +803,48 @@ function ReviewsList({ audit }: { audit: any[] }) {
                 “{r.comment}”
               </p>
             )}
-          </div>
+          </button>
         ))}
       </div>
     </div>
   );
 }
 
-function ActivityFeed({ feed }: { feed: Interaction[] }) {
+function ActivityFeed({ feed, requests, onOpen }: {
+  feed: Interaction[];
+  requests: Req[];
+  onOpen: (id: string) => void;
+}) {
   if (feed.length === 0) return <p className="text-sm text-muted-foreground">No activity yet.</p>;
+  // Newest request wins for a given guest session.
+  const bySession = new Map<string, string>();
+  for (const r of requests) {
+    if (r.session_id && !bySession.has(r.session_id)) bySession.set(r.session_id, r.id);
+  }
+
   return (
     <div>
       <h3 className="mb-2 text-sm font-medium">Conversations ({feed.length})</h3>
+      <p className="mb-2 text-xs text-muted-foreground">Click a message that became a request to open the full dossier.</p>
       <div className="divide-y rounded-2xl border">
-        {feed.slice(0, 60).map((r, i) => (
-          <div key={i} className="flex items-center gap-3 px-4 py-2.5 text-sm">
-            <span className={`rounded-full px-2 py-0.5 text-xs ${INTENT_STYLE[r.intent ?? "other"] ?? INTENT_STYLE.other}`}>{r.intent ?? "other"}</span>
-            <span className="min-w-0 flex-1 truncate text-muted-foreground">{r.content}</span>
-            <span className="whitespace-nowrap text-xs text-muted-foreground">{fmtWhen(r.created_at)}</span>
-          </div>
-        ))}
+        {feed.slice(0, 60).map((r, i) => {
+          const rid = r.session_id ? bySession.get(r.session_id) ?? null : null;
+          return (
+            <button
+              type="button"
+              key={i}
+              disabled={!rid}
+              onClick={() => { if (rid) onOpen(rid); }}
+              className={`flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm ${
+                rid ? "cursor-pointer transition-colors hover:bg-muted/40" : "cursor-default opacity-90"
+              }`}
+            >
+              <span className={`rounded-full px-2 py-0.5 text-xs ${INTENT_STYLE[r.intent ?? "other"] ?? INTENT_STYLE.other}`}>{r.intent ?? "other"}</span>
+              <span className={`min-w-0 flex-1 truncate ${rid ? "text-violet-700" : "text-muted-foreground"}`}>{r.content}</span>
+              <span className="whitespace-nowrap text-xs text-muted-foreground">{fmtWhen(r.created_at)}</span>
+            </button>
+          );
+        })}
       </div>
     </div>
   );

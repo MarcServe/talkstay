@@ -539,6 +539,34 @@ serve(async (req) => {
       return json({ ok: true });
     }
 
+    // ---- cancel: guest closes an open request; staff are notified ----
+    if (action === "cancel") {
+      const { requestId } = body;
+      if (!requestId) return json({ error: "requestId required" }, 400);
+      const { data: reqRow } = await admin
+        .from("ts_service_requests")
+        .select("id, session_id, status")
+        .eq("id", requestId).eq("hotel_id", ctx.hotelId).maybeSingle();
+      if (!reqRow || (sessionId && reqRow.session_id && reqRow.session_id !== sessionId))
+        return json({ error: "not_found" }, 404);
+      const open = ["new", "accepted", "in_progress", "on_the_way", "reopened"];
+      if (!open.includes(reqRow.status))
+        return json({ error: "not_open", status: reqRow.status }, 409);
+
+      const { error } = await admin.from("ts_service_requests")
+        .update({ status: "cancelled" }).eq("id", requestId);
+      if (error) return json({ error: error.message }, 400);
+      await admin.from("ts_request_events").insert({
+        request_id: requestId, status: "cancelled", actor_type: "guest",
+        note: "Cancelled by guest",
+      });
+      // Guest notify fires via DB trigger; alert the ops team separately.
+      admin.functions.invoke("talkstay-notify", {
+        body: { requestId, event: "guest_cancelled" },
+      }).then(() => {}, () => {});
+      return json({ ok: true, status: "cancelled" });
+    }
+
     // ---- confirm / reopen: guest closes the loop on a completed request ----
     // Staff marking "completed" is a claim, not proof. The guest gets the final
     // say: "Yes, all good" → guest_confirmed (then they can rate); "Not yet" →
@@ -564,12 +592,10 @@ serve(async (req) => {
         request_id: requestId, status: next, actor_type: "guest",
       });
 
-      // On reopen, alert the department (email + push) so someone picks it up.
-      if (action === "reopen") {
-        admin.functions.invoke("talkstay-notify", {
-          body: { requestId, event: "reopened" },
-        }).then(() => {}, () => {});
-      }
+      // Notify ops: reopen = pick it up; confirm = close the loop for managers.
+      admin.functions.invoke("talkstay-notify", {
+        body: { requestId, event: next === "reopened" ? "reopened" : "guest_confirmed" },
+      }).then(() => {}, () => {});
       return json({ ok: true, status: next });
     }
 

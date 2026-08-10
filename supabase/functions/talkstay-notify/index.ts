@@ -35,15 +35,25 @@ serve(async (req) => {
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
     const { requestId, event } = await req.json();
     if (!requestId) return json({ error: "requestId required" }, 400);
-    // "reopened" = the guest said completed work wasn't done.
-    // "escalated" = the guest followed up mid-conversation (impatient / overdue)
-    // on a request that's still open — surfaced by talkstay-guest-chat.
+    // Close-loop + chase events. "new"/missing event = brand-new request alert.
     const EVENT_BANNER: Record<string, string> = {
       reopened: "The guest said this wasn't done yet. Please pick it back up.",
       escalated: "The guest is following up on this — please check on it now.",
+      completed: "This request was marked complete.",
+      cancelled: "This request was cancelled.",
+      guest_confirmed: "The guest confirmed everything was received.",
+      guest_cancelled: "The guest cancelled this request.",
     };
-    const EVENT_LABEL: Record<string, string> = { reopened: "Reopened", escalated: "Follow-up" };
-    const banner = EVENT_BANNER[event] ?? null;
+    const EVENT_LABEL: Record<string, string> = {
+      reopened: "Reopened",
+      escalated: "Follow-up",
+      completed: "Completed",
+      cancelled: "Cancelled",
+      guest_confirmed: "Guest confirmed",
+      guest_cancelled: "Guest cancelled",
+    };
+    const banner = event ? (EVENT_BANNER[event] ?? null) : null;
+    const isCloseEvent = ["completed", "cancelled", "guest_confirmed", "guest_cancelled"].includes(event);
 
     const { data: r } = await admin
       .from("ts_service_requests")
@@ -69,12 +79,11 @@ serve(async (req) => {
     const deptEmail = dept?.notify_email || null;
     const roomNo = room?.room_number ?? "—";
     const label = DEPT_LABEL[r.department_key] ?? r.department_key;
-    // A reopen or an escalation both mean the guest wasn't satisfied — treat as
-    // urgent so it copies the owner and pushes with priority, like a complaint.
-    const urgent = !!banner || r.priority === "urgent" || r.is_complaint;
+    // Reopen/escalation = guest unhappy → urgent. Close events stay informational.
+    const urgent = (!isCloseEvent && !!banner) || r.priority === "urgent" || r.is_complaint;
 
     const subject = banner
-      ? `🔴 ${EVENT_LABEL[event]} by guest · ${label} — Room ${roomNo}`
+      ? `${urgent ? "🔴 " : ""}${EVENT_LABEL[event] ?? "Update"} · ${label} — Room ${roomNo}`
       : `${urgent ? "🔴 URGENT · " : ""}New ${label} request — Room ${roomNo}`;
     const html = renderEmail({
       hotelName: hotel?.name ?? "TalkStay",
@@ -82,10 +91,10 @@ serve(async (req) => {
       accentColor: hotel?.branding?.primary_color,
       heading: banner ? `${EVENT_LABEL[event]} — ${label}` : `${urgent ? "Urgent " : ""}${label} request`,
       bodyHtml: `
-        ${banner ? `<p style="margin:0 0 12px;color:#b91c1c;font-weight:600;">${escapeHtml(banner)}</p>` : ""}
+        ${banner ? `<p style="margin:0 0 12px;color:${isCloseEvent ? "#4c1d95" : "#b91c1c"};font-weight:600;">${escapeHtml(banner)}</p>` : ""}
         <p style="margin:0 0 10px;"><strong>Room:</strong> ${escapeHtml(roomNo)}</p>
         ${quoteBlock(staffSummary)}
-        ${r.is_complaint ? `<p style="margin:14px 0 0;color:#b91c1c;font-weight:600;">This is a complaint — please handle promptly.</p>` : ""}`,
+        ${r.is_complaint && !isCloseEvent ? `<p style="margin:14px 0 0;color:#b91c1c;font-weight:600;">This is a complaint — please handle promptly.</p>` : ""}`,
       cta: { label: "Open Operations dashboard", url: "https://talkstay.talkweb.io/app" },
     });
 
