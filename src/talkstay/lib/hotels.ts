@@ -39,7 +39,8 @@ export interface PosterConfig {
 export const POSTER_DEFAULTS: Required<Omit<PosterConfig, "bg_image_url">> & { bg_image_url: string | null } = {
   bg_color: "#2e1065",
   bg_image_url: null,
-  bg_overlay: 0.55,
+  // Stronger wash by default so busy hotel photos don’t fight dark or light text.
+  bg_overlay: 0.68,
   text_color: "#ffffff",
   // "" = fall back to the hotel's own name at render/merge time, not a fixed
   // static string (there's no sensible generic default for a business name).

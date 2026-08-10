@@ -628,8 +628,8 @@ export default function GuestApp() {
   const brand = ctx.branding?.primary_color || "#7c3aed";
   const logo = ctx.branding?.logo_url || undefined;
   // Prefer the poster's own background photo (the owner picked it on purpose);
-  // fall back to the logo as a faint watermark. A near-opaque wash over the
-  // image keeps it subtle so message bubbles stay fully legible on top.
+  // fall back to the logo as a faint watermark. A near-opaque wash keeps
+  // dark UI text readable over busy hotel photos.
   const bgPhoto = ctx.branding?.poster?.bg_image_url || logo || undefined;
   const voiceAvailable = !!ctx.assistantId;
 
@@ -644,7 +644,7 @@ export default function GuestApp() {
       data-talkstay
       className="ts-atmosphere relative mx-auto flex h-[100dvh] max-w-md flex-col bg-cover bg-center"
       style={bgPhoto ? {
-        backgroundImage: `linear-gradient(hsla(38,26%,97%,.82), hsla(210,20%,94%,.88)), url(${bgPhoto})`,
+        backgroundImage: `linear-gradient(hsla(38,26%,97%,.92), hsla(210,20%,94%,.94)), url(${bgPhoto})`,
         backgroundSize: "cover",
         backgroundPosition: "center",
       } : undefined}

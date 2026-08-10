@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import {
   Loader2, Upload, Printer, Trash2, ImageIcon,
   UtensilsCrossed, BedDouble, Wrench, Info,
-  ShieldCheck, Zap, Globe, Building2, Smartphone,
+  ShieldCheck, Zap, Globe, Building2, Smartphone, CheckSquare, Square,
 } from "lucide-react";
 import { getPublicBaseUrl } from "@/config/environment";
 import { listRooms, getRoomToken, friendlyImageName, POSTER_DEFAULTS, type Hotel, type HotelBranding, type PosterConfig, type Room } from "@/talkstay/lib/hotels";
@@ -21,8 +21,10 @@ const BADGE_ICONS = [ShieldCheck, Zap, Globe];
 /** The poster itself — used for both the on-screen preview and the print output.
  *  All sizing is in `cqw` (container-query width) units so it scales identically
  *  whether shown at 420px in the panel or at 190mm on the printed page. */
-function PosterView({ p, hotelName, logo, qrUrl, accent }: {
+function PosterView({ p, hotelName, logo, qrUrl, accent, wrapId }: {
   p: Required<PosterConfig>; hotelName: string; logo?: string; qrUrl: string; accent: string;
+  /** Optional id for the outer wrap (preview uses ts-poster-print). */
+  wrapId?: string;
 }) {
   // Property name is optional — blank hides it. When set, it's always bold
   // (above the eyebrow), whether or not a logo is uploaded.
@@ -32,7 +34,7 @@ function PosterView({ p, hotelName, logo, qrUrl, accent }: {
   const features = p.features.slice(0, 4).map((f, i) => ({ text: f.trim(), i })).filter((f) => f.text);
   const badges = p.badges.slice(0, 3).map((b, i) => ({ text: b.trim(), i })).filter((b) => b.text);
   return (
-    <div className="ts-poster-wrap" id="ts-poster-print">
+    <div className="ts-poster-wrap ts-poster-page" id={wrapId}>
       <div
         className="ts-poster"
         style={{
@@ -42,14 +44,20 @@ function PosterView({ p, hotelName, logo, qrUrl, accent }: {
           color: p.text_color,
         }}
       >
-        {/* Real <img> prints more reliably than CSS background-image. */}
+        {/* Real <img> prints more reliably than CSS background-image.
+            Opacity fades the photo so brand text stays readable on any image. */}
         {p.bg_image_url && (
-          <img src={p.bg_image_url} alt="" className="ts-poster-bg-img" />
+          <img
+            src={p.bg_image_url}
+            alt=""
+            className="ts-poster-bg-img"
+            style={{ opacity: Math.max(0.12, Math.min(0.85, 1 - p.bg_overlay * 0.85)) }}
+          />
         )}
         <div
           className="ts-poster-overlay"
           style={{
-            background: `linear-gradient(180deg, ${hexA(p.bg_color, p.bg_overlay)}, ${hexA(p.bg_color, Math.min(1, p.bg_overlay + 0.15))})`,
+            background: `linear-gradient(180deg, ${hexA(p.bg_color, Math.min(0.95, p.bg_overlay + 0.08))}, ${hexA(p.bg_color, Math.min(0.98, p.bg_overlay + 0.22))})`,
           }}
         />
         <div className="ts-poster-body">
@@ -141,6 +149,11 @@ export default function PosterPanel({ hotel, onSaved }: { hotel: Hotel; onSaved?
   const [qrUrl, setQrUrl] = useState<string>(`${getPublicBaseUrl()}/h/${hotel.slug}/r/preview?token=preview`);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkPrinting, setBulkPrinting] = useState(false);
+  const [printBatch, setPrintBatch] = useState<{ id: string; label: string; qrUrl: string }[] | null>(null);
+  const bulkRootRef = useRef<HTMLDivElement>(null);
   // Separate from cfg.bg_image_url — a write-only field for pasting a URL
   // manually, so the current image shows its filename, not the full link.
   const [bgUrlDraft, setBgUrlDraft] = useState("");
@@ -160,11 +173,13 @@ export default function PosterPanel({ hotel, onSaved }: { hotel: Hotel; onSaved?
   // Keep poster CSS in <head> so print can hide #root without killing the stylesheet.
   useEffect(() => {
     const id = "ts-poster-print-css";
-    if (document.getElementById(id)) return;
-    const el = document.createElement("style");
-    el.id = id;
+    let el = document.getElementById(id) as HTMLStyleElement | null;
+    if (!el) {
+      el = document.createElement("style");
+      el.id = id;
+      document.head.appendChild(el);
+    }
     el.textContent = POSTER_CSS;
-    document.head.appendChild(el);
   }, []);
 
   // Resolve the selected room's live QR URL (real token) for an accurate printout.
@@ -176,9 +191,77 @@ export default function PosterPanel({ hotel, onSaved }: { hotel: Hotel; onSaved?
     }).catch(() => {});
   }, [roomId, rooms, hotel.slug]);
 
+  // When a bulk print batch is ready in the DOM, fire the print dialog once.
+  useEffect(() => {
+    if (!printBatch?.length) return;
+    let cancelled = false;
+    const t = window.setTimeout(() => {
+      if (cancelled) return;
+      const root = bulkRootRef.current;
+      if (!root) {
+        setPrintBatch(null);
+        setBulkPrinting(false);
+        toast.error("Couldn't prepare posters for printing.");
+        return;
+      }
+      runPrintFromSource(root, () => {
+        setPrintBatch(null);
+        setBulkPrinting(false);
+      });
+    }, 120);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(t);
+    };
+  }, [printBatch]);
+
   const set = <K extends keyof PosterConfig>(k: K, v: Required<PosterConfig>[K]) => setCfg((c) => ({ ...c, [k]: v }));
   const setFeature = (i: number, v: string) => setCfg((c) => ({ ...c, features: c.features.map((f, j) => (j === i ? v : f)) }));
   const setBadge = (i: number, v: string) => setCfg((c) => ({ ...c, badges: c.badges.map((b, j) => (j === i ? v : b)) }));
+
+  const toggleRoom = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const selectAllRooms = () => setSelectedIds(new Set(rooms.map((r) => r.id)));
+  const clearRoomSelection = () => setSelectedIds(new Set());
+
+  const printSelected = async () => {
+    const picks = rooms.filter((r) => selectedIds.has(r.id));
+    if (!picks.length) {
+      toast.error("Select at least one room to print.");
+      return;
+    }
+    setBulkPrinting(true);
+    try {
+      const batch: { id: string; label: string; qrUrl: string }[] = [];
+      for (const room of picks) {
+        const token = await getRoomToken(room.id);
+        if (!token) {
+          toast.warning(`No QR token for ${formatRoomLabel(room.room_number)} — skipped.`);
+          continue;
+        }
+        batch.push({
+          id: room.id,
+          label: formatRoomLabel(room.room_number),
+          qrUrl: `${getPublicBaseUrl()}/h/${hotel.slug}/r/${room.id}?token=${token}`,
+        });
+      }
+      if (!batch.length) {
+        toast.error("None of the selected rooms have an active QR yet.");
+        setBulkPrinting(false);
+        return;
+      }
+      setPrintBatch(batch);
+    } catch (e: any) {
+      toast.error(e?.message ?? "Couldn't prepare bulk print.");
+      setBulkPrinting(false);
+    }
+  };
 
   const uploadBg = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -214,7 +297,7 @@ export default function PosterPanel({ hotel, onSaved }: { hotel: Hotel; onSaved?
       {/* Controls */}
       <div className="space-y-6">
         <p className="text-sm text-muted-foreground">
-          Design the in-room poster guests scan. Every line is editable; the defaults below replicate the standard TalkStay layout. Pick a room to embed its live QR, then <strong>Print</strong> to save a print-ready PDF.
+          Design the in-room poster guests scan. Every line is editable; the defaults below replicate the standard TalkStay layout. Preview any room’s QR, print one, or use <strong>Print many</strong> to select rooms for a multi-page PDF.
         </p>
 
         <div className="grid gap-4 sm:grid-cols-2">
@@ -263,8 +346,23 @@ export default function PosterPanel({ hotel, onSaved }: { hotel: Hotel; onSaved?
           />
           {cfg.bg_image_url && (
             <div className="space-y-1 pt-1">
-              <Label className="text-xs text-muted-foreground">Image darkness (keeps text readable): {Math.round(cfg.bg_overlay * 100)}%</Label>
-              <input type="range" min={0} max={0.9} step={0.05} value={cfg.bg_overlay} onChange={(e) => set("bg_overlay", Number(e.target.value))} className="w-full" />
+              <Label className="text-xs text-muted-foreground">
+                Background image strength: {Math.round((1 - cfg.bg_overlay) * 100)}% visible
+                {" · "}
+                wash {Math.round(cfg.bg_overlay * 100)}% (keeps text readable)
+              </Label>
+              <input
+                type="range"
+                min={0.35}
+                max={0.92}
+                step={0.05}
+                value={cfg.bg_overlay}
+                onChange={(e) => set("bg_overlay", Number(e.target.value))}
+                className="w-full"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Drag right for a stronger wash if your photo fights black or light text.
+              </p>
             </div>
           )}
         </div>
@@ -322,9 +420,9 @@ export default function PosterPanel({ hotel, onSaved }: { hotel: Hotel; onSaved?
 
       {/* Live preview + print */}
       <div className="space-y-4">
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex flex-wrap items-end justify-between gap-2">
           <div className="min-w-0 flex-1">
-            <Label className="text-xs text-muted-foreground">QR for room</Label>
+            <Label className="text-xs text-muted-foreground">QR for room (preview)</Label>
             <Select value={roomId} onValueChange={setRoomId}>
               <SelectTrigger className="h-9"><SelectValue placeholder={rooms.length ? "Select a room" : "No rooms yet (sample QR)"} /></SelectTrigger>
               <SelectContent>
@@ -332,18 +430,100 @@ export default function PosterPanel({ hotel, onSaved }: { hotel: Hotel; onSaved?
               </SelectContent>
             </Select>
           </div>
-          <Button className="mt-4" onClick={printPoster}>
-            <Printer className="mr-1 h-4 w-4" /> Print
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button className="mt-4" variant="outline" onClick={() => printPoster()} disabled={bulkPrinting}>
+              <Printer className="mr-1 h-4 w-4" /> Print this room
+            </Button>
+            <Button
+              className="mt-4"
+              variant={bulkOpen ? "default" : "outline"}
+              onClick={() => {
+                setBulkOpen((o) => {
+                  if (!o && selectedIds.size === 0 && rooms.length) {
+                    setSelectedIds(new Set(rooms.map((r) => r.id)));
+                  }
+                  return !o;
+                });
+              }}
+              disabled={!rooms.length || bulkPrinting}
+            >
+              <CheckSquare className="mr-1 h-4 w-4" /> Print many…
+            </Button>
+          </div>
         </div>
 
+        {bulkOpen && rooms.length > 0 && (
+          <div className="rounded-xl border bg-card p-3 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-sm font-medium">
+                Bulk print — {selectedIds.size} of {rooms.length} selected
+              </p>
+              <div className="flex gap-2">
+                <Button type="button" size="sm" variant="ghost" onClick={selectAllRooms}>Select all</Button>
+                <Button type="button" size="sm" variant="ghost" onClick={clearRoomSelection}>Clear</Button>
+              </div>
+            </div>
+            <div className="max-h-48 overflow-y-auto rounded-lg border bg-muted/20 p-2">
+              <div className="grid gap-1 sm:grid-cols-2">
+                {rooms.map((r) => {
+                  const on = selectedIds.has(r.id);
+                  return (
+                    <button
+                      key={r.id}
+                      type="button"
+                      onClick={() => toggleRoom(r.id)}
+                      className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors ${
+                        on ? "bg-primary/10 text-foreground" : "hover:bg-muted text-muted-foreground"
+                      }`}
+                    >
+                      {on
+                        ? <CheckSquare className="h-4 w-4 shrink-0 text-primary" />
+                        : <Square className="h-4 w-4 shrink-0" />}
+                      <span className="truncate">{formatRoomLabel(r.room_number)}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <Button className="w-full" onClick={printSelected} disabled={bulkPrinting || selectedIds.size === 0}>
+              {bulkPrinting
+                ? <><Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> Preparing {selectedIds.size} posters…</>
+                : <><Printer className="mr-1.5 h-4 w-4" /> Print {selectedIds.size || ""} poster{selectedIds.size === 1 ? "" : "s"}</>}
+            </Button>
+            <p className="text-[11px] text-muted-foreground">
+              Each selected room becomes its own A4 page with that room’s live QR. Use Save as PDF for a multi-page file.
+            </p>
+          </div>
+        )}
+
         <div className="rounded-2xl border bg-muted/40 p-4">
-          <PosterView p={cfg} hotelName={hotel.name} logo={logo} qrUrl={qrUrl} accent={accent} />
+          <PosterView wrapId="ts-poster-print" p={cfg} hotelName={hotel.name} logo={logo} qrUrl={qrUrl} accent={accent} />
         </div>
         <p className="text-[11px] text-muted-foreground">
           Tip: choose <strong>Save as PDF</strong>, A4, and margins <strong>None</strong> (or Default). Colours and the photo are forced in the print stylesheet.
         </p>
       </div>
+
+      {/* Off-screen batch used only for multi-room print */}
+      {printBatch && (
+        <div
+          ref={bulkRootRef}
+          id="ts-poster-bulk-source"
+          aria-hidden
+          className="pointer-events-none fixed left-[-10000px] top-0 w-[210mm]"
+        >
+          {printBatch.map((item) => (
+            <PosterView
+              key={item.id}
+              p={cfg}
+              hotelName={hotel.name}
+              logo={logo}
+              qrUrl={item.qrUrl}
+              accent={accent}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -377,8 +557,8 @@ function escapeAccent(text: string, hotelName: string, accent: string): string {
 }
 
 /**
- * Print a single A4 page with colours/photo intact.
- * Clones the poster onto <body> so we can hide the rest of the app without
+ * Print one or more A4 pages with colours/photo intact.
+ * Clones the poster source onto <body> so we can hide the rest of the app without
  * `display:none` on ancestors (which would hide the poster too). Canvas QR
  * pixels are copied to an <img> because cloneNode does not keep canvas bits.
  */
@@ -388,10 +568,15 @@ function printPoster() {
     window.print();
     return;
   }
+  runPrintFromSource(src);
+}
 
+function runPrintFromSource(src: HTMLElement, onDone?: () => void) {
   const clone = src.cloneNode(true) as HTMLElement;
   clone.id = "ts-poster-print-clone";
-  clone.setAttribute("aria-hidden", "true");
+  clone.removeAttribute("aria-hidden");
+  clone.classList.remove("pointer-events-none");
+  clone.style.cssText = "";
 
   const srcCanvases = src.querySelectorAll("canvas");
   const cloneCanvases = clone.querySelectorAll("canvas");
@@ -411,6 +596,11 @@ function printPoster() {
     }
   });
 
+  // Ensure each poster is a page wrapper for multi-room jobs.
+  clone.querySelectorAll(".ts-poster-wrap").forEach((el) => {
+    el.classList.add("ts-poster-page");
+  });
+
   document.body.appendChild(clone);
   document.documentElement.classList.add("ts-printing-poster");
 
@@ -421,15 +611,16 @@ function printPoster() {
     clone.remove();
     document.documentElement.classList.remove("ts-printing-poster");
     window.removeEventListener("afterprint", cleanup);
+    onDone?.();
   };
   window.addEventListener("afterprint", cleanup);
 
   // Let the clone paint (and QR data-URL decode) before the dialog opens.
-  // Do NOT cleanup() immediately after print() — Safari/iPad often snapshots
-  // asynchronously; early cleanup restores the full dashboard into the print.
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
       window.print();
+      // Fallback if afterprint never fires (some mobile browsers).
+      window.setTimeout(cleanup, 60_000);
     });
   });
 }
@@ -487,14 +678,14 @@ const POSTER_CSS = `
 /* Screen-only: keep the print clone out of the live layout */
 #ts-poster-print-clone { display: none !important; }
 
-/* One A4 sheet: print only the body-level clone (see printPoster()). */
+/* A4 sheet(s): print only the body-level clone (see runPrintFromSource()). */
 @media print {
   @page { size: A4 portrait; margin: 0; }
   html.ts-printing-poster,
   html.ts-printing-poster body {
-    width: 210mm !important; height: 297mm !important;
+    width: 210mm !important;
     margin: 0 !important; padding: 0 !important;
-    overflow: hidden !important; background: #fff !important;
+    background: #fff !important;
     -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important;
   }
   html.ts-printing-poster body > *:not(#ts-poster-print-clone) {
@@ -502,14 +693,27 @@ const POSTER_CSS = `
   }
   html.ts-printing-poster #ts-poster-print-clone {
     display: block !important;
-    position: fixed !important;
-    left: 0 !important; top: 0 !important;
-    width: 210mm !important; height: 297mm !important;
+    position: static !important;
+    width: 210mm !important;
+    margin: 0 !important; padding: 0 !important;
+    overflow: visible !important;
+    z-index: 99999 !important;
+    -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important;
+  }
+  html.ts-printing-poster #ts-poster-print-clone .ts-poster-page {
+    display: block !important;
+    box-sizing: border-box !important;
+    width: 210mm !important;
+    height: 297mm !important;
     margin: 0 !important; padding: 0 !important;
     overflow: hidden !important;
-    z-index: 99999 !important;
+    break-after: page;
+    page-break-after: always;
     container-type: inline-size;
-    -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important;
+  }
+  html.ts-printing-poster #ts-poster-print-clone .ts-poster-page:last-child {
+    break-after: auto;
+    page-break-after: auto;
   }
   html.ts-printing-poster #ts-poster-print-clone .ts-poster {
     width: 210mm !important; height: 297mm !important; border-radius: 0 !important;
