@@ -9,7 +9,15 @@ export interface GuestRequest {
   created_at?: string;
 }
 
-export interface ChatMsg { role: "user" | "assistant"; content: string; }
+/** Organised guest-facing content (menus, guides) — rendered as cards, not markdown. */
+export interface GuestCard {
+  title?: string;
+  sections?: { title: string; items: string[] }[];
+  links?: { label: string; url: string }[];
+  images?: { url: string; alt?: string }[];
+}
+
+export interface ChatMsg { role: "user" | "assistant"; content: string; cards?: GuestCard[]; }
 
 /** Stable per-BROWSER device id — used to bind a device to the current stay so a
  *  previous guest's saved link can't be reused after the room is re-let. */
@@ -102,7 +110,7 @@ export async function sendMessage(args: {
   const { data, error } = await fn({ action: "message", ...args });
   if (error) throw await realError(error);
   if ((data as any)?.error) throw new Error((data as any).error);
-  return data as { reply: string; requests: GuestRequest[]; language: string };
+  return data as { reply: string; requests: GuestRequest[]; language: string; cards?: GuestCard[] };
 }
 
 export interface StaffMessage { id: string; request_id: string; staff_label: string | null; content: string; created_at: string; }
@@ -188,7 +196,21 @@ export async function reopenRequest(args: {
   const { data, error } = await fn({ action: "reopen", ...args });
   if (error) throw await realError(error);
   if ((data as any)?.error) throw new Error((data as any).error);
-  return true;
+  return data as { ok: true; status: string; mode?: string };
+}
+
+/** Ask again: reopen a cancelled ticket, or create a new one from a completed request.
+ *  Optional `note` updates what they want (e.g. 2 bottles instead of 1). */
+export async function repeatRequest(args: {
+  hotelSlug: string; roomId: string; token: string; sessionId: string; requestId: string; note?: string;
+}) {
+  const { data, error } = await fn({ action: "repeat_request", ...args });
+  if (error) throw await realError(error);
+  if ((data as any)?.error) throw new Error((data as any).error);
+  return data as {
+    ok: true; mode: string; status: string;
+    request?: { id: string; department_key: string; summary: string; status: string };
+  };
 }
 
 /** Guest cancels an open request — staff are notified. */

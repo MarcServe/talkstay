@@ -3,9 +3,10 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import {
   PlayCircle, Hotel, House, ArrowRight, Volume2, VolumeX,
-  Building2, KeyRound, AudioLines, Globe2,
+  Building2, KeyRound,
 } from "lucide-react";
 import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
+import { useAuth } from "@/hooks/useAuth";
 
 const DEMO_VIDEO_ID = "83u9qLpVlQ8";
 
@@ -92,9 +93,10 @@ function DemoVideo({ videoId }: { videoId: string }) {
 // Marketing photos in public/marketing/. The hero headline is real HTML now
 // (readable on mobile); only the scan photo stays as an image.
 const IMG = {
-  heroScan: "/marketing/hero-scan.jpg",
+  hero: "/marketing/hero.jpg",
   howItWorks: "/marketing/how-it-works.jpg",
   guestSquare: "/marketing/guest-square.jpg",
+  hospitality: "/marketing/hospitality-icon.png",
 };
 
 const AUDIENCES = [
@@ -123,89 +125,27 @@ function Photo({ src, alt, className = "", eager = false }: {
   );
 }
 
-/** Coded hero: photo stays visual; brand, headline and hospitality bar are live text. */
+/** Full hero artwork + hospitality strip underneath. */
 function HeroBanner() {
   return (
     <div className="overflow-hidden rounded-3xl border bg-white shadow-xl">
-      <div className="grid md:grid-cols-[minmax(0,0.9fr)_1.2fr]">
-        <Photo
-          src={IMG.heroScan}
-          alt="Guest scanning a TalkStay room QR code with their phone"
-          eager
-          className="aspect-[4/5] w-full md:aspect-auto md:min-h-[340px] md:h-full"
-        />
-
-        <div className="relative flex flex-col justify-center px-6 py-8 sm:px-10 sm:py-12">
-          {/* Soft rings behind the mark — atmosphere without baking text into a JPG */}
-          <div
-            aria-hidden
-            className="pointer-events-none absolute -right-8 top-1/2 hidden h-56 w-56 -translate-y-1/2 rounded-full border border-violet-200/70 md:block"
-          />
-          <div
-            aria-hidden
-            className="pointer-events-none absolute -right-2 top-1/2 hidden h-40 w-40 -translate-y-1/2 rounded-full border border-violet-200/50 md:block"
-          />
-          <div
-            aria-hidden
-            className="pointer-events-none absolute right-6 top-[42%] hidden -translate-y-1/2 md:block"
-          >
-            <div className="flex h-24 w-24 items-center justify-center rounded-[1.75rem] bg-gradient-to-br from-violet-500 to-indigo-700 shadow-lg shadow-violet-500/30">
-              <AudioLines className="h-10 w-10 text-white" strokeWidth={2.2} />
-            </div>
-          </div>
-
-          <div className="relative animate-[fadeInFloat_0.7s_ease-out]">
-            <div className="flex items-center gap-2.5">
-              <TalkStayLogo size={40} />
-              <span className="text-2xl font-bold tracking-tight text-slate-900">TalkStay</span>
-            </div>
-
-            <div className="mt-5 flex flex-wrap items-center gap-2">
-              <div className="inline-flex items-center gap-1.5 rounded-full bg-violet-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-violet-700">
-                <AudioLines className="h-3.5 w-3.5" />
-                Voice-first guest service
-              </div>
-              <div className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-700">
-                <Globe2 className="h-3.5 w-3.5" />
-                Guests speak any language
-              </div>
-            </div>
-
-            <h1 className="mt-6 max-w-lg text-[2.15rem] font-extrabold leading-[1.05] tracking-tight text-slate-950 sm:text-5xl lg:text-[3.35rem]">
-              <span className="block">Guest requests.</span>
-              <span className="block">
-                Handled{" "}
-                <span
-                  className="bg-gradient-to-r from-violet-600 via-violet-500 to-indigo-600 bg-clip-text italic text-transparent"
-                  style={{ fontFamily: '"Instrument Serif", Georgia, serif', fontWeight: 400 }}
-                >
-                  beautifully.
-                </span>
-              </span>
-              <span
-                className="mt-2 block bg-gradient-to-r from-violet-700 to-indigo-600 bg-clip-text text-[1.65rem] italic leading-none text-transparent sm:text-4xl lg:text-[2.65rem]"
-                style={{ fontFamily: '"Instrument Serif", Georgia, serif', fontWeight: 400 }}
-              >
-                from anywhere.
-              </span>
-            </h1>
-
-            <p className="mt-5 max-w-md text-base font-medium leading-relaxed text-slate-700 sm:text-lg">
-              No app download. Just scan and speak — in any language.
-            </p>
-            <p className="mt-2 max-w-md text-sm leading-relaxed text-slate-500">
-              Multilingual guest conversations. Clear requests for your team in your property language.
-            </p>
-          </div>
-        </div>
-      </div>
+      <Photo
+        src={IMG.hero}
+        alt="TalkStay voice-first guest service — scan and speak from any device, in any language"
+        eager
+        className="aspect-[3/2] w-full sm:aspect-[16/10] lg:aspect-[2/1]"
+      />
 
       <div className="bg-gradient-to-r from-[#1e1458] via-[#2d1b69] to-[#3b2178] px-5 py-5 text-white sm:px-8">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-start gap-3 sm:items-center">
-            <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/10">
-              <Hotel className="h-5 w-5 text-white" />
-            </div>
+            <img
+              src={IMG.hospitality}
+              alt=""
+              width={48}
+              height={34}
+              className="mt-0.5 h-11 w-auto shrink-0 rounded-xl object-contain shadow-lg shadow-violet-950/40 ring-1 ring-white/15"
+            />
             <div>
               <p className="text-base font-semibold tracking-tight sm:text-lg">Built for modern hospitality.</p>
               <p className="mt-0.5 text-sm text-white/70">
@@ -268,10 +208,12 @@ const cases = [
 ];
 
 export default function Landing() {
+  const { user } = useAuth();
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       <header className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
-        <Link to="/" className="flex items-center gap-2.5 transition-opacity hover:opacity-80">
+        <Link to={user ? "/app" : "/"} className="flex items-center gap-2.5 transition-opacity hover:opacity-80">
           <TalkStayLogo size={30} />
           <span className="text-lg font-semibold tracking-tight">TalkStay</span>
           <span className="hidden rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground sm:inline">by TalkWeb</span>
@@ -283,12 +225,20 @@ export default function Landing() {
           <a href="#properties" className="transition-colors hover:text-foreground">For properties</a>
         </nav>
         <div className="flex items-center gap-2">
-          <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex">
-            <Link to="/app">Property sign in</Link>
-          </Button>
-          <Button asChild size="sm" className="bg-violet-600 hover:bg-violet-700">
-            <Link to="/app">Get started</Link>
-          </Button>
+          {user ? (
+            <Button asChild size="sm" className="bg-violet-600 hover:bg-violet-700">
+              <Link to="/app">Open dashboard</Link>
+            </Button>
+          ) : (
+            <>
+              <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex">
+                <Link to="/app">Property sign in</Link>
+              </Button>
+              <Button asChild size="sm" className="bg-violet-600 hover:bg-violet-700">
+                <Link to="/app">Get started</Link>
+              </Button>
+            </>
+          )}
         </div>
       </header>
 
@@ -302,7 +252,7 @@ export default function Landing() {
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
             <Button asChild size="lg" className="bg-violet-600 hover:bg-violet-700">
-              <Link to="/app">Get started</Link>
+              <Link to="/app">{user ? "Open dashboard" : "Get started"}</Link>
             </Button>
             <Button asChild size="lg" variant="outline">
               <a href="#demo"><PlayCircle className="mr-1.5 h-4 w-4" /> Watch demo</a>
@@ -440,11 +390,13 @@ export default function Landing() {
 
       <footer className="border-t">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-6 py-8 text-sm text-muted-foreground">
-          <Link to="/" className="flex items-center gap-2 transition-colors hover:text-foreground">
+          <Link to={user ? "/app" : "/"} className="flex items-center gap-2 transition-colors hover:text-foreground">
             <TalkStayLogo size={22} />
             <span>© {new Date().getFullYear()} TalkStay by TalkWeb</span>
           </Link>
-          <Link to="/app" className="transition-colors hover:text-foreground">Property sign in</Link>
+          <Link to="/app" className="transition-colors hover:text-foreground">
+            {user ? "Open dashboard" : "Property sign in"}
+          </Link>
         </div>
       </footer>
     </div>

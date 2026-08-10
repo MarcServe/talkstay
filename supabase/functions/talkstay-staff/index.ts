@@ -3,6 +3,24 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { renderEmail, escapeHtml } from "../_shared/email.ts";
 
 const PUBLIC_BASE_URL = "https://talkstay.talkweb.io";
+const MAX_BULK = 100;
+
+const DEPT_ALIASES: Record<string, string> = {
+  housekeeping: "housekeeping",
+  laundry: "laundry",
+  kitchen: "kitchen",
+  bar: "bar",
+  maintenance: "maintenance",
+  concierge: "concierge",
+  front_desk: "front_desk",
+  "front desk": "front_desk",
+  frontdesk: "front_desk",
+  reception: "front_desk",
+  duty_manager: "duty_manager",
+  "duty manager": "duty_manager",
+  all: "",
+  "all departments": "",
+};
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -16,6 +34,20 @@ const json = (body: unknown, status = 200) =>
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 
+function normalizeDept(raw: unknown): string | null {
+  if (raw == null || raw === "") return null;
+  const key = String(raw).trim().toLowerCase().replace(/[\s-]+/g, "_").replace(/_+/g, "_");
+  const spaced = String(raw).trim().toLowerCase().replace(/[_-]+/g, " ");
+  const hit = DEPT_ALIASES[key] ?? DEPT_ALIASES[spaced];
+  if (hit === "") return null;
+  if (hit) return hit;
+  // Already a known slug?
+  if (["housekeeping", "laundry", "kitchen", "bar", "maintenance", "concierge", "front_desk", "duty_manager"].includes(key)) {
+    return key;
+  }
+  return null;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -24,12 +56,10 @@ serve(async (req) => {
     const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const admin = createClient(SUPABASE_URL, SERVICE_KEY);
 
-    const { action, hotelId, email, name, departmentKey, role, staffId, slug } = await req.json();
+    const body = await req.json();
+    const { action, hotelId, email, name, departmentKey, role, staffId, slug, rows } = body;
 
     // ------- public_branding (NO auth) -------
-    // Lets the sign-in page wear the property's own logo and colour before
-    // anyone has signed in. Deliberately returns only what's already printed on
-    // the in-room poster — no emails, ids or staff data.
     if (action === "public_branding") {
       const clean = String(slug ?? "").trim().toLowerCase().slice(0, 100);
       if (!clean) return json({ error: "slug required" }, 400);
@@ -46,7 +76,6 @@ serve(async (req) => {
       });
     }
 
-    // Identify the caller from their JWT.
     const authHeader = req.headers.get("Authorization") || "";
     const jwt = authHeader.replace(/^Bearer\s+/i, "");
     const { data: userData, error: userErr } = await admin.auth.getUser(jwt);
@@ -55,9 +84,6 @@ serve(async (req) => {
 
     if (!hotelId) return json({ error: "hotelId required" }, 400);
 
-    // Authorize: OWNER or an active MANAGER of this hotel may manage staff.
-    // (Managers are the "sub-manager" access the owner grants so someone can
-    // coordinate while the owner is away.)
     const { data: hotel } = await admin
       .from("ts_hotels").select("id, user_id, name, slug, branding").eq("id", hotelId).maybeSingle();
     if (!hotel) return json({ error: "Not found" }, 404);
@@ -71,17 +97,115 @@ serve(async (req) => {
     }
     if (!isOwner && !isManager) return json({ error: "Forbidden" }, 403);
 
-    // Helper: is a given staff row the hotel OWNER's own membership?
     const isOwnerRow = async (sid: string) => {
       const { data } = await admin.from("ts_staff").select("user_id").eq("id", sid).eq("hotel_id", hotelId).maybeSingle();
       return !!data && data.user_id === hotel.user_id;
     };
-    // Only owner/manager may exist as roles a non-owner can assign; nobody but the
-    // owner can mint another owner.
     const normalizeRole = (r: unknown) => {
-      const v = String(r ?? "staff");
+      const v = String(r ?? "staff").trim().toLowerCase();
       if (v === "owner" && !isOwner) return "manager";
-      return ["owner", "manager", "staff"].includes(v) ? v : "staff";
+      if (v === "manager" || v === "mgr") return "manager";
+      if (v === "owner") return "owner";
+      return "staff";
+    };
+
+    // Cache Auth users once for bulk lookups (listUsers is expensive per row).
+    let emailToUserId: Map<string, string> | null = null;
+    const loadEmailIndex = async () => {
+      if (emailToUserId) return emailToUserId;
+      const map = new Map<string, string>();
+      for (let page = 1; page <= 20; page++) {
+        const { data } = await admin.auth.admin.listUsers({ page, perPage: 200 });
+        for (const u of data?.users ?? []) {
+          if (u.email) map.set(u.email.toLowerCase(), u.id);
+        }
+        if (!data?.users || data.users.length < 200) break;
+      }
+      emailToUserId = map;
+      return map;
+    };
+
+    const { data: callerStaff } = await admin.from("ts_staff")
+      .select("name").eq("hotel_id", hotelId).eq("user_id", caller.id).maybeSingle();
+    const inviterName = callerStaff?.name || caller.email || "A manager";
+
+    const inviteOne = async (opts: {
+      email: string; name?: string | null; departmentKey?: string | null; role?: string;
+    }): Promise<{ email: string; ok: boolean; invited?: boolean; added?: boolean; error?: string }> => {
+      const cleanEmail = String(opts.email ?? "").trim().toLowerCase();
+      if (!cleanEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+        return { email: cleanEmail || "(blank)", ok: false, error: "invalid email" };
+      }
+      const staffName = (opts.name ? String(opts.name).trim() : "") || null;
+      const dept = opts.departmentKey === undefined
+        ? null
+        : (opts.departmentKey === null ? null : normalizeDept(opts.departmentKey));
+      // Unknown department string → treat as all departments rather than failing the row.
+      const department_key = dept;
+
+      const index = await loadEmailIndex();
+      let userId: string | null = index.get(cleanEmail) ?? null;
+      let invited = false;
+
+      if (!userId) {
+        const { data: linkData, error: lErr } = await admin.auth.admin.generateLink({
+          type: "invite",
+          email: cleanEmail,
+          options: {
+            data: staffName ? { full_name: staffName } : undefined,
+            redirectTo: `${PUBLIC_BASE_URL}/app?type=invite&property=${encodeURIComponent(hotel.slug ?? "")}`,
+          },
+        });
+        if (lErr || !linkData?.user) {
+          return { email: cleanEmail, ok: false, error: lErr?.message ?? "Could not create user" };
+        }
+        userId = linkData.user.id;
+        index.set(cleanEmail, userId);
+        invited = true;
+
+        const key = (Deno.env.get("RESEND_API_KEY") || "").trim();
+        const actionLink = linkData.properties?.action_link;
+        if (key && actionLink) {
+          const deptLabel = department_key ? department_key.replace(/_/g, " ") : "";
+          const html = renderEmail({
+            hotelName: hotel.name ?? "Your hotel",
+            logoUrl: hotel.branding?.logo_url,
+            accentColor: hotel.branding?.primary_color,
+            heading: `You've been invited to join ${hotel.name ?? "the"} team`,
+            bodyHtml: `
+              <p style="margin:0 0 14px;">${escapeHtml(inviterName)} added you to their TalkStay team${deptLabel ? ` (${escapeHtml(deptLabel)})` : ""}. Set a password to get started.</p>`,
+            cta: { label: "Set your password", url: actionLink },
+            footerNote: "If you weren't expecting this, you can safely ignore this email.",
+          });
+          // Await so bulk invites don't drop most emails when the isolate freezes.
+          try {
+            await fetch("https://api.resend.com/emails", {
+              method: "POST",
+              headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+              body: JSON.stringify({
+                from: "TalkStay <notifications@talkweb.io>",
+                to: cleanEmail,
+                subject: `You've been invited to join ${hotel.name ?? "a"} on TalkStay`,
+                html,
+              }),
+            });
+          } catch { /* membership still created */ }
+        }
+      }
+
+      const { error: sErr } = await admin.from("ts_staff").upsert(
+        {
+          hotel_id: hotelId,
+          user_id: userId,
+          department_key,
+          role: normalizeRole(opts.role),
+          status: "active",
+          name: staffName,
+        },
+        { onConflict: "hotel_id,user_id,department_key" }
+      );
+      if (sErr) return { email: cleanEmail, ok: false, error: sErr.message };
+      return { email: cleanEmail, ok: true, invited, added: !invited };
     };
 
     // ------- list -------
@@ -92,104 +216,68 @@ serve(async (req) => {
         .eq("hotel_id", hotelId)
         .order("created_at", { ascending: true });
 
-      // Resolve emails via admin (RLS-free).
-      const rows = await Promise.all(
+      const rowsOut = await Promise.all(
         (staff ?? []).map(async (s: any) => {
           const { data } = await admin.auth.admin.getUserById(s.user_id);
           return { ...s, email: data?.user?.email ?? "(unknown)" };
         })
       );
-      return json({ staff: rows });
+      return json({ staff: rowsOut });
     }
 
-    // ------- invite -------
+    // ------- invite (single) -------
     if (action === "invite") {
       if (!email) return json({ error: "email required" }, 400);
-      const cleanEmail = String(email).trim().toLowerCase();
-      const staffName = (name ? String(name).trim() : "") || null;
-
-      // Find existing user by email (paginate a little).
-      let userId: string | null = null;
-      for (let page = 1; page <= 5 && !userId; page++) {
-        const { data } = await admin.auth.admin.listUsers({ page, perPage: 200 });
-        const hit = data?.users?.find((u) => (u.email ?? "").toLowerCase() === cleanEmail);
-        if (hit) userId = hit.id;
-        if (!data?.users || data.users.length < 200) break;
-      }
-
-      let invited = false;
-      if (!userId) {
-        // New team member: create the account (no password yet) and send them
-        // a branded invite link to set their own — never a temp password
-        // relayed by whoever invited them.
-        const { data: linkData, error: lErr } = await admin.auth.admin.generateLink({
-          type: "invite",
-          email: cleanEmail,
-          options: {
-            data: staffName ? { full_name: staffName } : undefined,
-            // Our own type= marker survives regardless of how Supabase encodes
-            // the token — AuthPage/HotelApp use it to force the "set a
-            // password" screen instead of dropping the invitee into the app.
-            // ?property= makes the sign-in/password page wear THEIR property's branding.
-            redirectTo: `${PUBLIC_BASE_URL}/app?type=invite&property=${encodeURIComponent(hotel.slug ?? "")}`,
-          },
-        });
-        if (lErr || !linkData?.user) return json({ error: lErr?.message ?? "Could not create user" }, 400);
-        userId = linkData.user.id;
-        invited = true;
-
-        const key = (Deno.env.get("RESEND_API_KEY") || "").trim();
-        const actionLink = linkData.properties?.action_link;
-        if (key && actionLink) {
-          // Who's doing the inviting — their own staff name if set, else email.
-          const { data: callerStaff } = await admin.from("ts_staff")
-            .select("name").eq("hotel_id", hotelId).eq("user_id", caller.id).maybeSingle();
-          const inviterName = callerStaff?.name || caller.email || "A manager";
-
-          const html = renderEmail({
-            hotelName: hotel.name ?? "Your hotel",
-            logoUrl: hotel.branding?.logo_url,
-            accentColor: hotel.branding?.primary_color,
-            heading: `You've been invited to join ${hotel.name ?? "the"} team`,
-            bodyHtml: `
-              <p style="margin:0 0 14px;">${escapeHtml(inviterName)} added you to their TalkStay team${departmentKey ? ` (${escapeHtml(String(departmentKey).replace(/_/g, " "))})` : ""}. Set a password to get started.</p>`,
-            cta: { label: "Set your password", url: actionLink },
-            footerNote: "If you weren't expecting this, you can safely ignore this email.",
-          });
-          fetch("https://api.resend.com/emails", {
-            method: "POST",
-            headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-            body: JSON.stringify({ from: "TalkStay <notifications@talkweb.io>", to: cleanEmail, subject: `You've been invited to join ${hotel.name ?? "a"} on TalkStay`, html }),
-          }).catch(() => {});
-        }
-      }
-
-      // Upsert the staff membership (unique on hotel_id,user_id,department_key).
-      const { error: sErr } = await admin.from("ts_staff").upsert(
-        {
-          hotel_id: hotelId,
-          user_id: userId,
-          department_key: departmentKey || null,
-          role: normalizeRole(role),
-          status: "active",
-          name: staffName,
-        },
-        { onConflict: "hotel_id,user_id,department_key" }
-      );
-      if (sErr) return json({ error: sErr.message }, 400);
-
-      return json({ ok: true, invited, email: cleanEmail });
+      const result = await inviteOne({ email, name, departmentKey, role });
+      if (!result.ok) return json({ error: result.error ?? "Failed" }, 400);
+      return json({ ok: true, invited: !!result.invited, email: result.email });
     }
 
-    // ------- update (edit name / role / department) -------
+    // ------- invite_bulk -------
+    if (action === "invite_bulk") {
+      if (!Array.isArray(rows) || rows.length === 0) {
+        return json({ error: "rows required (array of { name?, email, departmentKey?, role? })" }, 400);
+      }
+      if (rows.length > MAX_BULK) {
+        return json({ error: `Max ${MAX_BULK} staff per import. Split your list and try again.` }, 400);
+      }
+
+      // De-dupe by email (last wins) so a pasted sheet with duplicates doesn't double-invite.
+      const byEmail = new Map<string, { email: string; name?: string | null; departmentKey?: string | null; role?: string }>();
+      for (const r of rows) {
+        const em = String(r?.email ?? "").trim().toLowerCase();
+        if (!em) continue;
+        byEmail.set(em, {
+          email: em,
+          name: r?.name ?? null,
+          departmentKey: r?.departmentKey ?? r?.department ?? null,
+          role: r?.role ?? "staff",
+        });
+      }
+
+      const results: { email: string; ok: boolean; invited?: boolean; added?: boolean; error?: string }[] = [];
+      for (const row of byEmail.values()) {
+        results.push(await inviteOne(row));
+      }
+
+      const invited = results.filter((r) => r.ok && r.invited).length;
+      const added = results.filter((r) => r.ok && r.added).length;
+      const failed = results.filter((r) => !r.ok).length;
+      return json({ ok: true, total: results.length, invited, added, failed, results });
+    }
+
+    // ------- update -------
     if (action === "update") {
       if (!staffId) return json({ error: "staffId required" }, 400);
-      // The owner's own membership can only be edited by the owner.
       if (!isOwner && (await isOwnerRow(staffId))) return json({ error: "Only the owner can edit the owner." }, 403);
       const patch: Record<string, unknown> = {};
       if (name !== undefined) patch.name = (String(name).trim() || null);
       if (role !== undefined) patch.role = normalizeRole(role);
-      if (departmentKey !== undefined) patch.department_key = departmentKey || null;
+      if (departmentKey !== undefined) {
+        patch.department_key = departmentKey == null || departmentKey === ""
+          ? null
+          : normalizeDept(departmentKey);
+      }
       if (Object.keys(patch).length === 0) return json({ error: "Nothing to update" }, 400);
       const { error } = await admin.from("ts_staff").update(patch).eq("id", staffId).eq("hotel_id", hotelId);
       if (error) return json({ error: error.message }, 400);
@@ -199,7 +287,6 @@ serve(async (req) => {
     // ------- remove -------
     if (action === "remove") {
       if (!staffId) return json({ error: "staffId required" }, 400);
-      // Nobody can remove the owner's membership; managers can't be removed by managers.
       if (await isOwnerRow(staffId)) return json({ error: "The owner can't be removed." }, 403);
       const { error } = await admin.from("ts_staff").delete().eq("id", staffId).eq("hotel_id", hotelId);
       if (error) return json({ error: error.message }, 400);

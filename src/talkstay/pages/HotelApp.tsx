@@ -200,7 +200,7 @@ export default function HotelApp() {
   const SidebarBody = (
     <div className="flex h-full flex-col bg-[#15111f] text-white/70">
       <div className="flex items-center justify-between px-5 py-4">
-        <Link to="/" className="flex min-w-0 items-center gap-2.5 transition-opacity hover:opacity-80">
+        <Link to="/app" className="flex min-w-0 items-center gap-2.5 transition-opacity hover:opacity-80" title="Dashboard home">
           <TalkStayLogo size={30} />
           <div className="min-w-0 font-semibold tracking-tight text-white">TalkStay</div>
         </Link>

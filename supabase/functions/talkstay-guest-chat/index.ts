@@ -123,16 +123,73 @@ async function embedQuery(query: string, apiKey: string): Promise<number[] | nul
   } catch { return null; }
 }
 
+type GuestCard = {
+  title?: string;
+  sections?: { title: string; items: string[] }[];
+  links?: { label: string; url: string }[];
+  images?: { url: string; alt?: string }[];
+};
+
+function parseCardMeta(content: string): any | null {
+  const m = String(content ?? "").match(/\[\[ts-card\]\]([\s\S]*?)\[\[\/ts-card\]\]/i);
+  if (!m) return null;
+  try { return JSON.parse(m[1]); } catch { return null; }
+}
+
+function mediaToCard(title: string | null, media: any): GuestCard | null {
+  if (!media || typeof media !== "object") return null;
+  const sections = Array.isArray(media.sections) ? media.sections : [];
+  const links = Array.isArray(media.links) ? media.links : [];
+  const images = Array.isArray(media.images) ? media.images : [];
+  if (!sections.length && !links.length && !images.length) return null;
+  return {
+    title: title || undefined,
+    sections: sections.slice(0, 12).map((s: any) => ({
+      title: String(s?.title ?? "").trim().slice(0, 80),
+      items: (Array.isArray(s?.items) ? s.items : []).map((i: any) => String(i).trim()).filter(Boolean).slice(0, 40),
+    })).filter((s: any) => s.title || s.items.length),
+    links: links.slice(0, 12).map((l: any) => ({
+      label: String(l?.label ?? "Open").trim().slice(0, 80),
+      url: String(l?.url ?? "").trim(),
+    })).filter((l: any) => /^https?:\/\//i.test(l.url)),
+    images: images.slice(0, 8).map((img: any) => ({
+      url: String(img?.url ?? "").trim(),
+      alt: String(img?.alt ?? "").trim() || undefined,
+    })).filter((img: any) => /^https?:\/\//i.test(img.url)),
+  };
+}
+
+function cardFromKnowledgeRow(title: string | null, media: any, content: string): GuestCard | null {
+  const fromCol = mediaToCard(title, media);
+  if (fromCol) return fromCol;
+  return mediaToCard(title, parseCardMeta(content));
+}
+
+function extractLinksFromText(text: string): { links: { label: string; url: string }[]; images: { url: string; alt?: string }[] } {
+  const urls = text.match(/https?:\/\/[^\s)\]>"']+/gi) ?? [];
+  const links: { label: string; url: string }[] = [];
+  const images: { url: string; alt?: string }[] = [];
+  const seen = new Set<string>();
+  for (const raw of urls) {
+    const url = raw.replace(/[.,;:!?)]+$/, "");
+    if (seen.has(url)) continue;
+    seen.add(url);
+    if (/\.(png|jpe?g|gif|webp|svg)(\?|$)/i.test(url)) images.push({ url });
+    else links.push({ label: "View", url });
+  }
+  return { links: links.slice(0, 8), images: images.slice(0, 6) };
+}
+
 // Merged retrieval:
 //  (a) room/department/general entries from ts_knowledge (room-scoped, never other rooms)
 //  (b) the hotel WEBSITE + documents knowledge from TalkWeb's knowledge_vectors
-//      (via enhanced-knowledge-search on the hotel's linked assistant)
-// Room/department info first, then site content.
+// Room/department info first, then site content. Also collect property media cards.
 async function searchKnowledge(
   admin: any, hotelId: string, roomId: string, assistantId: string | null,
   query: string, apiKey: string
-): Promise<string> {
+): Promise<{ text: string; cards: GuestCard[] }> {
   const parts: string[] = [];
+  const cards: GuestCard[] = [];
 
   // (a) TalkStay layered KB
   if (apiKey) {
@@ -145,9 +202,17 @@ async function searchKnowledge(
         for (const r of ((data ?? []) as any[]).filter((r) => (r.similarity ?? 0) > 0.1).slice(0, 4)) {
           const tag = r.scope === "room" ? "[Room info] " : r.scope === "department" ? `[${r.department_key}] ` : "";
           parts.push(r.title ? `${tag}[${r.title}]: ${r.content}` : `${tag}${r.content}`);
+          const card = cardFromKnowledgeRow(r.title, r.media, String(r.content ?? ""));
+          if (card) cards.push(card);
+          else {
+            const extracted = extractLinksFromText(String(r.content ?? ""));
+            if (extracted.links.length || extracted.images.length) {
+              cards.push({ title: r.title || undefined, ...extracted, sections: [] });
+            }
+          }
         }
       }
-    } catch { /* best-effort */ }
+    } catch { /* best-effort — older DBs may lack media column */ }
   }
 
   // (b) TalkWeb website/document knowledge (assistant-scoped)
@@ -159,12 +224,96 @@ async function searchKnowledge(
       for (const r of ((data?.results ?? []) as any[])
         .filter((r) => (r.quality_score ?? 0) >= 0.1 || (r.score ?? 0) >= 0.1)
         .slice(0, 4)) {
-        parts.push(r.title ? `[${r.title}]: ${r.content}` : String(r.content ?? ""));
+        const content = String(r.content ?? "");
+        parts.push(r.title ? `[${r.title}]: ${content}` : content);
+        const extracted = extractLinksFromText(content);
+        const src = r.url || r.source_url;
+        if (src && /^https?:\/\//i.test(String(src))) {
+          extracted.links.unshift({ label: r.title ? String(r.title).slice(0, 60) : "View source", url: String(src) });
+        }
+        if (extracted.links.length || extracted.images.length) {
+          cards.push({ title: r.title || undefined, links: extracted.links.slice(0, 8), images: extracted.images, sections: [] });
+        }
       }
     } catch { /* best-effort */ }
   }
 
-  return parts.join("\n\n").slice(0, 6000);
+  return { text: parts.join("\n\n").slice(0, 6000), cards };
+}
+
+/** Turn flat knowledge into organised guest cards (no markdown). Prefer property media. */
+async function structureKnowledgeAnswer(
+  apiKey: string, guestQuestion: string, kbText: string, seedCards: GuestCard[],
+): Promise<{ intro: string; cards: GuestCard[] }> {
+  const hasSeedSections = seedCards.some((c) => (c.sections?.length ?? 0) > 0);
+  if (hasSeedSections) {
+    return {
+      intro: "Here's what we have for you.",
+      cards: seedCards.filter((c) => (c.sections?.length ?? 0) || (c.links?.length ?? 0) || (c.images?.length ?? 0)).slice(0, 3),
+    };
+  }
+  if (!apiKey || !kbText.trim()) {
+    return { intro: "I couldn't find that in our property info — I can ask the team for you.", cards: seedCards.slice(0, 2) };
+  }
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
+    const resp = await fetch(OPENAI, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      signal: ctrl.signal,
+      body: JSON.stringify({
+        model: "gpt-4o-mini", temperature: 0.2, max_tokens: 900,
+        response_format: { type: "json_object" },
+        messages: [
+          {
+            role: "system",
+            content: `You format hotel knowledge for an in-room guest UI. Return ONLY JSON:
+{"intro":"<one short plain sentence, no markdown>","cards":[{"title":"...","sections":[{"title":"...","items":["..."]}],"links":[{"label":"...","url":"https://..."}],"images":[{"url":"https://...","alt":"..."}]}]}
+Rules: no markdown, no bullets with *, no # headings. Put menu/list content into sections/items. Copy any real http(s) URLs from the knowledge into links or images. Max 3 cards, 8 sections/card, 30 items/section. If knowledge is thin, still return a useful short intro and empty cards.`,
+          },
+          { role: "user", content: `Guest asked: ${guestQuestion}\n\nKnowledge:\n${kbText.slice(0, 5000)}` },
+        ],
+      }),
+    });
+    clearTimeout(timer);
+    if (!resp.ok) throw new Error("structure failed");
+    const data = await resp.json();
+    const raw = String(data?.choices?.[0]?.message?.content ?? "");
+    const parsed = JSON.parse(raw);
+    const intro = String(parsed.intro ?? "").replace(/[*#`_]/g, "").trim().slice(0, 280)
+      || "Here's what I found.";
+    const cards: GuestCard[] = Array.isArray(parsed.cards)
+      ? parsed.cards.slice(0, 3).map((c: any) => ({
+        title: String(c?.title ?? "").trim().slice(0, 80) || undefined,
+        sections: Array.isArray(c?.sections) ? c.sections.slice(0, 8).map((s: any) => ({
+          title: String(s?.title ?? "").trim().slice(0, 80),
+          items: (Array.isArray(s?.items) ? s.items : []).map((i: any) => String(i).replace(/[*#`_]/g, "").trim().slice(0, 160)).filter(Boolean).slice(0, 30),
+        })).filter((s: any) => s.title || s.items.length) : [],
+        links: Array.isArray(c?.links) ? c.links.slice(0, 8).map((l: any) => ({
+          label: String(l?.label ?? "View").trim().slice(0, 80),
+          url: String(l?.url ?? "").trim(),
+        })).filter((l: any) => /^https?:\/\//i.test(l.url)) : [],
+        images: Array.isArray(c?.images) ? c.images.slice(0, 6).map((img: any) => ({
+          url: String(img?.url ?? "").trim(),
+          alt: String(img?.alt ?? "").trim() || undefined,
+        })).filter((img: any) => /^https?:\/\//i.test(img.url)) : [],
+      })).filter((c: GuestCard) => (c.sections?.length ?? 0) || (c.links?.length ?? 0) || (c.images?.length ?? 0))
+      : [];
+    // Merge any property-uploaded links/images from seed cards.
+    for (const seed of seedCards) {
+      if (!seed.links?.length && !seed.images?.length) continue;
+      if (cards[0]) {
+        cards[0].links = [...(cards[0].links ?? []), ...(seed.links ?? [])].slice(0, 10);
+        cards[0].images = [...(cards[0].images ?? []), ...(seed.images ?? [])].slice(0, 8);
+      } else {
+        cards.push(seed);
+      }
+    }
+    return { intro, cards };
+  } catch {
+    return { intro: "Here's what I found from our property info.", cards: seedCards.slice(0, 2) };
+  }
 }
 
 // ---- Mid-stay pulse check ---------------------------------------------------
@@ -620,6 +769,7 @@ serve(async (req) => {
     // Staff marking "completed" is a claim, not proof. The guest gets the final
     // say: "Yes, all good" → guest_confirmed (then they can rate); "Not yet" →
     // reopened, and the team is alerted to pick it back up.
+    // Cancelled requests can also be reopened (same ticket) via action "reopen".
     if (action === "confirm" || action === "reopen") {
       const { requestId } = body;
       if (!requestId) return json({ error: "requestId required" }, 400);
@@ -629,23 +779,132 @@ serve(async (req) => {
         .eq("id", requestId).eq("hotel_id", ctx.hotelId).maybeSingle();
       if (!reqRow || (sessionId && reqRow.session_id && reqRow.session_id !== sessionId))
         return json({ error: "not_found" }, 404);
-      // Only a completed request can be confirmed or reopened by the guest.
-      if (reqRow.status !== "completed")
-        return json({ error: "not_completed", status: reqRow.status }, 409);
 
-      const next = action === "confirm" ? "guest_confirmed" : "reopened";
-      const { error } = await admin.from("ts_service_requests")
-        .update({ status: next }).eq("id", requestId);
-      if (error) return json({ error: error.message }, 400);
+      if (action === "confirm") {
+        if (reqRow.status !== "completed")
+          return json({ error: "not_completed", status: reqRow.status }, 409);
+        const { error } = await admin.from("ts_service_requests")
+          .update({ status: "guest_confirmed" }).eq("id", requestId);
+        if (error) return json({ error: error.message }, 400);
+        await admin.from("ts_request_events").insert({
+          request_id: requestId, status: "guest_confirmed", actor_type: "guest",
+        });
+        admin.functions.invoke("talkstay-notify", {
+          body: { requestId, event: "guest_confirmed" },
+        }).then(() => {}, () => {});
+        return json({ ok: true, status: "guest_confirmed" });
+      }
+
+      // reopen: completed → "reopened"; cancelled → "new" (back in the queue)
+      if (reqRow.status === "completed") {
+        const { error } = await admin.from("ts_service_requests")
+          .update({ status: "reopened" }).eq("id", requestId);
+        if (error) return json({ error: error.message }, 400);
+        await admin.from("ts_request_events").insert({
+          request_id: requestId, status: "reopened", actor_type: "guest",
+          note: "Guest said not done yet",
+        });
+        admin.functions.invoke("talkstay-notify", {
+          body: { requestId, event: "reopened" },
+        }).then(() => {}, () => {});
+        return json({ ok: true, status: "reopened", mode: "reopen" });
+      }
+      if (reqRow.status === "cancelled") {
+        const { error } = await admin.from("ts_service_requests")
+          .update({ status: "new", priority: "normal" }).eq("id", requestId);
+        if (error) return json({ error: error.message }, 400);
+        await admin.from("ts_request_events").insert({
+          request_id: requestId, status: "new", actor_type: "guest",
+          note: "Guest asked again after cancelling",
+        });
+        admin.functions.invoke("talkstay-notify", {
+          body: { requestId, event: "reopened" },
+        }).then(() => {}, () => {});
+        return json({ ok: true, status: "new", mode: "reopen_cancelled" });
+      }
+      return json({ error: "cannot_reopen", status: reqRow.status }, 409);
+    }
+
+    // ---- repeat_request: same ask again (new ticket) for done/cancelled stays ----
+    // Use when the guest wants another round (extra towels again), not "not yet" on
+    // the same incomplete delivery — that path is reopen on completed.
+    // Optional `note` lets them change the ask (e.g. 2 bottles instead of 1).
+    if (action === "repeat_request") {
+      const { requestId } = body;
+      const note = typeof body.note === "string" ? body.note.trim().slice(0, 400) : "";
+      if (!requestId) return json({ error: "requestId required" }, 400);
+      const { data: reqRow } = await admin
+        .from("ts_service_requests")
+        .select("id, session_id, status, department_key, summary, summary_staff, is_complaint, is_chargeable, guest_language, intent")
+        .eq("id", requestId).eq("hotel_id", ctx.hotelId).maybeSingle();
+      if (!reqRow || (sessionId && reqRow.session_id && reqRow.session_id !== sessionId))
+        return json({ error: "not_found" }, 404);
+
+      const repeatable = ["cancelled", "completed", "guest_confirmed"];
+      if (!repeatable.includes(reqRow.status))
+        return json({ error: "not_repeatable", status: reqRow.status }, 409);
+
+      const nextSummary = note || reqRow.summary;
+      const summaryChanged = !!note && note !== reqRow.summary;
+      let nextSummaryStaff = reqRow.summary_staff;
+      if (summaryChanged && OPENAI_API_KEY) {
+        nextSummaryStaff = await translateForStaff(OPENAI_API_KEY, nextSummary, ctx.language);
+      } else if (summaryChanged) {
+        nextSummaryStaff = nextSummary;
+      }
+
+      // Cancelled → put the same ticket back in the queue (optionally with a new summary).
+      if (reqRow.status === "cancelled") {
+        const patch: Record<string, unknown> = { status: "new", priority: "normal" };
+        if (summaryChanged) {
+          patch.summary = nextSummary;
+          patch.summary_staff = nextSummaryStaff;
+        }
+        const { error } = await admin.from("ts_service_requests")
+          .update(patch).eq("id", requestId);
+        if (error) return json({ error: error.message }, 400);
+        await admin.from("ts_request_events").insert({
+          request_id: requestId, status: "new", actor_type: "guest",
+          note: summaryChanged
+            ? `Guest asked again (updated): ${nextSummary}`.slice(0, 200)
+            : "Guest asked again after cancelling",
+        });
+        admin.functions.invoke("talkstay-notify", {
+          body: { requestId, event: "reopened" },
+        }).then(() => {}, () => {});
+        return json({
+          ok: true, mode: "reopen_cancelled", status: "new",
+          request: {
+            id: reqRow.id, department_key: reqRow.department_key,
+            summary: nextSummary, status: "new",
+          },
+        });
+      }
+
+      // Completed / confirmed → brand-new ticket with the same (or updated) details.
+      const { data: created, error } = await admin.from("ts_service_requests").insert({
+        hotel_id: ctx.hotelId, room_id: ctx.roomId,
+        department_key: reqRow.department_key,
+        intent: String(reqRow.intent || nextSummary || "").slice(0, 200),
+        summary: nextSummary,
+        summary_staff: nextSummaryStaff || nextSummary,
+        priority: "normal",
+        is_complaint: !!reqRow.is_complaint,
+        is_chargeable: !!reqRow.is_chargeable,
+        guest_language: reqRow.guest_language || ctx.language,
+        session_id: sessionId || null,
+        classification_method: "guest_repeat",
+        needs_triage: false,
+      }).select("id, department_key, summary, status, is_complaint").single();
+      if (error || !created) return json({ error: error?.message || "create_failed" }, 400);
       await admin.from("ts_request_events").insert({
-        request_id: requestId, status: next, actor_type: "guest",
+        request_id: created.id, status: "new", actor_type: "guest",
+        note: `Repeated from ${requestId}${summaryChanged ? " (updated)" : ""}`,
       });
-
-      // Notify ops: reopen = pick it up; confirm = close the loop for managers.
       admin.functions.invoke("talkstay-notify", {
-        body: { requestId, event: next === "reopened" ? "reopened" : "guest_confirmed" },
+        body: { requestId: created.id },
       }).then(() => {}, () => {});
-      return json({ ok: true, status: next });
+      return json({ ok: true, mode: "repeat_new", status: "new", request: created });
     }
 
     // ---- message: the AI brain ----
@@ -670,27 +929,43 @@ serve(async (req) => {
       return `- [${r.id}] ${r.department_key} · ${r.summary} · asked ${mins} min ago`;
     }).join("\n");
 
+    // Recent cancelled/done — so "can I reopen / same again" can recreate quickly.
+    const { data: recentClosed } = sessionId
+      ? await admin.from("ts_service_requests")
+          .select("id, department_key, summary, status, created_at")
+          .eq("hotel_id", ctx.hotelId).eq("session_id", sessionId)
+          .in("status", ["cancelled", "completed", "guest_confirmed"])
+          .order("created_at", { ascending: false }).limit(5)
+      : { data: [] as any[] };
+    const closedList = (recentClosed ?? []).map((r: any) =>
+      `- [${r.id}] ${r.status} · ${r.department_key} · ${r.summary}`
+    ).join("\n");
+
     const system = `You are the in-room guest assistant for ${ctx.hotelName}, Room ${ctx.roomNumber}.
 Be warm, brief and natural — like a helpful concierge, not a form. The guest should feel they just ask and it's handled.
 
 LANGUAGE: Reply in the same language the guest writes in (their hotel default is ${ctx.language}). The "summary" you pass to tools MUST be in English for staff.
 
 WHAT TO DO:
-- General questions about the hotel (breakfast, wifi, checkout, facilities, local tips): call answer_from_knowledge FIRST, then answer from what it returns. If it returns nothing useful, say you'll check with the team and offer to pass it on — never invent facts.
+- General questions about the hotel (breakfast, wifi, checkout, facilities, local tips): call answer_from_knowledge FIRST. When it returns structured cards, reply with ONE short plain sentence only (the UI shows the organised card). Never paste menus as markdown lists. If knowledge is empty, say you'll check with the team — never invent facts.
 - A request for something (towels, food, drinks, laundry, a repair, taxi, late checkout, etc.): call create_service_request with the correct department. Confirm back conversationally with a rough ETA. Do NOT ask the guest to "track" anything.
 - Complaints, safety issues, anything upsetting or urgent: do NOT try to resolve it yourself. Call create_service_request with department "duty_manager", priority "urgent", is_complaint true, and reassure them a manager will contact them shortly.
+- If they want to re-open a cancelled request or "same again" / repeat something from RECENT CLOSED REQUESTS: call create_service_request with the SAME department and a matching English summary (you may copy the closed summary). Confirm warmly that it's back with the team. Tell them they can also tap Ask again in My requests.
 
 CURRENTLY OPEN REQUESTS FOR THIS STAY (id · department · summary · time since asked):
 ${openList || "(none yet)"}
 
-FOLLOW-UPS vs NEW REQUESTS — check the list above BEFORE calling create_service_request. If the guest's
+RECENT CLOSED REQUESTS (cancelled / done — usable for "ask again"):
+${closedList || "(none)"}
+
+FOLLOW-UPS vs NEW REQUESTS — check the OPEN list above BEFORE calling create_service_request. If the guest's
 message is chasing, checking on, or complaining about something already listed (e.g. "is it coming",
 "it's been a while", "still waiting", "where's my..."), that is a FOLLOW-UP, not a new request:
 - Do NOT create a duplicate request for it.
 - If they're just checking in, reassure them conversationally with an approximate wait and move on.
 - If they sound frustrated, or the time-since-asked is notably long for that kind of task, call
   escalate_request with that request's id (copied exactly from the list) so staff are alerted now.
-Only call create_service_request for something genuinely new that isn't already on the list.
+Only call create_service_request for something genuinely new that isn't already on the open list — or when they clearly want to repeat / re-open a closed one.
 
 DEPARTMENTS available (use exactly these keys): ${activeDepts.join(", ")}.
 Routing guide: towels/cleaning/bedding→housekeeping; laundry→laundry; food/breakfast/room service→kitchen; drinks/wine/cocktails→bar; TV/heating/AC/broken things→maintenance; taxi/recommendations/luggage→concierge; late checkout/billing/room access→front_desk; complaint/safety→duty_manager.
@@ -760,9 +1035,11 @@ what you just said. Vary your phrasing so it doesn't sound like a scripted closi
 
     const createdRequests: any[] = [];
     let guestIntent = "other"; // question | request | complaint | other
+    let pendingCards: GuestCard[] | undefined;
 
     // Log the interaction (both guest turn + assistant reply) for engagement analytics.
-    const logAndReturn = async (reply: string) => {
+    // `cards` = structured guest UI (menus, links, images) — never markdown dumps.
+    const logAndReturn = async (reply: string, cards?: GuestCard[]) => {
       try {
         await admin.from("ts_interactions").insert([
           { hotel_id: ctx.hotelId, room_id: ctx.roomId, session_id: sessionId || null,
@@ -771,7 +1048,12 @@ what you just said. Vary your phrasing so it doesn't sound like a scripted closi
             role: "assistant", content: String(reply).slice(0, 1000), intent: "reply", language: ctx.language },
         ]);
       } catch { /* analytics must never block the guest */ }
-      return json({ reply, requests: createdRequests, language: ctx.language });
+      return json({
+        reply,
+        requests: createdRequests,
+        language: ctx.language,
+        ...(cards?.length ? { cards } : {}),
+      });
     };
 
     // Shared request-creation (used by both the LLM path and the deterministic
@@ -835,7 +1117,10 @@ what you just said. Vary your phrasing so it doesn't sound like a scripted closi
         if (!msg) throw new Error("no message");
 
         const toolCalls = msg.tool_calls ?? [];
-        if (toolCalls.length === 0) return await logAndReturn(msg.content ?? "");
+        if (toolCalls.length === 0) {
+          const plain = String(msg.content ?? "").replace(/\*\*/g, "").trim();
+          return await logAndReturn(plain, pendingCards);
+        }
 
         messages.push(msg);
         for (const tc of toolCalls) {
@@ -845,7 +1130,27 @@ what you just said. Vary your phrasing so it doesn't sound like a scripted closi
           if (tc.function.name === "answer_from_knowledge") {
             if (guestIntent === "other") guestIntent = "question";
             const kb = await searchKnowledge(admin, ctx.hotelId, ctx.roomId, ctx.assistantId, String(args.query || message), OPENAI_API_KEY);
-            messages.push({ role: "tool", tool_call_id: tc.id, content: kb || "No knowledge-base entries matched. Do not invent an answer." });
+            if (kb.text) {
+              const structured = await structureKnowledgeAnswer(
+                OPENAI_API_KEY, String(message), kb.text, kb.cards,
+              );
+              pendingCards = structured.cards.length ? structured.cards : undefined;
+              messages.push({
+                role: "tool",
+                tool_call_id: tc.id,
+                content: JSON.stringify({
+                  ok: true,
+                  intro_hint: structured.intro,
+                  has_guest_cards: !!pendingCards?.length,
+                  instruction: pendingCards?.length
+                    ? "The guest UI will show organised cards (sections/links/images). Reply with ONE short plain sentence only — no lists, no markdown."
+                    : "Answer briefly from this knowledge in plain sentences. No markdown lists.",
+                  knowledge: kb.text.slice(0, 3500),
+                }),
+              });
+            } else {
+              messages.push({ role: "tool", tool_call_id: tc.id, content: "No knowledge-base entries matched. Do not invent an answer." });
+            }
           } else if (tc.function.name === "create_service_request") {
             // HYBRID ROUTING: hotel keyword rule (authoritative) > LLM dept > built-in
             // keyword default > front-desk fallback (flagged for human triage).

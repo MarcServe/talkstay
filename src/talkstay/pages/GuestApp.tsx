@@ -2,18 +2,18 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Loader2, Send, ClipboardList, Star, X, Mic, MicOff, Globe, Check, MessageCircle, Smile, Meh, Frown, BellRing, Bell, Pencil } from "lucide-react";
+import { Loader2, Send, ClipboardList, Star, X, Mic, MicOff, Globe, Check, MessageCircle, Smile, Meh, Frown, BellRing, Bell, Pencil, ExternalLink, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { RealtimeChat } from "@/utils/RealtimeChat";
 import { conversationMemory } from "@/utils/ConversationMemory";
 import { pushSupported } from "@/talkstay/lib/push";
 import {
   fetchContext, sendMessage, fetchMyRequests, submitReview, saveGuestContact,
-  confirmRequest, reopenRequest, cancelRequest, nudgeRequest, updateRequest,
+  confirmRequest, reopenRequest, cancelRequest, nudgeRequest, updateRequest, repeatRequest,
   fetchStaffMessages, enableDevicePush, disableDevicePush,
   getSessionId, getDeviceId, loadHistory, saveHistory, getNotifyChoice, setNotifyChoice,
   submitPulse, getPulseState, setPulseState,
-  STATUS_LABEL, type ChatMsg, type GuestRequest, type GuestBranding,
+  STATUS_LABEL, type ChatMsg, type GuestCard, type GuestRequest, type GuestBranding,
 } from "@/talkstay/lib/guest";
 
 type Ctx = {
@@ -22,7 +22,161 @@ type Ctx = {
   pulseAsk?: boolean;
 };
 
-type Msg = ChatMsg | { role: "request"; content: string } | { role: "notice"; content: string } | { role: "staff"; content: string; label?: string };
+type Msg =
+  | ChatMsg
+  | { role: "request"; content: string }
+  | { role: "notice"; content: string }
+  | { role: "staff"; content: string; label?: string };
+
+type ViewerTarget = { url: string; title: string; kind: "page" | "image" };
+
+function looksLikeImageUrl(url: string): boolean {
+  return /\.(png|jpe?g|gif|webp|svg)(\?|#|$)/i.test(url);
+}
+
+/** Keeps guests inside TalkStay — images full-screen, pages in an in-app frame. */
+function InAppViewer({ target, brand, onClose }: { target: ViewerTarget; brand: string; onClose: () => void }) {
+  const [frameFailed, setFrameFailed] = useState(false);
+  const isImage = target.kind === "image" || looksLikeImageUrl(target.url);
+
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+
+  return (
+    <div className="fixed inset-0 z-[60] flex flex-col bg-background">
+      <div className="flex items-center gap-2 border-b px-3 py-2.5">
+        <button type="button" onClick={onClose} className="rounded-full p-2 hover:bg-muted" aria-label="Close">
+          <X className="h-5 w-5" />
+        </button>
+        <p className="min-w-0 flex-1 truncate text-sm font-medium">{target.title || "View"}</p>
+        <a
+          href={target.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium text-white"
+          style={{ backgroundColor: brand }}
+        >
+          <ExternalLink className="h-3.5 w-3.5" /> Browser
+        </a>
+      </div>
+      <div className="relative min-h-0 flex-1 bg-muted/40">
+        {isImage ? (
+          <div className="flex h-full items-center justify-center p-3">
+            <img src={target.url} alt={target.title} className="max-h-full max-w-full object-contain" />
+          </div>
+        ) : frameFailed ? (
+          <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
+            <p className="text-sm text-muted-foreground">
+              This page can’t be shown inside the app (blocked by the website).
+            </p>
+            <a
+              href={target.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-semibold text-white"
+              style={{ backgroundColor: brand }}
+            >
+              <ExternalLink className="h-4 w-4" /> Open in browser
+            </a>
+          </div>
+        ) : (
+          <iframe
+            title={target.title || "Page"}
+            src={target.url}
+            className="h-full w-full border-0 bg-white"
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
+            referrerPolicy="no-referrer"
+            onError={() => setFrameFailed(true)}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function GuestInfoCard({
+  card, brand, onOpen,
+}: {
+  card: GuestCard; brand: string; onOpen: (t: ViewerTarget) => void;
+}) {
+  const hasBody = (card.sections?.length ?? 0) > 0 || (card.links?.length ?? 0) > 0 || (card.images?.length ?? 0) > 0;
+  if (!hasBody && !card.title) return null;
+  return (
+    <div className="mt-2 overflow-hidden rounded-xl border bg-background/80 text-left shadow-sm">
+      {card.images?.[0] && (
+        <button
+          type="button"
+          className="block w-full"
+          onClick={() => onOpen({ url: card.images![0].url, title: card.images![0].alt || card.title || "Photo", kind: "image" })}
+        >
+          <img
+            src={card.images[0].url}
+            alt={card.images[0].alt || card.title || ""}
+            className="h-36 w-full object-cover"
+            loading="lazy"
+          />
+        </button>
+      )}
+      <div className="space-y-3 p-3">
+        {card.title && (
+          <div className="text-sm font-semibold tracking-tight" style={{ color: brand }}>{card.title}</div>
+        )}
+        {card.images?.[0]?.alt && (
+          <p className="-mt-1 text-xs text-muted-foreground">{card.images[0].alt}</p>
+        )}
+        {card.sections?.map((sec, i) => (
+          <div key={i}>
+            {sec.title && <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{sec.title}</div>}
+            <ul className="space-y-1">
+              {sec.items.map((item, j) => (
+                <li key={j} className="flex gap-2 text-sm leading-snug">
+                  <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: brand }} />
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+        {(card.images?.length ?? 0) > 1 && (
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {card.images!.slice(1).map((img, i) => (
+              <button
+                key={i}
+                type="button"
+                className="shrink-0"
+                onClick={() => onOpen({ url: img.url, title: img.alt || "Photo", kind: "image" })}
+              >
+                <img src={img.url} alt={img.alt || ""} className="h-16 w-24 rounded-lg object-cover" loading="lazy" />
+              </button>
+            ))}
+          </div>
+        )}
+        {!!card.links?.length && (
+          <div className="flex flex-wrap gap-2 pt-0.5">
+            {card.links.map((l, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => onOpen({
+                  url: l.url,
+                  title: l.label || "View",
+                  kind: looksLikeImageUrl(l.url) ? "image" : "page",
+                })}
+                className="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold text-white"
+                style={{ backgroundColor: brand }}
+              >
+                {l.label || "View"}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function GuestApp() {
   const { hotelSlug = "", roomId = "" } = useParams();
@@ -41,6 +195,7 @@ export default function GuestApp() {
   const [busy, setBusy] = useState(false);
   const [notifyOpen, setNotifyOpen] = useState(false);
   const [requestsOpen, setRequestsOpen] = useState(false);
+  const [viewer, setViewer] = useState<ViewerTarget | null>(null);
   const [pulseHidden, setPulseHidden] = useState(false);
   // Pulse only appears after a calm pause — never mid-request / mid-typing.
   const [pulseReady, setPulseReady] = useState(false);
@@ -133,7 +288,13 @@ export default function GuestApp() {
         }
         if (!getNotifyChoice(sid)) setNotifyOpen(true);
       }
-      if (surfaceReply) append({ role: "assistant", content: res.reply });
+      if (surfaceReply) {
+        append({
+          role: "assistant",
+          content: res.reply,
+          ...(res.cards?.length ? { cards: res.cards } : {}),
+        });
+      }
       return res;
     } catch {
       if (surfaceReply) append({ role: "assistant", content: "Sorry — something went wrong. Please try again." });
@@ -450,6 +611,9 @@ export default function GuestApp() {
                 style={m.role === "user" ? { backgroundColor: brand } : undefined}
               >
                 {m.content}
+                {m.role === "assistant" && m.cards?.map((card, ci) => (
+                  <GuestInfoCard key={ci} card={card} brand={brand} onOpen={setViewer} />
+                ))}
               </div>
             </div>
           )
@@ -497,6 +661,9 @@ export default function GuestApp() {
           hotelSlug={hotelSlug} roomId={roomId} token={token} sid={sid}
           onClose={() => setRequestsOpen(false)}
         />
+      )}
+      {viewer && (
+        <InAppViewer target={viewer} brand={brand} onClose={() => setViewer(null)} />
       )}
     </div>
   );
@@ -807,8 +974,11 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState<Record<string, string>>({});
 
-  useEffect(() => {
+  const reload = () =>
     fetchMyRequests(hotelSlug, roomId, token, sid).then(setReqs).catch(() => setReqs([]));
+
+  useEffect(() => {
+    reload();
   }, [hotelSlug, roomId, token, sid]);
 
   const confirmDone = async (r: GuestRequest) => {
@@ -886,6 +1056,37 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
     }
   };
 
+  /** Cancelled → put back in queue; completed → new ticket. Optional edited note. */
+  const askAgain = async (r: GuestRequest) => {
+    const note = (editText[r.id] ?? r.summary).trim();
+    if (!note) return;
+    setBusyId(r.id);
+    try {
+      const res = await repeatRequest({
+        hotelSlug, roomId, token, sessionId: sid, requestId: r.id, note,
+      });
+      setResolved((p) => {
+        const n = { ...p };
+        delete n[r.id];
+        return n;
+      });
+      setEditingId(null);
+      if (res.mode === "reopen_cancelled") {
+        setReqs((prev) => (prev ?? []).map((x) =>
+          x.id === r.id ? { ...x, status: "new", summary: res.request?.summary || note } : x
+        ));
+        toast.success("Back with the team — request updated and reopened.");
+      } else {
+        await reload();
+        toast.success("Asked again — the team has a new request.");
+      }
+    } catch {
+      toast.error("Couldn't ask again. Please try once more.");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   const rate = async (r: GuestRequest, n: number) => {
     setRated((p) => ({ ...p, [r.id]: n }));
     try {
@@ -916,7 +1117,7 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
           <Button variant="ghost" size="icon" onClick={onClose}><X className="h-5 w-5" /></Button>
         </div>
         <p className="mb-4 text-xs text-muted-foreground">
-          Track anything you've asked for. While it's open you can remind the team, change it, or cancel.
+          Track anything you've asked for. Open ones can be reminded, updated, or cancelled. Cancelled or done ones can be asked again in one tap.
         </p>
         {reqs === null ? (
           <div className="flex items-center gap-2 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</div>
@@ -1031,7 +1232,22 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
                   )}
 
                   {effStatus === "cancelled" && (
-                    <p className="mt-3 text-xs text-muted-foreground">Cancelled. Ask again anytime if you still need help.</p>
+                    <div className="mt-3 space-y-2 border-t pt-3">
+                      <p className="text-xs font-medium text-foreground">Ask again</p>
+                      <p className="text-xs text-muted-foreground">
+                        Reopen this with the team. Edit the text if you need something different (e.g. 2 bottles instead of 1).
+                      </p>
+                      <Input
+                        value={editText[r.id] ?? r.summary}
+                        onChange={(e) => setEditText((p) => ({ ...p, [r.id]: e.target.value }))}
+                        placeholder="What should we bring?"
+                        disabled={busy}
+                      />
+                      <Button size="sm" disabled={busy || !(editText[r.id] ?? r.summary).trim()} onClick={() => askAgain(r)}>
+                        {busy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="mr-1 h-3.5 w-3.5" />}
+                        Send to team
+                      </Button>
+                    </div>
                   )}
 
                   {wasReopened && (
@@ -1040,6 +1256,19 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
 
                   {confirmed && (
                     <div className="mt-3 space-y-2">
+                      <div className="space-y-2 rounded-xl border border-dashed p-3">
+                        <p className="text-xs font-medium">Need the same again?</p>
+                        <Input
+                          value={editText[r.id] ?? r.summary}
+                          onChange={(e) => setEditText((p) => ({ ...p, [r.id]: e.target.value }))}
+                          placeholder="Same request, or tweak it"
+                          disabled={busy}
+                        />
+                        <Button size="sm" variant="outline" disabled={busy || !(editText[r.id] ?? r.summary).trim()} onClick={() => askAgain(r)}>
+                          {busy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="mr-1 h-3.5 w-3.5" />}
+                          Ask again
+                        </Button>
+                      </div>
                       <div className="flex items-center gap-1">
                         <span className="mr-1 text-xs text-muted-foreground">Rate:</span>
                         {[1, 2, 3, 4, 5].map((n) => (
