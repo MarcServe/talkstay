@@ -19,6 +19,7 @@ import RequestDetailSheet from "@/talkstay/components/RequestDetailSheet";
 import ExportReportButton from "@/talkstay/components/ExportReportButton";
 import { exportFilenameBase, type TalkStayExportPayload } from "@/talkstay/lib/exportReport";
 import { INTENT_STYLE, statusBadge, statusLabel } from "@/talkstay/lib/statusStyles";
+import { useDemo } from "@/talkstay/demo/DemoContext";
 
 /** Recharts click payloads vary by chart type — normalise to the data row. */
 function chartRow(entry: any): Record<string, any> | null {
@@ -105,6 +106,7 @@ function Stat({ icon: Icon, label, value, sub, active, onClick }: {
 
 export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
   const qc = useQueryClient();
+  const demo = useDemo();
   const drillRef = useRef<HTMLDivElement>(null);
   const [drill, setDrill] = useState<Drill>("requests");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -405,6 +407,11 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
   }, [pulses]);
 
   const acknowledge = async (id: string) => {
+    if (demo) {
+      demo.ackPulse(id);
+      toast.success("Marked as seen (demo).");
+      return;
+    }
     const { data: u } = await supabase.auth.getUser();
     const { error } = await supabase.from("ts_guest_pulse")
       .update({ acknowledged_at: new Date().toISOString(), acknowledged_by: u?.user?.id ?? null })

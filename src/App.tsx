@@ -10,6 +10,7 @@ import Landing from "@/talkstay/pages/Landing";
 // Lazy-loaded surfaces (built out across phases)
 const GuestApp = lazy(() => import("@/talkstay/pages/GuestApp"));
 const HotelApp = lazy(() => import("@/talkstay/pages/HotelApp"));
+const DemoApp = lazy(() => import("@/talkstay/pages/DemoApp"));
 const NotFound = lazy(() => import("@/talkstay/pages/NotFound"));
 
 const queryClient = new QueryClient({
@@ -47,6 +48,10 @@ const App = () => (
 
               {/* Hotel staff + admin (auth-gated inside) */}
               <Route path="/app/*" element={<HotelApp />} />
+
+              {/* Marketing sandbox — no auth, no Supabase writes */}
+              <Route path="/demo" element={<DemoApp />} />
+              <Route path="/demo/*" element={<DemoApp />} />
 
               <Route path="*" element={<NotFound />} />
             </Routes>

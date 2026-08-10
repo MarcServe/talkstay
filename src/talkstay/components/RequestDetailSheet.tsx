@@ -13,6 +13,7 @@ import { DEPARTMENTS } from "@/talkstay/lib/hotels";
 import { talkstayKeys, type RequestDetailData } from "@/talkstay/lib/data";
 import { useRequestDetail } from "@/talkstay/hooks/useTalkStayQueries";
 import { statusAccent, statusBadge, statusLabel } from "@/talkstay/lib/statusStyles";
+import { useDemo } from "@/talkstay/demo/DemoContext";
 
 const deptLabel = (k: string) => DEPARTMENTS.find((d) => d.key === k)?.display_name ?? k;
 const fmtWhen = (iso: string) =>
@@ -28,6 +29,7 @@ export default function RequestDetailSheet({
   onChanged?: () => void;
 }) {
   const qc = useQueryClient();
+  const demo = useDemo();
   const { data, isPending, isFetching, isPlaceholderData, isError, error, refetch } =
     useRequestDetail(requestId, open);
 
@@ -52,6 +54,14 @@ export default function RequestDetailSheet({
   const sendReply = async () => {
     if (!req || !reply.trim()) return;
     setReplyBusy(true);
+    if (demo) {
+      demo.reply(req.id, reply.trim());
+      setReplyBusy(false);
+      setReply("");
+      toast.success("Reply saved in demo (not sent to a real guest).");
+      onChanged?.();
+      return;
+    }
     const { data: res, error: err } = await supabase.functions.invoke("talkstay-reply", {
       body: { requestId: req.id, body: reply.trim() },
     });
@@ -74,6 +84,12 @@ export default function RequestDetailSheet({
       const typed = window.prompt("Optional: why are you cancelling this request?", "");
       if (typed === null) return;
       cancelReason = typed.trim().slice(0, 280);
+    }
+    if (demo) {
+      demo.advance(req.id, to, cancelReason ? { cancelReason } : undefined);
+      toast.success(to === "completed" ? "Marked complete (demo)." : "Cancelled (demo).");
+      onChanged?.();
+      return;
     }
     const { data: { user } } = await supabase.auth.getUser();
     const { data: updated, error: err } = await supabase

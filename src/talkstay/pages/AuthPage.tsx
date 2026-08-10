@@ -441,6 +441,16 @@ export default function AuthPage() {
         </Button>
       </div>
 
+      <div className="mt-5 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-center">
+        <p className="text-sm text-white/70">Just exploring? No account needed.</p>
+        <Link
+          to="/demo"
+          className="mt-1.5 inline-flex items-center gap-1 text-sm font-semibold text-violet-300 hover:text-violet-200"
+        >
+          Try the interactive demo <span aria-hidden>→</span>
+        </Link>
+      </div>
+
       {mode === "signup" && (
         <div className="mt-3 text-center text-sm">
           <button type="button" className="text-white/45 hover:text-white/70" onClick={resendConfirmation}>

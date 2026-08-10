@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import {
-  PlayCircle, Hotel, House, ArrowRight, Volume2, VolumeX,
+  PlayCircle, ArrowRight, Volume2, VolumeX,
   Building2, KeyRound, Mic, Route, CheckCircle2, Languages,
   Bath, Wifi, Wrench, Star, MessageCircleOff, BarChart3,
+  ConciergeBell, DoorOpen,
   type LucideIcon,
 } from "lucide-react";
 import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
@@ -120,10 +121,10 @@ const IMG = {
 };
 
 const AUDIENCES = [
-  { label: "Hotels", Icon: Hotel },
+  { label: "Hotels", Icon: ConciergeBell },
   { label: "Short Stays", Icon: KeyRound },
   { label: "Serviced Apartments", Icon: Building2 },
-  { label: "Airbnb", Icon: House },
+  { label: "Airbnb", Icon: DoorOpen },
 ] as const;
 
 /** Image with a graceful, on-brand fallback so a missing file never breaks. */
@@ -218,6 +219,11 @@ function Hero({ signedIn }: { signedIn: boolean }) {
             <Button asChild size="lg" className="bg-violet-600 hover:bg-violet-700">
               <Link to="/app">{signedIn ? "Open dashboard" : "Get started"}</Link>
             </Button>
+            {!signedIn && (
+              <Button asChild size="lg" variant="outline">
+                <Link to="/demo">Try demo — no signup</Link>
+              </Button>
+            )}
             <Button asChild size="lg" variant="outline">
               <a href="#how"><PlayCircle className="mr-1.5 h-4 w-4 text-violet-600" /> See how it works</a>
             </Button>
@@ -381,6 +387,9 @@ export default function Landing() {
           ) : (
             <>
               <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex">
+                <Link to="/demo">Try demo</Link>
+              </Button>
+              <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex">
                 <Link to="/app">Property sign in</Link>
               </Button>
               <Button asChild size="sm" className="bg-violet-600 hover:bg-violet-700">
@@ -520,8 +529,8 @@ export default function Landing() {
           </div>
           <div className="mt-10 grid gap-6 md:grid-cols-2">
             <div className="ts-glass rounded-3xl border p-8">
-              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-violet-100">
-                <Hotel className="h-5 w-5 text-violet-600" />
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-100 to-violet-50 ring-1 ring-indigo-200/60">
+                <ConciergeBell className="h-5 w-5 text-indigo-600" strokeWidth={1.75} />
               </div>
               <h3 className="mt-5 text-lg font-semibold">For hotels</h3>
               <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
@@ -531,8 +540,8 @@ export default function Landing() {
               </p>
             </div>
             <div className="ts-glass rounded-3xl border p-8">
-              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-violet-100">
-                <House className="h-5 w-5 text-violet-600" />
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-teal-100 to-cyan-50 ring-1 ring-teal-200/60">
+                <KeyRound className="h-5 w-5 text-teal-700" strokeWidth={1.75} />
               </div>
               <h3 className="mt-5 text-lg font-semibold">For short stays &amp; Airbnb</h3>
               <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
@@ -567,6 +576,9 @@ export default function Landing() {
               <div className="mt-8 flex flex-wrap items-center justify-center gap-3 lg:justify-start">
                 <Button asChild size="lg" className="bg-violet-600 hover:bg-violet-700">
                   <Link to="/app">Get started <ArrowRight className="ml-1.5 h-4 w-4" /></Link>
+                </Button>
+                <Button asChild size="lg" variant="outline">
+                  <Link to="/demo">Try demo</Link>
                 </Button>
                 <Button asChild size="lg" variant="outline">
                   <Link to="/app">Property sign in</Link>

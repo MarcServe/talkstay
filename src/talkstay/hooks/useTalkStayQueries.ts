@@ -16,6 +16,7 @@ import {
   type OpsTimeRange,
   type RequestDetailData,
 } from "@/talkstay/lib/data";
+import { useDemo } from "@/talkstay/demo/DemoContext";
 
 /** Shared defaults: show cache instantly, refresh in background. */
 export const TALKSTAY_STALE = {
@@ -37,22 +38,26 @@ export function useHotelAccess(userId: string | undefined) {
 }
 
 export function useOpsQueue(hotelId: string | undefined, timeRange: OpsTimeRange) {
+  const demo = useDemo();
   return useQuery({
-    queryKey: talkstayKeys.ops(hotelId ?? "", timeRange),
-    queryFn: () => fetchOpsQueue(hotelId!, timeRange),
+    queryKey: demo
+      ? ["talkstay-demo", "ops", hotelId ?? "", timeRange, demo.version]
+      : talkstayKeys.ops(hotelId ?? "", timeRange),
+    queryFn: () => (demo ? demo.getOpsQueue(timeRange) : fetchOpsQueue(hotelId!, timeRange)),
     enabled: !!hotelId,
-    staleTime: TALKSTAY_STALE.ops,
+    staleTime: demo ? 0 : TALKSTAY_STALE.ops,
     gcTime: 15 * 60_000,
     placeholderData: keepPreviousData,
-    refetchOnWindowFocus: true,
+    refetchOnWindowFocus: !demo,
   });
 }
 
 /** Keep ops + insights warm while staff work the dashboard. */
 export function usePrefetchHotelData(hotelId: string | undefined) {
   const qc = useQueryClient();
+  const demo = useDemo();
   useEffect(() => {
-    if (!hotelId) return;
+    if (!hotelId || demo) return;
     void qc.prefetchQuery({
       queryKey: talkstayKeys.ops(hotelId, "3d"),
       queryFn: () => fetchOpsQueue(hotelId, "3d"),
@@ -63,14 +68,15 @@ export function usePrefetchHotelData(hotelId: string | undefined) {
       queryFn: () => fetchInsights(hotelId, "7d"),
       staleTime: TALKSTAY_STALE.insights,
     });
-  }, [hotelId, qc]);
+  }, [hotelId, qc, demo]);
 }
 
 /** Realtime → invalidate cache (no full-page spinner; UI stays on cached data). */
 export function useOpsRealtime(hotelId: string | undefined) {
   const qc = useQueryClient();
+  const demo = useDemo();
   useEffect(() => {
-    if (!hotelId) return;
+    if (!hotelId || demo) return;
     const channel = supabase
       .channel(`ts-ops-cache-${hotelId}`)
       .on(
@@ -86,7 +92,7 @@ export function useOpsRealtime(hotelId: string | undefined) {
       // already cover queue invalidation without cross-hotel fan-out.
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
-  }, [hotelId, qc]);
+  }, [hotelId, qc, demo]);
 }
 
 export function invalidateOps(qc: QueryClient, hotelId: string) {
@@ -95,15 +101,26 @@ export function invalidateOps(qc: QueryClient, hotelId: string) {
 
 export function useRequestDetail(requestId: string | null, open: boolean) {
   const qc = useQueryClient();
+  const demo = useDemo();
   return useQuery({
-    queryKey: talkstayKeys.request(requestId ?? ""),
-    queryFn: () => fetchRequestDetail(requestId!),
+    queryKey: demo
+      ? ["talkstay-demo", "request", requestId ?? "", demo.version]
+      : talkstayKeys.request(requestId ?? ""),
+    queryFn: async () => {
+      if (demo) {
+        const row = demo.getRequestDetail(requestId!);
+        if (!row) throw new Error("Demo request not found");
+        return row;
+      }
+      return fetchRequestDetail(requestId!);
+    },
     enabled: open && !!requestId,
-    staleTime: TALKSTAY_STALE.request,
+    staleTime: demo ? 0 : TALKSTAY_STALE.request,
     gcTime: 10 * 60_000,
     // Instant paint: seed from any cached ops queue row while detail loads.
     placeholderData: (): RequestDetailData | undefined => {
       if (!requestId) return undefined;
+      if (demo) return demo.getRequestDetail(requestId) ?? undefined;
       type CachedOps = { requests?: Array<{
         id: string; room_id: string | null; department_key: string; summary: string;
         summary_staff: string | null; status: string; priority: string; is_complaint: boolean;
@@ -135,11 +152,14 @@ export function useRequestDetail(requestId: string | null, open: boolean) {
 }
 
 export function useInsightsData(hotelId: string | undefined, timeRange: InsightsTimeRange) {
+  const demo = useDemo();
   return useQuery({
-    queryKey: talkstayKeys.insights(hotelId ?? "", timeRange),
-    queryFn: () => fetchInsights(hotelId!, timeRange),
+    queryKey: demo
+      ? ["talkstay-demo", "insights", hotelId ?? "", timeRange, demo.version]
+      : talkstayKeys.insights(hotelId ?? "", timeRange),
+    queryFn: () => (demo ? demo.getInsights() : fetchInsights(hotelId!, timeRange)),
     enabled: !!hotelId,
-    staleTime: TALKSTAY_STALE.insights,
+    staleTime: demo ? 0 : TALKSTAY_STALE.insights,
     gcTime: 30 * 60_000,
     placeholderData: keepPreviousData,
   });

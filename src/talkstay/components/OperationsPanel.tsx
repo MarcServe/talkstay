@@ -21,6 +21,7 @@ import RequestDetailSheet from "@/talkstay/components/RequestDetailSheet";
 import ExportReportButton from "@/talkstay/components/ExportReportButton";
 import { exportFilenameBase, type TalkStayExportPayload } from "@/talkstay/lib/exportReport";
 import { statusBadge, statusCard, statusLabel } from "@/talkstay/lib/statusStyles";
+import { useDemo } from "@/talkstay/demo/DemoContext";
 
 type Req = OpsRequest;
 
@@ -122,6 +123,7 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
   hotel: Hotel; lockedDepartment?: string | null;
 }) {
   const qc = useQueryClient();
+  const demo = useDemo();
   const [filter, setFilter] = useState<Filter>("active");
   // Cap history so Done/All don't drown the board; open work always stays visible.
   const [timeRange, setTimeRange] = useState<TimeRange>("3d");
@@ -244,6 +246,12 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
       if (typed === null) return;
       cancelReason = typed.trim().slice(0, 280);
     }
+    if (demo) {
+      demo.advance(r.id, to, cancelReason ? { cancelReason } : undefined);
+      if (to === "completed") toast.success("Marked complete (demo — guest notify skipped).");
+      else if (to === "cancelled") toast.success("Cancelled (demo).");
+      return;
+    }
     const { data: { user } } = await supabase.auth.getUser();
     // Optimistic lock — refuse if another staff/guest already moved the status.
     const { data: updated, error } = await supabase
@@ -282,6 +290,11 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
   };
 
   const escalate = async (r: Req) => {
+    if (demo) {
+      demo.escalate(r.id);
+      toast.message("Escalated — marked urgent (demo).");
+      return;
+    }
     const { data: { user } } = await supabase.auth.getUser();
     const { error } = await supabase
       .from("ts_service_requests").update({ priority: "urgent" }).eq("id", r.id);
@@ -298,6 +311,14 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
     const text = (replyText[r.id] ?? "").trim();
     if (!text) return;
     setReplyBusy((p) => ({ ...p, [r.id]: true }));
+    if (demo) {
+      demo.reply(r.id, text);
+      setReplyBusy((p) => ({ ...p, [r.id]: false }));
+      setReplyText((p) => ({ ...p, [r.id]: "" }));
+      setReplyOpen((p) => ({ ...p, [r.id]: false }));
+      toast.success("Reply saved in demo (not sent to a real guest).");
+      return;
+    }
     const { data, error } = await supabase.functions.invoke("talkstay-reply", { body: { requestId: r.id, body: text } });
     setReplyBusy((p) => ({ ...p, [r.id]: false }));
     const invokeErr = (data as { error?: string } | null)?.error;
