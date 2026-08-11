@@ -6,17 +6,61 @@ import {
 import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
 import NoIndexMeta from "@/talkstay/components/NoIndexMeta";
 
+/**
+ * Owner marketing graphics for the Experience TalkStay hub.
+ * Drop replacements at these paths (same filenames) — no code change needed.
+ * Image 1 (manager) → demo-manager.* · Image 2 (guest) → demo-guest.*
+ */
 const GUEST_IMG = {
-  jpg: "/marketing/guest-square.jpg",
-  webp: "/marketing/guest-square.webp",
-  srcSet: "/marketing/guest-square-640.webp 640w, /marketing/guest-square-1000.webp 1000w, /marketing/guest-square.webp 1100w",
+  jpg: "/marketing/demo-guest.jpg",
+  webp: "/marketing/demo-guest.webp",
+  fallbackJpg: "/marketing/guest-square.jpg",
 };
 
-const STAFF_IMG = "/marketing/auth-side.jpg";
+const MANAGER_IMG = {
+  jpg: "/marketing/demo-manager.jpg",
+  webp: "/marketing/demo-manager.webp",
+  fallbackJpg: "/marketing/auth-side.jpg",
+};
+
+/** Prefer the new persona graphic; fall back to the prior marketing photo. */
+function PersonaArt({
+  primaryJpg,
+  primaryWebp,
+  fallbackJpg,
+  alt,
+}: {
+  primaryJpg: string;
+  primaryWebp: string;
+  fallbackJpg: string;
+  alt: string;
+}) {
+  return (
+    <picture>
+      <source type="image/webp" srcSet={primaryWebp} />
+      <img
+        src={primaryJpg}
+        alt={alt}
+        className="h-full w-full object-cover object-center transition duration-500 group-hover:scale-[1.02]"
+        loading="eager"
+        onError={(e) => {
+          const img = e.currentTarget;
+          if (img.dataset.fallback === "1") return;
+          img.dataset.fallback = "1";
+          img.removeAttribute("srcset");
+          img.src = fallbackJpg;
+        }}
+      />
+    </picture>
+  );
+}
 
 /**
- * Marketing demo hub — one CTA destination that offers Guest vs Staff experiences.
+ * Marketing demo hub — one CTA destination that offers Guest vs Manager experiences.
  * Deep links: /demo/guest · /demo/operations
+ *
+ * The persona images are full marketing graphics (headline + features baked in),
+ * so cards avoid duplicating that copy — only a light CTA strip sits under each art.
  */
 export default function DemoHub() {
   return (
@@ -42,34 +86,23 @@ export default function DemoHub() {
           </h1>
           <p className="mx-auto mt-3 max-w-xl text-muted-foreground">
             Pick a side. See exactly what guests do after scanning a room QR —
-            and what hotel staff see when requests come in.
+            and what hotel managers see when requests come in.
           </p>
         </div>
 
         <div className="mt-10 grid gap-5 lg:grid-cols-2">
-          {/* Guest — violet identity + guest phone photo */}
+          {/* Guest — image 2 marketing graphic */}
           <Link
             to="/demo/guest"
             className="group flex flex-col overflow-hidden rounded-3xl border border-violet-300/70 bg-white shadow-sm ring-1 ring-violet-500/10 transition hover:-translate-y-0.5 hover:border-violet-500 hover:shadow-lg"
           >
             <div className="relative aspect-[16/10] overflow-hidden bg-violet-950">
-              <picture>
-                <source type="image/webp" srcSet={GUEST_IMG.srcSet} sizes="(min-width: 1024px) 28rem, 100vw" />
-                <img
-                  src={GUEST_IMG.jpg}
-                  alt="Guest using TalkStay on a phone in their room"
-                  className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.03]"
-                  loading="eager"
-                />
-              </picture>
-              <div className="absolute inset-0 bg-gradient-to-t from-violet-950/85 via-violet-900/25 to-transparent" />
-              <span className="absolute left-4 top-4 rounded-full bg-violet-600 px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-white shadow-sm">
-                Guest
-              </span>
-              <div className="absolute bottom-4 left-4 right-4">
-                <p className="text-lg font-semibold tracking-tight text-white sm:text-xl">I'm a Guest</p>
-                <p className="mt-0.5 text-sm text-violet-100/90">After the room QR scan</p>
-              </div>
+              <PersonaArt
+                primaryJpg={GUEST_IMG.jpg}
+                primaryWebp={GUEST_IMG.webp}
+                fallbackJpg={GUEST_IMG.fallbackJpg}
+                alt="TalkStay guest experience — scan, speak, and get help instantly"
+              />
             </div>
             <div className="flex flex-1 flex-col border-t border-violet-100 bg-gradient-to-b from-violet-50/90 to-white p-5 sm:p-6">
               <p className="text-sm leading-relaxed text-slate-600">
@@ -86,26 +119,18 @@ export default function DemoHub() {
             </div>
           </Link>
 
-          {/* Staff — teal identity + hospitality ops photo */}
+          {/* Manager — image 1 marketing graphic */}
           <Link
             to="/demo/operations"
             className="group flex flex-col overflow-hidden rounded-3xl border border-teal-300/70 bg-white shadow-sm ring-1 ring-teal-600/10 transition hover:-translate-y-0.5 hover:border-teal-600 hover:shadow-lg"
           >
             <div className="relative aspect-[16/10] overflow-hidden bg-teal-950">
-              <img
-                src={STAFF_IMG}
-                alt="Hotel property — staff operations side of TalkStay"
-                className="h-full w-full object-cover object-[center_35%] transition duration-500 group-hover:scale-[1.03]"
-                loading="eager"
+              <PersonaArt
+                primaryJpg={MANAGER_IMG.jpg}
+                primaryWebp={MANAGER_IMG.webp}
+                fallbackJpg={MANAGER_IMG.fallbackJpg}
+                alt="TalkStay manager dashboard — live request queue, routing, and insights"
               />
-              <div className="absolute inset-0 bg-gradient-to-t from-teal-950/85 via-teal-900/35 to-teal-950/10" />
-              <span className="absolute left-4 top-4 rounded-full bg-teal-600 px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-white shadow-sm">
-                Hotel staff
-              </span>
-              <div className="absolute bottom-4 left-4 right-4">
-                <p className="text-lg font-semibold tracking-tight text-white sm:text-xl">I'm Hotel Staff</p>
-                <p className="mt-0.5 text-sm text-teal-100/90">Live queue &amp; departments</p>
-              </div>
             </div>
             <div className="flex flex-1 flex-col border-t border-teal-100 bg-gradient-to-b from-teal-50/90 to-white p-5 sm:p-6">
               <p className="text-sm leading-relaxed text-slate-600">
@@ -113,12 +138,12 @@ export default function DemoHub() {
                 guest confirmation, reviews, and Insights — then switch roles to feel each queue.
               </p>
               <span className="mt-5 inline-flex items-center text-sm font-semibold text-teal-800">
-                Operations Dashboard Demo
+                Manager / Operations Demo
                 <ArrowRight className="ml-1.5 h-4 w-4 transition-transform group-hover:translate-x-1" />
               </span>
-            <p className="mt-3 text-[11px] text-teal-900/60">
-              Owner view · switch to a department role anytime · linked with Guest demo
-            </p>
+              <p className="mt-3 text-[11px] text-teal-900/60">
+                Owner view · switch to a department role anytime · linked with Guest demo
+              </p>
             </div>
           </Link>
         </div>

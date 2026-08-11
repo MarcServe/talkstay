@@ -117,6 +117,11 @@ const IMG = {
   guestSquareSizes: "(min-width: 1024px) 532px, calc(100vw - 3rem)",
   guestSquareLqip:
     "data:image/jpeg;base64,/9j/2wBDABQUFBQVFBcZGRcfIh4iHy4rJycrLkYyNjI2MkZqQk5CQk5Cal5yXVZdcl6phXZ2hanDpJukw+zT0+z/////////2wBDARQUFBQVFBcZGRcfIh4iHy4rJycrLkYyNjI2MkZqQk5CQk5Cal5yXVZdcl6phXZ2hanDpJukw+zT0+z/////////wgARCAAWABgDASIAAhEBAxEB/8QAGQABAAMBAQAAAAAAAAAAAAAAAAQFBgID/8QAFgEBAQEAAAAAAAAAAAAAAAAAAwIE/9oADAMBAAIQAxAAAADO9W3oTQU9NUlqbg0IyL//xAAjEAACAgEDAwUAAAAAAAAAAAABAgMSABEhMQQFFBMyQUJh/9oACAEBAAE/AKiNVWSCrVHuGGB4pVsihjsFU84s7rN6AhDP+HIDISZ+ufcJRAw0zx45jE5Y6rwynOm7aolZtWdj9mzy3ahd2YqD8A8526R57CwoDuKgYpVV2Gf/xAAZEQACAwEAAAAAAAAAAAAAAAABAgARITH/2gAIAQIBAT8ALsBtS+ZHUFNA5DP/xAAZEQADAQEBAAAAAAAAAAAAAAAAAQIRITH/2gAIAQMBAT8AmE2Z70lvRH//2Q==",
+  /** Persona showcase art for the demo CTAs (full marketing graphics). */
+  demoGuest: "/marketing/demo-guest.jpg",
+  demoGuestWebp: "/marketing/demo-guest.webp",
+  demoManager: "/marketing/demo-manager.jpg",
+  demoManagerWebp: "/marketing/demo-manager.webp",
   hospitality: "/marketing/hospitality-icon.png",
 };
 
@@ -496,20 +501,36 @@ export default function Landing() {
           <div className="mx-auto mt-10 max-w-4xl">
             <DemoVideo videoId={DEMO_VIDEO_ID} />
           </div>
-          <div className="mx-auto mt-8 grid max-w-2xl gap-3 sm:grid-cols-2">
+          <div className="mx-auto mt-8 grid max-w-4xl gap-4 sm:grid-cols-2">
             <Link
               to="/demo/guest"
-              className="rounded-2xl border border-violet-200 bg-violet-50/80 px-5 py-4 text-left transition hover:border-violet-400 hover:bg-violet-50"
+              className="group overflow-hidden rounded-2xl border border-violet-200 bg-violet-50/80 text-left shadow-sm transition hover:border-violet-400 hover:shadow-md"
             >
-              <p className="text-sm font-semibold text-violet-950">Guest Experience</p>
-              <p className="mt-1 text-xs text-violet-900/75">Ask, request, track — like after scanning a room QR.</p>
+              <Photo
+                src={IMG.demoGuest}
+                webp={IMG.demoGuestWebp}
+                alt="TalkStay guest experience — Your Stay. Just Speak."
+                className="aspect-[16/10] w-full"
+              />
+              <div className="px-5 py-4">
+                <p className="text-sm font-semibold text-violet-950">Guest Experience</p>
+                <p className="mt-1 text-xs text-violet-900/75">Ask, request, track — like after scanning a room QR.</p>
+              </div>
             </Link>
             <Link
               to="/demo/operations"
-              className="rounded-2xl border border-teal-200 bg-teal-50/80 px-5 py-4 text-left transition hover:border-teal-400 hover:bg-teal-50"
+              className="group overflow-hidden rounded-2xl border border-teal-200 bg-teal-50/80 text-left shadow-sm transition hover:border-teal-400 hover:shadow-md"
             >
-              <p className="text-sm font-semibold text-teal-950">Operations Dashboard</p>
-              <p className="mt-1 text-xs text-teal-900/75">Routing, departments, status, Insights — by staff role.</p>
+              <Photo
+                src={IMG.demoManager}
+                webp={IMG.demoManagerWebp}
+                alt="TalkStay manager dashboard — Manage Requests. Deliver Excellence."
+                className="aspect-[16/10] w-full"
+              />
+              <div className="px-5 py-4">
+                <p className="text-sm font-semibold text-teal-950">Manager / Operations</p>
+                <p className="mt-1 text-xs text-teal-900/75">Routing, departments, status, Insights — by staff role.</p>
+              </div>
             </Link>
           </div>
           <p className="mt-4 text-center text-sm">
