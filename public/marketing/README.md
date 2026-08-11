@@ -8,7 +8,7 @@ slot falls back to an on-brand violet gradient rather than a broken image.
 | Filename                 | Where it shows           | What it is                                              |
 | ------------------------ | ------------------------ | ------------------------------------------------------- |
 | `hero.webp` / `hero-720.webp` | Hero (LCP, preloaded) | Responsive WebP; JPG fallback is `hero.jpg`            |
-| `hero.jpg`               | Hero JPG fallback        | Guest using TalkStay voice + QR stand + live request chat |
+| `hero.jpg`               | Hero JPG fallback        | Guest in bed with TalkStay chat overlays + in-room QR stand |
 | `hospitality-icon.png`   | Hero hospitality strip   | Line-art hotel / palm icon                              |
 | `how-it-works.jpg`       | "How it works"           | Six-step storyboard (scan → speak → done → relax)       |
 | `guest-square.jpg`       | Closing CTA band         | Square "handled beautifully, from anywhere" shot        |
