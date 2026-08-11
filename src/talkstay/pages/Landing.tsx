@@ -244,6 +244,14 @@ function Hero({ signedIn }: { signedIn: boolean }) {
         />
       </div>
 
+      <p className="mx-auto max-w-3xl text-center font-serif text-xl leading-snug tracking-tight text-foreground sm:text-2xl lg:text-[1.65rem]">
+        Every{" "}
+        <span className="bg-gradient-to-r from-violet-600 to-indigo-500 bg-clip-text italic text-transparent">
+          repetitive
+        </span>{" "}
+        call to reception is a workflow your property should already have automated.
+      </p>
+
       <ul className="grid grid-cols-2 gap-4 sm:grid-cols-4 sm:gap-6">
         {HERO_PILLS.map(({ label, sub, Icon }) => (
           <li key={label} className="flex items-start gap-2.5 text-left">
