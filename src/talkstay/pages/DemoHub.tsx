@@ -7,12 +7,16 @@ import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
 import NoIndexMeta from "@/talkstay/components/NoIndexMeta";
 
 const GUEST_IMG = {
-  jpg: "/marketing/guest-square.jpg",
-  webp: "/marketing/guest-square.webp",
-  srcSet: "/marketing/guest-square-640.webp 640w, /marketing/guest-square-1000.webp 1000w, /marketing/guest-square.webp 1100w",
+  jpg: "/marketing/role-guest.jpg",
+  webp: "/marketing/role-guest.webp",
+  srcSet: "/marketing/role-guest-960.webp 960w, /marketing/role-guest.webp 1536w",
 };
 
-const STAFF_IMG = "/marketing/auth-side.jpg";
+const STAFF_IMG = {
+  jpg: "/marketing/role-staff.jpg",
+  webp: "/marketing/role-staff.webp",
+  srcSet: "/marketing/role-staff-960.webp 960w, /marketing/role-staff.webp 1536w",
+};
 
 /**
  * Marketing demo hub — one CTA destination that offers Guest vs Staff experiences.
@@ -57,12 +61,14 @@ export default function DemoHub() {
                 <source type="image/webp" srcSet={GUEST_IMG.srcSet} sizes="(min-width: 1024px) 28rem, 100vw" />
                 <img
                   src={GUEST_IMG.jpg}
-                  alt="Guest using TalkStay on a phone in their room"
-                  className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.03]"
+                  alt="Your Stay. Just Speak. — guest requesting service with TalkStay"
+                  className="h-full w-full object-cover object-[center_30%] transition duration-500 group-hover:scale-[1.03]"
                   loading="eager"
+                  width={1536}
+                  height={1024}
                 />
               </picture>
-              <div className="absolute inset-0 bg-gradient-to-t from-violet-950/85 via-violet-900/25 to-transparent" />
+              <div className="absolute inset-0 bg-gradient-to-t from-violet-950/70 via-transparent to-transparent" />
               <span className="absolute left-4 top-4 rounded-full bg-violet-600 px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-white shadow-sm">
                 Guest
               </span>
@@ -92,13 +98,18 @@ export default function DemoHub() {
             className="group flex flex-col overflow-hidden rounded-3xl border border-teal-300/70 bg-white shadow-sm ring-1 ring-teal-600/10 transition hover:-translate-y-0.5 hover:border-teal-600 hover:shadow-lg"
           >
             <div className="relative aspect-[16/10] overflow-hidden bg-teal-950">
-              <img
-                src={STAFF_IMG}
-                alt="Hotel property — staff operations side of TalkStay"
-                className="h-full w-full object-cover object-[center_35%] transition duration-500 group-hover:scale-[1.03]"
-                loading="eager"
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-teal-950/85 via-teal-900/35 to-teal-950/10" />
+              <picture>
+                <source type="image/webp" srcSet={STAFF_IMG.srcSet} sizes="(min-width: 1024px) 28rem, 100vw" />
+                <img
+                  src={STAFF_IMG.jpg}
+                  alt="Manage Requests. Deliver Excellence. — host operations dashboard"
+                  className="h-full w-full object-cover object-[center_30%] transition duration-500 group-hover:scale-[1.03]"
+                  loading="eager"
+                  width={1536}
+                  height={1024}
+                />
+              </picture>
+              <div className="absolute inset-0 bg-gradient-to-t from-teal-950/70 via-transparent to-transparent" />
               <span className="absolute left-4 top-4 rounded-full bg-teal-600 px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-white shadow-sm">
                 Hotel staff
               </span>
