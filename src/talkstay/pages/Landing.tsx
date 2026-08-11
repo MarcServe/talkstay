@@ -117,6 +117,15 @@ const IMG = {
   guestSquareSizes: "(min-width: 1024px) 532px, calc(100vw - 3rem)",
   guestSquareLqip:
     "data:image/jpeg;base64,/9j/2wBDABQUFBQVFBcZGRcfIh4iHy4rJycrLkYyNjI2MkZqQk5CQk5Cal5yXVZdcl6phXZ2hanDpJukw+zT0+z/////////2wBDARQUFBQVFBcZGRcfIh4iHy4rJycrLkYyNjI2MkZqQk5CQk5Cal5yXVZdcl6phXZ2hanDpJukw+zT0+z/////////wgARCAAWABgDASIAAhEBAxEB/8QAGQABAAMBAQAAAAAAAAAAAAAAAAQFBgID/8QAFgEBAQEAAAAAAAAAAAAAAAAAAwIE/9oADAMBAAIQAxAAAADO9W3oTQU9NUlqbg0IyL//xAAjEAACAgEDAwUAAAAAAAAAAAABAgMSABEhMQQFFBMyQUJh/9oACAEBAAE/AKiNVWSCrVHuGGB4pVsihjsFU84s7rN6AhDP+HIDISZ+ufcJRAw0zx45jE5Y6rwynOm7aolZtWdj9mzy3ahd2YqD8A8526R57CwoDuKgYpVV2Gf/xAAZEQACAwEAAAAAAAAAAAAAAAABAgARITH/2gAIAQIBAT8ALsBtS+ZHUFNA5DP/xAAZEQADAQEBAAAAAAAAAAAAAAAAAQIRITH/2gAIAQMBAT8AmE2Z70lvRH//2Q==",
+  roleGuest: "/marketing/role-guest.jpg",
+  roleGuestWebp: "/marketing/role-guest.webp",
+  roleGuestWebpSrcSet:
+    "/marketing/role-guest-960.webp 960w, /marketing/role-guest.webp 1536w",
+  roleStaff: "/marketing/role-staff.jpg",
+  roleStaffWebp: "/marketing/role-staff.webp",
+  roleStaffWebpSrcSet:
+    "/marketing/role-staff-960.webp 960w, /marketing/role-staff.webp 1536w",
+  roleDemoSizes: "(min-width: 640px) 20rem, calc(100vw - 3rem)",
   hospitality: "/marketing/hospitality-icon.png",
 };
 
@@ -496,20 +505,60 @@ export default function Landing() {
           <div className="mx-auto mt-10 max-w-4xl">
             <DemoVideo videoId={DEMO_VIDEO_ID} />
           </div>
-          <div className="mx-auto mt-8 grid max-w-2xl gap-3 sm:grid-cols-2">
+          <div className="mx-auto mt-8 grid max-w-3xl gap-4 sm:grid-cols-2">
             <Link
               to="/demo/guest"
-              className="rounded-2xl border border-violet-200 bg-violet-50/80 px-5 py-4 text-left transition hover:border-violet-400 hover:bg-violet-50"
+              className="group overflow-hidden rounded-2xl border border-violet-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-violet-400 hover:shadow-md"
             >
-              <p className="text-sm font-semibold text-violet-950">Guest Experience</p>
-              <p className="mt-1 text-xs text-violet-900/75">Ask, request, track — like after scanning a room QR.</p>
+              <div className="relative aspect-[16/10] overflow-hidden bg-violet-950">
+                <picture>
+                  <source type="image/webp" srcSet={IMG.roleGuestWebpSrcSet} sizes={IMG.roleDemoSizes} />
+                  <img
+                    src={IMG.roleGuest}
+                    alt="Your Stay. Just Speak. — guest TalkStay experience"
+                    width={1536}
+                    height={1024}
+                    className="h-full w-full object-cover object-[center_30%] transition duration-500 group-hover:scale-[1.03]"
+                    loading="lazy"
+                    decoding="async"
+                  />
+                </picture>
+                <div className="absolute inset-0 bg-gradient-to-t from-violet-950/75 via-transparent to-transparent" />
+                <span className="absolute left-3 top-3 rounded-full bg-violet-600 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                  Guest
+                </span>
+              </div>
+              <div className="border-t border-violet-100 bg-violet-50/80 px-5 py-4 text-left">
+                <p className="text-sm font-semibold text-violet-950">Guest Experience</p>
+                <p className="mt-1 text-xs text-violet-900/75">Ask, request, track — like after scanning a room QR.</p>
+              </div>
             </Link>
             <Link
               to="/demo/operations"
-              className="rounded-2xl border border-teal-200 bg-teal-50/80 px-5 py-4 text-left transition hover:border-teal-400 hover:bg-teal-50"
+              className="group overflow-hidden rounded-2xl border border-teal-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-teal-400 hover:shadow-md"
             >
-              <p className="text-sm font-semibold text-teal-950">Operations Dashboard</p>
-              <p className="mt-1 text-xs text-teal-900/75">Routing, departments, status, Insights — by staff role.</p>
+              <div className="relative aspect-[16/10] overflow-hidden bg-teal-950">
+                <picture>
+                  <source type="image/webp" srcSet={IMG.roleStaffWebpSrcSet} sizes={IMG.roleDemoSizes} />
+                  <img
+                    src={IMG.roleStaff}
+                    alt="Manage Requests. Deliver Excellence. — host operations"
+                    width={1536}
+                    height={1024}
+                    className="h-full w-full object-cover object-[center_30%] transition duration-500 group-hover:scale-[1.03]"
+                    loading="lazy"
+                    decoding="async"
+                  />
+                </picture>
+                <div className="absolute inset-0 bg-gradient-to-t from-teal-950/75 via-transparent to-transparent" />
+                <span className="absolute left-3 top-3 rounded-full bg-teal-600 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                  Hotel staff
+                </span>
+              </div>
+              <div className="border-t border-teal-100 bg-teal-50/80 px-5 py-4 text-left">
+                <p className="text-sm font-semibold text-teal-950">Operations Dashboard</p>
+                <p className="mt-1 text-xs text-teal-900/75">Routing, departments, status, Insights — by staff role.</p>
+              </div>
             </Link>
           </div>
           <p className="mt-4 text-center text-sm">

@@ -13,6 +13,8 @@ slot falls back to an on-brand violet gradient rather than a broken image.
 | `how-it-works.jpg`       | "How it works"           | Six-step storyboard (scan → speak → done → relax)       |
 | `guest-square.jpg`       | Closing CTA band         | Square "handled beautifully, from anywhere" shot        |
 | `auth-side.jpg`          | Sign-in side panel       | Hospitality photo beside the auth form                  |
+| `role-guest.jpg` (+ webp)| `/demo` hub + landing demo CTAs | Guest promo: "Your Stay. Just Speak."              |
+| `role-staff.jpg` (+ webp)| `/demo` hub + landing demo CTAs | Host/manager promo: "Manage Requests. Deliver Excellence." |
 
 Tips:
 - Prefer WebP for the hero (`hero.webp` + `hero-720.webp`); keep `hero.jpg` as fallback.
