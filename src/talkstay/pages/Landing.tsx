@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import {
   PlayCircle, ArrowRight, Volume2, VolumeX,
-  Building2, KeyRound, Mic, Route, CheckCircle2, Languages,
+  Building2, KeyRound, Mic, CheckCircle2, Languages,
   Bath, Wifi, Wrench, Star, MessageCircleOff, BarChart3,
   ConciergeBell, DoorOpen,
   type LucideIcon,
@@ -191,12 +191,38 @@ function Photo({ src, alt, className = "", eager = false, fit = "cover",
   );
 }
 
-const HERO_PILLS = [
-  { label: "Scan & speak", sub: "No app, no login", Icon: Mic },
-  { label: "Auto-routed", sub: "Right team, instantly", Icon: Route },
-  { label: "Tracked to done", sub: "Updates in real time", Icon: CheckCircle2 },
-  { label: "Every language", sub: "Multi-language support", Icon: Languages },
+/** Two guest journeys TalkStay collapses into one scan: answers vs requests. */
+const HERO_JOURNEYS = [
+  {
+    label: "Ask",
+    hint: "Property information",
+    steps: ["Scan", "Speak", "Instant answer"],
+  },
+  {
+    label: "Request",
+    hint: "Service & support",
+    steps: ["Request", "Right team", "Track", "Complete"],
+  },
 ] as const;
+
+function JourneySteps({ steps }: { steps: readonly string[] }) {
+  return (
+    <ol className="flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1 sm:justify-start">
+      {steps.map((step, i) => (
+        <li key={step} className="inline-flex items-center gap-1.5">
+          {i > 0 && (
+            <span className="text-violet-400/80" aria-hidden>
+              →
+            </span>
+          )}
+          <span className="text-sm font-semibold tracking-tight text-foreground sm:text-[0.95rem]">
+            {step}
+          </span>
+        </li>
+      ))}
+    </ol>
+  );
+}
 
 /** Split hero: design copy on the left, lifestyle/product photo on the right. */
 function Hero({ signedIn }: { signedIn: boolean }) {
@@ -219,11 +245,40 @@ function Hero({ signedIn }: { signedIn: boolean }) {
           <p className="mt-2 text-center font-serif text-xs italic tracking-wide text-violet-600/80 lg:text-left">
             from anywhere
           </p>
-          <p className="mx-auto mt-5 max-w-xl text-base leading-relaxed text-muted-foreground sm:text-lg lg:mx-0">
-            TalkStay lets guests speak naturally to request room service, housekeeping,
-            maintenance, property information and more. Every request is routed, tracked and
-            completed with care.
+          <p className="mx-auto mt-5 max-w-xl text-lg font-medium leading-snug tracking-tight text-foreground sm:text-xl lg:mx-0">
+            Information, services and support — all at your fingertips
           </p>
+          <p className="mx-auto mt-3 max-w-xl text-base leading-relaxed text-muted-foreground lg:mx-0">
+            TalkStay lets guests speak naturally to request room service, housekeeping,
+            maintenance, property information and more. Every ask is answered instantly —
+            or routed, tracked and completed with care.
+          </p>
+
+          {/* Dual journey — answers vs requests, from one scan */}
+          <div
+            className="mx-auto mt-6 max-w-xl space-y-3 rounded-2xl border border-violet-200/60 bg-gradient-to-br from-violet-50/90 via-white to-indigo-50/70 px-4 py-4 text-left shadow-[0_10px_32px_-18px_rgba(124,58,237,0.35)] ring-1 ring-violet-500/10 sm:px-5 lg:mx-0"
+            aria-label="How TalkStay works"
+          >
+            {HERO_JOURNEYS.map(({ label, hint, steps }) => (
+              <div
+                key={label}
+                className="flex flex-col gap-1.5 border-b border-violet-100/80 pb-3 last:border-0 last:pb-0 sm:flex-row sm:items-center sm:gap-4"
+              >
+                <div className="shrink-0 sm:w-[6.5rem]">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-violet-600">
+                    {label}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">{hint}</p>
+                </div>
+                <JourneySteps steps={steps} />
+              </div>
+            ))}
+            <p className="flex items-center justify-center gap-1.5 pt-0.5 text-xs text-muted-foreground sm:justify-start">
+              <Languages className="h-3.5 w-3.5 text-violet-500" aria-hidden />
+              Every language · No app, no login
+            </p>
+          </div>
+
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3 lg:justify-start">
             <Button asChild size="lg" className="bg-violet-600 hover:bg-violet-700">
               <Link to="/app">{signedIn ? "Open dashboard" : "Get started"}</Link>
@@ -272,20 +327,6 @@ function Hero({ signedIn }: { signedIn: boolean }) {
           </p>
         </div>
       </div>
-
-      <ul className="grid grid-cols-2 gap-4 sm:grid-cols-4 sm:gap-6">
-        {HERO_PILLS.map(({ label, sub, Icon }) => (
-          <li key={label} className="flex items-start gap-2.5 text-left">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-violet-100 text-violet-700">
-              <Icon className="h-4 w-4" />
-            </div>
-            <div>
-              <p className="text-sm font-semibold tracking-tight">{label}</p>
-              <p className="text-xs text-muted-foreground">{sub}</p>
-            </div>
-          </li>
-        ))}
-      </ul>
 
       <div className="overflow-hidden rounded-3xl bg-gradient-to-r from-[#1e1458] via-[#2d1b69] to-[#3b2178] px-5 py-5 text-white shadow-xl sm:px-8">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
