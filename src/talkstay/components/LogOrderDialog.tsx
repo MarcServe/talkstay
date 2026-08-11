@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,10 +8,13 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Loader2, Phone, AlertTriangle, X } from "lucide-react";
+import { ChevronDown, Loader2, Phone, AlertTriangle, X } from "lucide-react";
 import { DEPARTMENTS, listRooms, type Hotel, type Room } from "@/talkstay/lib/hotels";
 import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
 import { useDemo } from "@/talkstay/demo/DemoContext";
+import { OPEN_STATUSES } from "@/talkstay/lib/data";
+import { useOpsQueue } from "@/talkstay/hooks/useTalkStayQueries";
+import { statusBadge, statusLabel } from "@/talkstay/lib/statusStyles";
 
 type OrderSource = "phone" | "walk_in" | "front_desk";
 
@@ -31,6 +34,8 @@ const SOURCE_LABEL: Record<OrderSource, string> = {
   front_desk: "Front desk",
 };
 
+const STAFF_LOG_SOURCES = new Set(["phone", "walk_in", "front_desk"]);
+
 function minsAgo(iso: string) {
   return Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
 }
@@ -42,6 +47,10 @@ function sourceLabel(s?: string | null) {
   if (s === "repeat") return "Repeat";
   if (s === "pulse") return "Stay feedback";
   return "Guest app";
+}
+
+function deptLabel(k: string) {
+  return DEPARTMENTS.find((d) => d.key === k)?.display_name ?? k;
 }
 
 /** Staff bookkeeping: log a phone / walk-in / front-desk order so it appears in the
@@ -73,6 +82,24 @@ export default function LogOrderDialog({
   const [busy, setBusy] = useState(false);
   const [openRows, setOpenRows] = useState<OpenRow[]>([]);
   const [dupBlock, setDupBlock] = useState<OpenRow[] | null>(null);
+  const [loggedOpen, setLoggedOpen] = useState(false);
+
+  // Panel only: compact list of open staff-logged orders for this department (or all for managers).
+  const { data: queue } = useOpsQueue(variant === "panel" ? hotel.id : undefined, "3d");
+
+  const recentLogged = useMemo(() => {
+    if (variant !== "panel") return [];
+    const rows = queue?.requests ?? [];
+    return rows
+      .filter((r) =>
+        (OPEN_STATUSES as readonly string[]).includes(r.status)
+        && !!r.source
+        && STAFF_LOG_SOURCES.has(r.source)
+        && (!lockedDepartment || r.department_key === lockedDepartment),
+      )
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      .slice(0, 12);
+  }, [variant, queue?.requests, lockedDepartment]);
 
   useEffect(() => {
     if (lockedDepartment) setDept(lockedDepartment);
@@ -122,16 +149,16 @@ export default function LogOrderDialog({
           priority,
           force,
         });
-        if (out.duplicate) {
-          setDupBlock((out.open as OpenRow[]) ?? []);
-          toast.warning("Possible duplicate — this room already has an open order for that team.");
+        if ((out as any)?.duplicate) {
+          setDupBlock(((out as any).open as OpenRow[]) ?? []);
+          setBusy(false);
           return;
         }
-        toast.success(`Logged for ${formatRoomLabel(out.roomNumber ?? "")} — shows on the queue (demo).`);
+        toast.success(`Logged for ${formatRoomLabel(rooms.find((r) => r.id === roomId)?.room_number)} — on the Operations queue.`);
+        setSummary("");
         onCreated();
         onClose?.();
-        setSummary("");
-        setRoomId("");
+        setBusy(false);
         return;
       }
       const { data, error } = await supabase.functions.invoke("talkstay-staff", {
@@ -149,7 +176,7 @@ export default function LogOrderDialog({
       const bodyErr = (data as any)?.error as string | undefined;
       if ((data as any)?.duplicate) {
         setDupBlock(((data as any).open as OpenRow[]) ?? []);
-        toast.warning("Possible duplicate — this room already has an open order for that team.");
+        setBusy(false);
         return;
       }
       if (error || bodyErr) throw new Error(bodyErr || error?.message || "Couldn't log order");
@@ -163,8 +190,75 @@ export default function LogOrderDialog({
     }
   };
 
+  const loggedList = variant === "panel" && (
+    <div className="overflow-hidden rounded-2xl border bg-card shadow-sm">
+      <button
+        type="button"
+        onClick={() => setLoggedOpen((v) => !v)}
+        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40"
+        aria-expanded={loggedOpen}
+      >
+        <div className="min-w-0">
+          <p className="text-sm font-medium">
+            Open logged orders
+            {lockedDepartment ? ` · ${deptLabel(lockedDepartment)}` : ""}
+          </p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {recentLogged.length === 0
+              ? "No phone / walk-in / front-desk orders open right now."
+              : `${recentLogged.length} open · tap to ${loggedOpen ? "hide" : "review"} before logging another`}
+          </p>
+        </div>
+        <ChevronDown
+          className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${loggedOpen ? "rotate-180" : ""}`}
+        />
+      </button>
+      {loggedOpen && recentLogged.length > 0 && (
+        <ul className="divide-y border-t">
+          {recentLogged.map((r) => {
+            const row = (
+              <>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium">{formatRoomLabel(r.ts_rooms?.room_number)}</span>
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${statusBadge(r.status)}`}>
+                    {statusLabel(r.status)}
+                  </span>
+                  <span className="text-[11px] text-muted-foreground">
+                    {sourceLabel(r.source)}
+                    {!lockedDepartment ? ` · ${deptLabel(r.department_key)}` : ""}
+                    {" · "}
+                    {minsAgo(r.created_at)}m ago
+                  </span>
+                </div>
+                <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                  {r.summary_staff || r.summary}
+                </p>
+              </>
+            );
+            return (
+              <li key={r.id}>
+                {onOpenRequest ? (
+                  <button
+                    type="button"
+                    onClick={() => onOpenRequest(r.id)}
+                    className="w-full px-4 py-2.5 text-left transition-colors hover:bg-violet-50/70"
+                  >
+                    {row}
+                    <span className="mt-1 block text-[11px] font-medium text-violet-700">Open on Operations →</span>
+                  </button>
+                ) : (
+                  <div className="px-4 py-2.5">{row}</div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+
   const form = (
-    <div className={variant === "panel" ? "max-w-lg space-y-4" : "space-y-3"}>
+    <div className={variant === "panel" ? "space-y-4" : "space-y-3"}>
       {variant === "panel" && (
         <div>
           <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight">
@@ -360,8 +454,11 @@ export default function LogOrderDialog({
 
   if (variant === "panel") {
     return (
-      <div className="rounded-2xl border bg-card p-5 shadow-sm">
-        {form}
+      <div className="max-w-lg space-y-3">
+        <div className="rounded-2xl border bg-card p-5 shadow-sm">
+          {form}
+        </div>
+        {loggedList}
       </div>
     );
   }
