@@ -173,6 +173,8 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
   const reqs = queue?.requests ?? [];
   const ack = queue?.ack ?? {};
   const escalations = queue?.escalations ?? {};
+  const handlers = queue?.handlers ?? {};
+  const notes = queue?.notes ?? {};
   // Only block the first paint when we have nothing cached yet.
   const loading = isPending && !queue;
 
@@ -960,6 +962,12 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
                     </p>
                     {acked && (
                       <p className="mt-1 text-xs text-emerald-700">✓ Accepted by {acked.by} · {timeAgo(acked.at)}</p>
+                    )}
+                    {handlers[r.id] && (
+                      <p className="mt-1 text-xs text-teal-800">Handling · {handlers[r.id].by}</p>
+                    )}
+                    {notes[r.id]?.note && (
+                      <p className="mt-1 line-clamp-2 text-xs text-violet-800">Note · {notes[r.id].note}</p>
                     )}
                   </div>
                   <span className={`max-w-[35%] shrink-0 truncate rounded-full px-2 py-1 text-xs sm:max-w-none sm:whitespace-nowrap ${statusBadge(r.status)}`}>

@@ -15,12 +15,15 @@ import {
   addDemoKnowledge,
   addDemoRoom,
   addDemoStaff,
+  addDemoStaffNote,
   addDemoStaffOrder,
   advanceDemoRequest,
+  assignDemoHandler,
   assignDemoStaffDepartment,
   clearPersistedDemoState,
   createInitialDemoState,
   escalateDemoRequest,
+  forwardDemoRequest,
   getDemoOpsQueue,
   getDemoRequestDetail,
   guestCancelDemoRequest,
@@ -58,6 +61,9 @@ export type DemoApi = {
   getInsights: () => InsightsData;
   advance: (requestId: string, to: string, opts?: { cancelReason?: string }) => void;
   escalate: (requestId: string) => void;
+  addNote: (requestId: string, note: string) => void;
+  assignHandler: (requestId: string, handlerName: string) => void;
+  forwardRequest: (requestId: string, departmentKey: string, note?: string) => void;
   reply: (requestId: string, body: string) => void;
   ackPulse: (pulseId: string) => void;
   updateBranding: (patch: NonNullable<Hotel["branding"]>) => void;
@@ -191,6 +197,15 @@ export function DemoProvider({ children }: { children: ReactNode }) {
   }, []);
   const escalate = useCallback((requestId: string) => {
     setState((s) => escalateDemoRequest(s, requestId));
+  }, []);
+  const addNote = useCallback((requestId: string, note: string) => {
+    setState((s) => addDemoStaffNote(s, requestId, note));
+  }, []);
+  const assignHandler = useCallback((requestId: string, handlerName: string) => {
+    setState((s) => assignDemoHandler(s, requestId, handlerName));
+  }, []);
+  const forwardRequest = useCallback((requestId: string, departmentKey: string, note?: string) => {
+    setState((s) => forwardDemoRequest(s, requestId, departmentKey, note));
   }, []);
   const reply = useCallback((requestId: string, body: string) => {
     setState((s) => replyDemoRequest(s, requestId, body));
@@ -326,6 +341,9 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     getInsights: () => state.insights,
     advance,
     escalate,
+    addNote,
+    assignHandler,
+    forwardRequest,
     reply,
     ackPulse,
     updateBranding,
@@ -356,7 +374,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     listStaffMessagesForGuest: () => listDemoStaffMessagesForGuest(state),
     reset,
   }), [
-    state, advance, escalate, reply, ackPulse, updateBranding,
+    state, advance, escalate, addNote, assignHandler, forwardRequest, reply, ackPulse, updateBranding,
     addRoom, removeRoom, toggleRoomOccupancy, setRoomPublic, setRequireCheckinCode, regenerateCheckinCode,
     addStaff, removeStaff, assignStaffDepartment, toggleDepartment, patchDepartment,
     addKnowledge, removeKnowledge, updateKnowledge, addGuestRequest, logStaffOrder, listOpenForRoom,

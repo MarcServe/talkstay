@@ -95,6 +95,8 @@ export type DemoState = {
   requests: OpsRequest[];
   ack: OpsQueueData["ack"];
   escalations: OpsQueueData["escalations"];
+  handlers: OpsQueueData["handlers"];
+  notes: OpsQueueData["notes"];
   escalationEvents: OpsQueueData["escalationEvents"];
   details: Record<string, DemoDetail>;
   insights: InsightsData;
@@ -521,6 +523,12 @@ export function createInitialDemoState(): DemoState {
   const escalations: OpsQueueData["escalations"] = {
     "demo-req-2": { note: "Guest called twice — still warm in the room", at: ago(10) },
   };
+  const handlers: OpsQueueData["handlers"] = {
+    "demo-req-3": { by: "Alex Rivera marked Sara Campbell as handling", at: ago(12) },
+  };
+  const notes: OpsQueueData["notes"] = {
+    "demo-req-3": { note: "James Wright: Guest called — please hurry breakfast, they're heading out soon", at: ago(8) },
+  };
   const escalationEvents = [
     { id: "demo-esc-1", request_id: "demo-req-2", note: "Guest called twice — still warm in the room" },
   ];
@@ -577,6 +585,8 @@ export function createInitialDemoState(): DemoState {
     requests,
     ack,
     escalations,
+    handlers,
+    notes,
     escalationEvents,
     details,
     insights: seedInsights(requests),
@@ -604,6 +614,8 @@ export function getDemoOpsQueue(state: DemoState, _timeRange: OpsTimeRange): Ops
     requests,
     ack: state.ack,
     escalations: state.escalations,
+    handlers: state.handlers,
+    notes: state.notes,
     escalationEvents: state.escalationEvents,
     fetchedAt: Date.now(),
   };
@@ -713,6 +725,127 @@ export function escalateDemoRequest(state: DemoState, requestId: string): DemoSt
       ...state.escalationEvents,
       { id: escId, request_id: requestId, note },
     ],
+    details,
+    version: state.version + 1,
+  };
+}
+
+const DEPT_LABEL: Record<string, string> = {
+  housekeeping: "Housekeeping", laundry: "Laundry", kitchen: "Kitchen", bar: "Bar",
+  maintenance: "Maintenance", concierge: "Concierge", front_desk: "Front Desk",
+  duty_manager: "Duty Manager",
+};
+
+export function addDemoStaffNote(state: DemoState, requestId: string, note: string): DemoState {
+  const req = state.requests.find((r) => r.id === requestId);
+  if (!req) return state;
+  const at = new Date().toISOString();
+  const full = `${DEMO_ACTOR}: ${note.trim()}`;
+  const details = { ...state.details };
+  const prev = details[requestId] ?? seedDetail(req);
+  details[requestId] = {
+    ...prev,
+    request: { ...prev.request, updated_at: at },
+    events: [
+      ...prev.events,
+      {
+        id: `${requestId}-ev-note-${Date.now()}`,
+        request_id: requestId,
+        status: "staff_note",
+        note: full,
+        actor_type: "staff",
+        created_at: at,
+      },
+    ],
+  };
+  return {
+    ...state,
+    details,
+    notes: { ...state.notes, [requestId]: { note: full, at } },
+    version: state.version + 1,
+  };
+}
+
+export function assignDemoHandler(
+  state: DemoState,
+  requestId: string,
+  handlerName: string,
+): DemoState {
+  const req = state.requests.find((r) => r.id === requestId);
+  if (!req || !handlerName.trim()) return state;
+  const at = new Date().toISOString();
+  const full = `${DEMO_ACTOR} marked ${handlerName.trim()} as handling`;
+  const details = { ...state.details };
+  const prev = details[requestId] ?? seedDetail(req);
+  details[requestId] = {
+    ...prev,
+    request: { ...prev.request, updated_at: at },
+    events: [
+      ...prev.events,
+      {
+        id: `${requestId}-ev-assign-${Date.now()}`,
+        request_id: requestId,
+        status: "assigned",
+        note: full,
+        actor_type: "staff",
+        created_at: at,
+      },
+    ],
+  };
+  return {
+    ...state,
+    details,
+    handlers: { ...state.handlers, [requestId]: { by: full, at } },
+    version: state.version + 1,
+  };
+}
+
+export function forwardDemoRequest(
+  state: DemoState,
+  requestId: string,
+  toDepartment: string,
+  note?: string,
+): DemoState {
+  const req = state.requests.find((r) => r.id === requestId);
+  if (!req || req.department_key === toDepartment) return state;
+  if (["completed", "guest_confirmed", "cancelled"].includes(req.status)) return state;
+  const at = new Date().toISOString();
+  const fromLabel = DEPT_LABEL[req.department_key] ?? req.department_key;
+  const toLabel = DEPT_LABEL[toDepartment] ?? toDepartment;
+  const eventNote = note?.trim()
+    ? `${DEMO_ACTOR} forwarded ${fromLabel} → ${toLabel}: ${note.trim()}`
+    : `${DEMO_ACTOR} forwarded ${fromLabel} → ${toLabel}`;
+
+  const requests = state.requests.map((r) =>
+    r.id === requestId
+      ? { ...r, department_key: toDepartment, needs_triage: false }
+      : r,
+  );
+  const details = { ...state.details };
+  const prev = details[requestId] ?? seedDetail(req);
+  details[requestId] = {
+    ...prev,
+    request: {
+      ...prev.request,
+      department_key: toDepartment,
+      needs_triage: false,
+      updated_at: at,
+    },
+    events: [
+      ...prev.events,
+      {
+        id: `${requestId}-ev-fwd-${Date.now()}`,
+        request_id: requestId,
+        status: "forwarded",
+        note: eventNote,
+        actor_type: "staff",
+        created_at: at,
+      },
+    ],
+  };
+  return {
+    ...state,
+    requests,
     details,
     version: state.version + 1,
   };
@@ -1336,6 +1469,8 @@ export function loadPersistedDemoState(): DemoState | null {
       ...r,
       is_public: !!r.is_public,
     }));
+    parsed.handlers = parsed.handlers ?? {};
+    parsed.notes = parsed.notes ?? {};
     return parsed;
   } catch {
     return null;

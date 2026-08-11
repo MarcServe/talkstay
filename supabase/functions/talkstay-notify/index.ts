@@ -46,6 +46,9 @@ serve(async (req) => {
       cancelled: "This request was cancelled.",
       guest_confirmed: "The guest confirmed everything was received.",
       guest_cancelled: "The guest cancelled this request.",
+      staff_note: "Team note — please read and action if needed.",
+      forwarded: "This request was forwarded to your team.",
+      assigned: "Someone has been marked as handling this request.",
     };
     const EVENT_LABEL: Record<string, string> = {
       reopened: "Reopened",
@@ -54,6 +57,9 @@ serve(async (req) => {
       cancelled: "Cancelled",
       guest_confirmed: "Guest confirmed",
       guest_cancelled: "Guest cancelled",
+      staff_note: "Team note",
+      forwarded: "Forwarded to you",
+      assigned: "Handler set",
     };
     const banner = event ? (EVENT_BANNER[event] ?? null) : null;
     const isCloseEvent = ["completed", "cancelled", "guest_confirmed", "guest_cancelled"].includes(event);
@@ -106,7 +112,7 @@ serve(async (req) => {
         ${banner ? `<p style="margin:0 0 12px;color:${isCloseEvent ? "#4c1d95" : "#b91c1c"};font-weight:600;">${escapeHtml(banner)}</p>` : ""}
         <p style="margin:0 0 10px;"><strong>${escapeHtml(roomLabel)}</strong></p>
         ${quoteBlock(staffSummary)}
-        ${sideNote ? `<p style="margin:14px 0 0;"><strong>Reason:</strong> ${escapeHtml(sideNote)}</p>` : ""}
+        ${sideNote ? `<p style="margin:14px 0 0;"><strong>${event === "staff_note" ? "Note" : event === "forwarded" ? "Handoff" : "Reason"}:</strong> ${escapeHtml(sideNote)}</p>` : ""}
         ${r.is_complaint && !isCloseEvent ? `<p style="margin:14px 0 0;color:#b91c1c;font-weight:600;">This is a complaint — please handle promptly.</p>` : ""}`,
       cta: { label: "Open Operations dashboard", url: "https://talkstay.talkweb.io/app" },
     });

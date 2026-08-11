@@ -260,10 +260,15 @@ export default function HotelApp() {
 
   const isAdmin = access?.isOwner || access?.role === "manager" || access?.role === "owner";
   const visibleNav = NAV.filter((n) => isAdmin || !n.admin);
-  const lockedDepartment = isAdmin ? null : access?.departmentKey ?? null;
+  // Front Desk / Duty Manager coordinate across teams — same hotel-wide ops view as managers.
+  const staffDept = isAdmin ? null : access?.departmentKey ?? null;
+  const lockedDepartment =
+    staffDept === "front_desk" || staffDept === "duty_manager" ? null : staffDept;
   const roleLabel = isAdmin
     ? (access?.isOwner ? "Owner" : "Manager")
-    : (lockedDepartment ? `${DEPARTMENTS.find((d) => d.key === lockedDepartment)?.display_name ?? lockedDepartment} team` : "Staff");
+    : (staffDept
+      ? `${DEPARTMENTS.find((d) => d.key === staffDept)?.display_name ?? staffDept} team`
+      : "Staff");
 
   // A department member should never sit on an admin tab (e.g. after a refresh).
   const effectiveActive: NavKey = visibleNav.some((n) => n.key === active) ? active : "operations";

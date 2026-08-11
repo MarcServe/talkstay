@@ -151,12 +151,28 @@ serve(async (req) => {
       callerStaff = me ?? null;
       isManager = me?.role === "manager" || me?.role === "owner";
     }
-    // Department staff can log phone/walk-in orders; other staff actions stay manager/owner.
-    const OPS_STAFF_ACTIONS = new Set(["create_request", "open_for_room"]);
+    // Department staff can log orders and coordinate on tickets; invite/edit stay manager/owner.
+    const OPS_STAFF_ACTIONS = new Set([
+      "create_request",
+      "open_for_room",
+      "add_note",
+      "forward_request",
+      "assign_handler",
+      "list_handlers",
+    ]);
     const isActiveStaff = isOwner || !!callerStaff;
     if (!isOwner && !isManager && !(isActiveStaff && OPS_STAFF_ACTIONS.has(String(action)))) {
       return json({ error: "Forbidden" }, 403);
     }
+
+    const canAccessRequestDept = (deptKey: string) => {
+      if (isOwner || isManager) return true;
+      if (!callerStaff) return false;
+      if (!callerStaff.department_key) return true;
+      if (["front_desk", "duty_manager"].includes(callerStaff.department_key)) return true;
+      return callerStaff.department_key === deptKey;
+    };
+    const actorLabel = () => callerStaff?.name || caller.email || "staff";
 
     const isOwnerRow = async (sid: string) => {
       const { data } = await admin.from("ts_staff").select("user_id").eq("id", sid).eq("hotel_id", hotelId).maybeSingle();
@@ -499,6 +515,169 @@ serve(async (req) => {
       return json({ ok: true, open: open ?? [] });
     }
 
+    // ------- list_handlers: active staff for "who's handling" picker -------
+    if (action === "list_handlers") {
+      const { data: rows, error } = await admin.from("ts_staff")
+        .select("id, name, email, department_key, role, user_id")
+        .eq("hotel_id", hotelId)
+        .eq("status", "active")
+        .order("name", { ascending: true });
+      if (error) return json({ error: error.message }, 400);
+      return json({
+        ok: true,
+        staff: (rows ?? []).map((s: any) => ({
+          id: s.id,
+          name: s.name || s.email || "Staff",
+          email: s.email,
+          department_key: s.department_key,
+          role: s.role,
+          user_id: s.user_id,
+        })),
+      });
+    }
+
+    // ------- add_note: internal staff note (not shown to the guest) -------
+    if (action === "add_note") {
+      const requestId = String(body.requestId ?? "").trim();
+      const note = String(body.note ?? "").trim().slice(0, 500);
+      const notify = body.notify !== false;
+      if (!requestId) return json({ error: "requestId required" }, 400);
+      if (!note) return json({ error: "note required" }, 400);
+
+      const { data: req } = await admin.from("ts_service_requests")
+        .select("id, hotel_id, department_key, status")
+        .eq("id", requestId).eq("hotel_id", hotelId).maybeSingle();
+      if (!req) return json({ error: "Request not found" }, 404);
+      if (!canAccessRequestDept(req.department_key)) {
+        return json({ error: "You don't have access to this request." }, 403);
+      }
+
+      const who = actorLabel();
+      await admin.from("ts_request_events").insert({
+        request_id: requestId,
+        status: "staff_note",
+        actor_type: "staff",
+        actor_id: caller.id,
+        note: `${who}: ${note}`,
+      });
+      await admin.from("ts_service_requests")
+        .update({ updated_at: new Date().toISOString() })
+        .eq("id", requestId);
+
+      if (notify) {
+        admin.functions.invoke("talkstay-notify", {
+          body: { requestId, event: "staff_note", note },
+        }).catch(() => {});
+      }
+      return json({ ok: true });
+    }
+
+    // ------- assign_handler: mark who is handling this order -------
+    if (action === "assign_handler") {
+      const requestId = String(body.requestId ?? "").trim();
+      const handlerName = String(body.handlerName ?? "").trim().slice(0, 120);
+      const staffRowId = body.staffId ? String(body.staffId).trim() : "";
+      if (!requestId) return json({ error: "requestId required" }, 400);
+
+      const { data: req } = await admin.from("ts_service_requests")
+        .select("id, hotel_id, department_key, status")
+        .eq("id", requestId).eq("hotel_id", hotelId).maybeSingle();
+      if (!req) return json({ error: "Request not found" }, 404);
+      if (!canAccessRequestDept(req.department_key)) {
+        return json({ error: "You don't have access to this request." }, 403);
+      }
+
+      let label = handlerName;
+      let assignedUserId: string | null = null;
+      if (staffRowId) {
+        const { data: s } = await admin.from("ts_staff")
+          .select("id, name, email, user_id")
+          .eq("id", staffRowId).eq("hotel_id", hotelId).eq("status", "active").maybeSingle();
+        if (!s) return json({ error: "Staff member not found" }, 404);
+        label = s.name || s.email || handlerName || "Staff";
+        assignedUserId = s.user_id ?? null;
+      }
+      if (!label) return json({ error: "Pick a teammate or type a name." }, 400);
+
+      const who = actorLabel();
+      await admin.from("ts_service_requests").update({
+        assigned_staff_id: assignedUserId,
+        updated_at: new Date().toISOString(),
+      }).eq("id", requestId);
+
+      await admin.from("ts_request_events").insert({
+        request_id: requestId,
+        status: "assigned",
+        actor_type: "staff",
+        actor_id: caller.id,
+        note: `${who} marked ${label} as handling`,
+      });
+
+      admin.functions.invoke("talkstay-notify", {
+        body: { requestId, event: "assigned", note: `${label} is handling this` },
+      }).catch(() => {});
+
+      return json({ ok: true, handlerName: label });
+    }
+
+    // ------- forward_request: move ticket to another department -------
+    if (action === "forward_request") {
+      const requestId = String(body.requestId ?? "").trim();
+      const toDept = normalizeDept(body.departmentKey ?? body.toDepartment);
+      const note = String(body.note ?? "").trim().slice(0, 500);
+      if (!requestId) return json({ error: "requestId required" }, 400);
+      if (!toDept) return json({ error: "departmentKey required" }, 400);
+
+      const { data: req } = await admin.from("ts_service_requests")
+        .select("id, hotel_id, department_key, status, needs_triage")
+        .eq("id", requestId).eq("hotel_id", hotelId).maybeSingle();
+      if (!req) return json({ error: "Request not found" }, 404);
+      if (!canAccessRequestDept(req.department_key)) {
+        return json({ error: "You don't have access to this request." }, 403);
+      }
+      if (["completed", "guest_confirmed", "cancelled"].includes(req.status)) {
+        return json({ error: "Closed requests can't be forwarded." }, 400);
+      }
+      if (req.department_key === toDept) {
+        return json({ error: "Already with that department." }, 400);
+      }
+
+      const DEPT_LABEL: Record<string, string> = {
+        housekeeping: "Housekeeping", laundry: "Laundry", kitchen: "Kitchen", bar: "Bar",
+        maintenance: "Maintenance", concierge: "Concierge", front_desk: "Front Desk",
+        duty_manager: "Duty Manager",
+      };
+      const fromLabel = DEPT_LABEL[req.department_key] ?? req.department_key;
+      const toLabel = DEPT_LABEL[toDept] ?? toDept;
+      const who = actorLabel();
+      const eventNote = note
+        ? `${who} forwarded ${fromLabel} → ${toLabel}: ${note}`
+        : `${who} forwarded ${fromLabel} → ${toLabel}`;
+
+      const { error: upErr } = await admin.from("ts_service_requests").update({
+        department_key: toDept,
+        needs_triage: false,
+        assigned_staff_id: null,
+        updated_at: new Date().toISOString(),
+      }).eq("id", requestId);
+      if (upErr) return json({ error: upErr.message }, 400);
+
+      await admin.from("ts_request_events").insert({
+        request_id: requestId,
+        status: "forwarded",
+        actor_type: "staff",
+        actor_id: caller.id,
+        note: eventNote,
+      });
+
+      // Alert the receiving team (new-request style + forward banner).
+      admin.functions.invoke("talkstay-notify", {
+        body: { requestId, event: "forwarded", note: note || `Forwarded from ${fromLabel}` },
+      }).catch(() => {});
+
+      return json({ ok: true, department_key: toDept });
+    }
+
     // ------- create_request: staff logs phone / walk-in / front-desk order -------
     if (action === "create_request") {
       const roomId = String(body.roomId ?? "").trim();
@@ -514,12 +693,16 @@ serve(async (req) => {
       if (!roomId) return json({ error: "roomId required" }, 400);
       if (!summary) return json({ error: "summary required" }, 400);
 
-      // Department staff may only log to their own team (managers/owners: any).
+      // Department staff may only log to their own team.
+      // Managers/owners, and Front Desk / Duty Manager (hotel-wide ops), may pick any team.
       if (!isOwner && !isManager) {
-        if (!callerStaff?.department_key) {
-          return json({ error: "Your account has no department — ask a manager to assign one." }, 403);
+        const coord =
+          !callerStaff?.department_key
+          || callerStaff.department_key === "front_desk"
+          || callerStaff.department_key === "duty_manager";
+        if (!coord && callerStaff?.department_key) {
+          dept = callerStaff.department_key;
         }
-        dept = callerStaff.department_key;
       }
       if (!dept) return json({ error: "departmentKey required" }, 400);
 

@@ -1,14 +1,18 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import {
   Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle,
 } from "@/components/ui/sheet";
 import { toast } from "sonner";
-import { Loader2, MessageCircle, Send } from "lucide-react";
+import { ArrowRightLeft, Loader2, MessageCircle, Send, UserRound } from "lucide-react";
 import { DEPARTMENTS } from "@/talkstay/lib/hotels";
 import { talkstayKeys, type RequestDetailData } from "@/talkstay/lib/data";
 import { useRequestDetail } from "@/talkstay/hooks/useTalkStayQueries";
@@ -20,7 +24,14 @@ const deptLabel = (k: string) => DEPARTMENTS.find((d) => d.key === k)?.display_n
 const fmtWhen = (iso: string) =>
   new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 
-/** Full request dossier: summary, lifecycle timeline, staff replies, guest chat. */
+type HandlerRow = {
+  id: string;
+  name: string;
+  department_key: string | null;
+  user_id?: string | null;
+};
+
+/** Full request dossier: summary, team coordination, timeline, guest replies. */
 export default function RequestDetailSheet({
   requestId, open, onOpenChange, onChanged,
 }: {
@@ -38,19 +49,65 @@ export default function RequestDetailSheet({
   const events = data?.events ?? [];
   const messages = data?.messages ?? [];
   const chat = data?.chat ?? [];
-  // Instant header from ops cache; only blank when nothing is cached yet.
   const loading = isPending && !req;
 
   const [reply, setReply] = useState("");
   const [replyBusy, setReplyBusy] = useState(false);
+  const [teamNote, setTeamNote] = useState("");
+  const [noteBusy, setNoteBusy] = useState(false);
+  const [handlers, setHandlers] = useState<HandlerRow[]>([]);
+  const [handlerPick, setHandlerPick] = useState("");
+  const [handlerName, setHandlerName] = useState("");
+  const [assignBusy, setAssignBusy] = useState(false);
+  const [forwardDept, setForwardDept] = useState("");
+  const [forwardNote, setForwardNote] = useState("");
+  const [forwardBusy, setForwardBusy] = useState(false);
+
+  const latestHandler = useMemo(
+    () => [...events].reverse().find((e) => e.status === "assigned")?.note ?? null,
+    [events],
+  );
 
   useEffect(() => {
-    if (!open) setReply("");
+    if (!open) {
+      setReply("");
+      setTeamNote("");
+      setHandlerPick("");
+      setHandlerName("");
+      setForwardDept("");
+      setForwardNote("");
+    }
   }, [open, requestId]);
 
   useEffect(() => {
     if (open && isError && error) toast.error(error.message);
   }, [open, isError, error]);
+
+  useEffect(() => {
+    if (!open || !req) return;
+    if (demo) {
+      setHandlers(
+        demo.state.staff
+          .filter((s) => s.status === "active")
+          .map((s) => ({
+            id: s.id,
+            name: s.name || s.email,
+            department_key: s.department_key,
+          })),
+      );
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const { data: res } = await supabase.functions.invoke("talkstay-staff", {
+        body: { action: "list_handlers", hotelId: req.hotel_id },
+      });
+      if (cancelled) return;
+      const rows = ((res as { staff?: HandlerRow[] } | null)?.staff) ?? [];
+      setHandlers(rows);
+    })();
+    return () => { cancelled = true; };
+  }, [open, req?.hotel_id, demo, demo?.version, demo?.state.staff]);
 
   const sendReply = async () => {
     if (!req || !reply.trim()) return;
@@ -74,6 +131,112 @@ export default function RequestDetailSheet({
     }
     setReply("");
     toast.success("Reply sent to the guest.");
+    await refetch();
+    onChanged?.();
+  };
+
+  const postTeamNote = async () => {
+    if (!req || !teamNote.trim()) return;
+    setNoteBusy(true);
+    if (demo) {
+      demo.addNote(req.id, teamNote.trim());
+      setNoteBusy(false);
+      setTeamNote("");
+      toast.success("Team note added (demo).");
+      onChanged?.();
+      return;
+    }
+    const { data: res, error: err } = await supabase.functions.invoke("talkstay-staff", {
+      body: {
+        action: "add_note",
+        hotelId: req.hotel_id,
+        requestId: req.id,
+        note: teamNote.trim(),
+      },
+    });
+    setNoteBusy(false);
+    const invokeErr = (res as { error?: string } | null)?.error;
+    if (err || invokeErr) {
+      toast.error(invokeErr ?? err?.message ?? "Couldn't add note");
+      return;
+    }
+    setTeamNote("");
+    toast.success("Team note posted — the department was notified.");
+    await refetch();
+    onChanged?.();
+  };
+
+  const markHandler = async () => {
+    if (!req) return;
+    const picked = handlers.find((h) => h.id === handlerPick);
+    const name = (picked?.name || handlerName).trim();
+    if (!name) {
+      toast.error("Pick a teammate or type who is handling this.");
+      return;
+    }
+    setAssignBusy(true);
+    if (demo) {
+      demo.assignHandler(req.id, name);
+      setAssignBusy(false);
+      setHandlerPick("");
+      setHandlerName("");
+      toast.success(`${name} marked as handling (demo).`);
+      onChanged?.();
+      return;
+    }
+    const { data: res, error: err } = await supabase.functions.invoke("talkstay-staff", {
+      body: {
+        action: "assign_handler",
+        hotelId: req.hotel_id,
+        requestId: req.id,
+        staffId: picked?.id || undefined,
+        handlerName: name,
+      },
+    });
+    setAssignBusy(false);
+    const invokeErr = (res as { error?: string } | null)?.error;
+    if (err || invokeErr) {
+      toast.error(invokeErr ?? err?.message ?? "Couldn't assign");
+      return;
+    }
+    setHandlerPick("");
+    setHandlerName("");
+    toast.success(`${name} is marked as handling.`);
+    await refetch();
+    onChanged?.();
+  };
+
+  const forwardToDept = async () => {
+    if (!req || !forwardDept) return;
+    setForwardBusy(true);
+    if (demo) {
+      demo.forwardRequest(req.id, forwardDept, forwardNote.trim() || undefined);
+      setForwardBusy(false);
+      setForwardDept("");
+      setForwardNote("");
+      toast.success(`Forwarded to ${deptLabel(forwardDept)} (demo).`);
+      onChanged?.();
+      return;
+    }
+    const { data: res, error: err } = await supabase.functions.invoke("talkstay-staff", {
+      body: {
+        action: "forward_request",
+        hotelId: req.hotel_id,
+        requestId: req.id,
+        departmentKey: forwardDept,
+        note: forwardNote.trim() || undefined,
+      },
+    });
+    setForwardBusy(false);
+    const invokeErr = (res as { error?: string } | null)?.error;
+    if (err || invokeErr) {
+      toast.error(invokeErr ?? err?.message ?? "Couldn't forward");
+      return;
+    }
+    const to = forwardDept;
+    setForwardDept("");
+    setForwardNote("");
+    toast.success(`Forwarded to ${deptLabel(to)} — they were notified.`);
     await refetch();
     onChanged?.();
   };
@@ -168,6 +331,12 @@ export default function RequestDetailSheet({
               {req.summary_staff && req.summary_staff !== req.summary && (
                 <p className="mt-1 text-xs italic text-muted-foreground">{req.summary}</p>
               )}
+              {latestHandler && (
+                <p className="mt-2 flex items-start gap-1.5 text-xs text-teal-800">
+                  <UserRound className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  {latestHandler}
+                </p>
+              )}
               {isOpen && (
                 <div className="mt-3 flex flex-wrap gap-2">
                   <Button size="sm" onClick={() => closeAs("completed")}>Mark complete</Button>
@@ -175,6 +344,106 @@ export default function RequestDetailSheet({
                 </div>
               )}
             </div>
+
+            {isOpen && (
+              <section className="space-y-4 rounded-2xl border border-violet-200/70 bg-violet-50/40 p-4">
+                <div>
+                  <h3 className="text-sm font-semibold text-violet-950">Team coordination</h3>
+                  <p className="mt-0.5 text-xs text-violet-900/75">
+                    Internal only — guests don’t see these. Use notes to chase another team, mark who’s
+                    handling, or forward the ticket to the right department.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-medium text-violet-950">Team note</label>
+                  <Textarea
+                    value={teamNote}
+                    onChange={(e) => setTeamNote(e.target.value)}
+                    rows={2}
+                    placeholder="e.g. Room called — please hurry breakfast, or message the guest you’re almost done"
+                    className="bg-white/90"
+                  />
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={noteBusy || !teamNote.trim()}
+                    onClick={() => void postTeamNote()}
+                  >
+                    {noteBusy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+                    Post note to team
+                  </Button>
+                </div>
+
+                <div className="space-y-2 border-t border-violet-200/60 pt-3">
+                  <label className="text-xs font-medium text-violet-950">Who’s handling</label>
+                  <Select
+                    value={handlerPick || "__none__"}
+                    onValueChange={(v) => {
+                      setHandlerPick(v === "__none__" ? "" : v);
+                      if (v !== "__none__") setHandlerName("");
+                    }}
+                  >
+                    <SelectTrigger className="bg-white/90"><SelectValue placeholder="Pick a teammate" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">Type a name instead…</SelectItem>
+                      {handlers.map((h) => (
+                        <SelectItem key={h.id} value={h.id}>
+                          {h.name}{h.department_key ? ` · ${deptLabel(h.department_key)}` : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {!handlerPick && (
+                    <Input
+                      value={handlerName}
+                      onChange={(e) => setHandlerName(e.target.value)}
+                      placeholder="Or type a name…"
+                      className="bg-white/90"
+                    />
+                  )}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="border-teal-300 text-teal-900 hover:bg-teal-50"
+                    disabled={assignBusy || (!handlerPick && !handlerName.trim())}
+                    onClick={() => void markHandler()}
+                  >
+                    {assignBusy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <UserRound className="mr-1.5 h-3.5 w-3.5" />}
+                    Mark as handling
+                  </Button>
+                </div>
+
+                <div className="space-y-2 border-t border-violet-200/60 pt-3">
+                  <label className="flex items-center gap-1.5 text-xs font-medium text-violet-950">
+                    <ArrowRightLeft className="h-3.5 w-3.5" /> Forward to department
+                  </label>
+                  <Select value={forwardDept || undefined} onValueChange={setForwardDept}>
+                    <SelectTrigger className="bg-white/90"><SelectValue placeholder="Choose team…" /></SelectTrigger>
+                    <SelectContent>
+                      {DEPARTMENTS.filter((d) => d.key !== req.department_key).map((d) => (
+                        <SelectItem key={d.key} value={d.key}>{d.display_name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    value={forwardNote}
+                    onChange={(e) => setForwardNote(e.target.value)}
+                    placeholder="Optional handoff note…"
+                    className="bg-white/90"
+                  />
+                  <Button
+                    size="sm"
+                    className="bg-indigo-600 hover:bg-indigo-700"
+                    disabled={forwardBusy || !forwardDept}
+                    onClick={() => void forwardToDept()}
+                  >
+                    {forwardBusy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <ArrowRightLeft className="mr-1.5 h-3.5 w-3.5" />}
+                    Forward ticket
+                  </Button>
+                </div>
+              </section>
+            )}
 
             <section>
               <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -193,10 +462,15 @@ export default function RequestDetailSheet({
                         </span>
                         <span className="text-xs text-muted-foreground">{fmtWhen(e.created_at)}</span>
                       </div>
-                      {(e.note || e.actor_type) && (
-                        <p className="text-xs text-muted-foreground">
-                          {[e.actor_type, e.note].filter(Boolean).join(" · ")}
+                      {e.note && (
+                        <p className={`text-xs ${e.status === "staff_note" ? "mt-0.5 font-medium text-violet-900" : "text-muted-foreground"}`}>
+                          {e.status === "staff_note" || e.status === "assigned" || e.status === "forwarded"
+                            ? e.note
+                            : [e.actor_type, e.note].filter(Boolean).join(" · ")}
                         </p>
+                      )}
+                      {!e.note && e.actor_type && (
+                        <p className="text-xs text-muted-foreground">{e.actor_type}</p>
                       )}
                     </li>
                   ))}
@@ -206,10 +480,13 @@ export default function RequestDetailSheet({
 
             <section>
               <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Staff replies ({messages.length})
+                Guest messages ({messages.length})
               </h3>
+              <p className="mb-2 text-[11px] text-muted-foreground">
+                These go to the guest — use Team note above for staff-only messages.
+              </p>
               {messages.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No staff replies yet.</p>
+                <p className="text-sm text-muted-foreground">No guest replies yet.</p>
               ) : (
                 <div className="space-y-2">
                   {messages.map((m) => (

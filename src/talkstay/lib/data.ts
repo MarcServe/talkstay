@@ -90,6 +90,10 @@ export interface OpsQueueData {
   requests: OpsRequest[];
   ack: Record<string, { by: string; at: string }>;
   escalations: Record<string, { note: string | null; at: string }>;
+  /** Latest "who's handling" mark from assigned events. */
+  handlers: Record<string, { by: string; at: string }>;
+  /** Latest internal team note preview. */
+  notes: Record<string, { note: string; at: string }>;
   /** Escalation events (for chime dedupe by event id). */
   escalationEvents: { id: string; request_id: string; note: string | null }[];
   fetchedAt: number;
@@ -156,11 +160,13 @@ export async function fetchOpsQueue(hotelId: string, timeRange: OpsTimeRange): P
     "request_id",
     ids,
     { column: "created_at", ascending: false },
-    (q) => q.in("status", ["accepted", "escalated"]),
+    (q) => q.in("status", ["accepted", "escalated", "assigned", "staff_note", "forwarded"]),
   );
 
   const ack: OpsQueueData["ack"] = {};
   const escalations: OpsQueueData["escalations"] = {};
+  const handlers: OpsQueueData["handlers"] = {};
+  const notes: OpsQueueData["notes"] = {};
   const escalationEvents: OpsQueueData["escalationEvents"] = [];
   for (const e of events) {
     if (e.status === "accepted" && !ack[e.request_id]) {
@@ -172,9 +178,16 @@ export async function fetchOpsQueue(hotelId: string, timeRange: OpsTimeRange): P
         escalations[e.request_id] = { note: e.note, at: e.created_at };
       }
     }
+    if (e.status === "assigned" && !handlers[e.request_id]) {
+      // note like "Alex marked Sara as handling" — show full note on queue
+      handlers[e.request_id] = { by: e.note || "staff", at: e.created_at };
+    }
+    if (e.status === "staff_note" && !notes[e.request_id]) {
+      notes[e.request_id] = { note: e.note || "", at: e.created_at };
+    }
   }
 
-  return { requests, ack, escalations, escalationEvents, fetchedAt: Date.now() };
+  return { requests, ack, escalations, handlers, notes, escalationEvents, fetchedAt: Date.now() };
 }
 
 // ─── Request detail (batched) ────────────────────────────────────────────────

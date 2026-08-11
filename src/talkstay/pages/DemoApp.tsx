@@ -67,7 +67,9 @@ function DemoDashboard() {
 
   const demoRole = ROLE_OPTIONS.find((r) => r.id === roleId)?.role ?? { kind: "owner" as const };
   const isAdmin = demoRole.kind === "owner" || demoRole.kind === "manager";
-  const lockedDepartment = demoRole.kind === "staff" ? demoRole.department : null;
+  const staffDept = demoRole.kind === "staff" ? demoRole.department : null;
+  const lockedDepartment =
+    staffDept === "front_desk" || staffDept === "duty_manager" ? null : staffDept;
   const visibleNav = NAV.filter((n) => isAdmin || !n.adminOnly);
   const activeNav = visibleNav.find((n) => n.key === active) ?? visibleNav[0];
 
