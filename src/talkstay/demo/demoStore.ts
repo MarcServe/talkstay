@@ -64,6 +64,8 @@ export type DemoDepartment = {
   key: string;
   display_name: string;
   is_active: boolean;
+  notify_email: string | null;
+  escalate_after_minutes: number;
 };
 
 export type DemoKnowledge = {
@@ -71,6 +73,9 @@ export type DemoKnowledge = {
   title: string;
   kind: string;
   preview: string;
+  /** Mirrors real knowledge scopes: site | general | department | room */
+  scope: "site" | "general" | "department" | "room";
+  department_key: string | null;
 };
 
 type DemoDetail = RequestDetailData;
@@ -525,14 +530,14 @@ export function createInitialDemoState(): DemoState {
   ];
 
   const departments: DemoDepartment[] = [
-    { id: "demo-dept-hk", key: "housekeeping", display_name: "Housekeeping", is_active: true },
-    { id: "demo-dept-laundry", key: "laundry", display_name: "Laundry", is_active: true },
-    { id: "demo-dept-kitchen", key: "kitchen", display_name: "Kitchen", is_active: true },
-    { id: "demo-dept-bar", key: "bar", display_name: "Bar", is_active: true },
-    { id: "demo-dept-maint", key: "maintenance", display_name: "Maintenance", is_active: true },
-    { id: "demo-dept-conc", key: "concierge", display_name: "Concierge", is_active: true },
-    { id: "demo-dept-fd", key: "front_desk", display_name: "Front Desk", is_active: true },
-    { id: "demo-dept-dm", key: "duty_manager", display_name: "Duty Manager", is_active: true },
+    { id: "demo-dept-hk", key: "housekeeping", display_name: "Housekeeping", is_active: true, notify_email: "hk@grandhotel-demo.com", escalate_after_minutes: 15 },
+    { id: "demo-dept-laundry", key: "laundry", display_name: "Laundry", is_active: true, notify_email: "laundry@grandhotel-demo.com", escalate_after_minutes: 30 },
+    { id: "demo-dept-kitchen", key: "kitchen", display_name: "Kitchen", is_active: true, notify_email: "kitchen@grandhotel-demo.com", escalate_after_minutes: 20 },
+    { id: "demo-dept-bar", key: "bar", display_name: "Bar", is_active: true, notify_email: "bar@grandhotel-demo.com", escalate_after_minutes: 10 },
+    { id: "demo-dept-maint", key: "maintenance", display_name: "Maintenance", is_active: true, notify_email: "maint@grandhotel-demo.com", escalate_after_minutes: 10 },
+    { id: "demo-dept-conc", key: "concierge", display_name: "Concierge", is_active: true, notify_email: null, escalate_after_minutes: 20 },
+    { id: "demo-dept-fd", key: "front_desk", display_name: "Front Desk", is_active: true, notify_email: "desk@grandhotel-demo.com", escalate_after_minutes: 5 },
+    { id: "demo-dept-dm", key: "duty_manager", display_name: "Duty Manager", is_active: true, notify_email: "duty@grandhotel-demo.com", escalate_after_minutes: 5 },
   ];
 
   const staff: DemoStaff[] = [
@@ -541,13 +546,19 @@ export function createInitialDemoState(): DemoState {
     { id: "demo-staff-3", name: "James Wright", email: "james@grandhotel-demo.com", department_key: "front_desk", role: "staff", status: "active" },
     { id: "demo-staff-4", name: "Sara Campbell", email: "sara@grandhotel-demo.com", department_key: "kitchen", role: "staff", status: "active" },
     { id: "demo-staff-5", name: "Omar Hassan", email: "omar@grandhotel-demo.com", department_key: "maintenance", role: "staff", status: "active" },
+    { id: "demo-staff-6", name: "Mia Chen", email: "mia@grandhotel-demo.com", department_key: "laundry", role: "staff", status: "active" },
+    { id: "demo-staff-7", name: "Tom Bradley", email: "tom@grandhotel-demo.com", department_key: "bar", role: "staff", status: "active" },
+    { id: "demo-staff-8", name: "Priya Shah", email: "priya@grandhotel-demo.com", department_key: "concierge", role: "staff", status: "active" },
   ];
 
   const knowledge: DemoKnowledge[] = [
-    { id: "demo-kb-1", title: "Wi‑Fi password", kind: "FAQ", preview: "Network: GrandGuest · Password: GrandGuest2026" },
-    { id: "demo-kb-2", title: "Breakfast hours", kind: "FAQ", preview: "Breakfast is served daily from 7:00–10:30 in the Garden Restaurant." },
-    { id: "demo-kb-3", title: "Checkout time", kind: "FAQ", preview: "Checkout is at 11:00. Late checkout can be requested via TalkStay." },
-    { id: "demo-kb-4", title: "Property website", kind: "Website", preview: "Indexed pages: rooms, dining, spa, and contact details." },
+    { id: "demo-kb-1", title: "Wi‑Fi password", kind: "FAQ", preview: "Network: GrandGuest · Password: GrandGuest2026", scope: "general", department_key: null },
+    { id: "demo-kb-2", title: "Breakfast hours", kind: "FAQ", preview: "Breakfast is served daily from 7:00–10:30 in the Garden Restaurant.", scope: "general", department_key: null },
+    { id: "demo-kb-3", title: "Checkout time", kind: "FAQ", preview: "Checkout is at 11:00. Late checkout can be requested via TalkStay.", scope: "general", department_key: null },
+    { id: "demo-kb-4", title: "Property website", kind: "Website", preview: "Indexed pages: rooms, dining, spa, and contact details.", scope: "site", department_key: null },
+    { id: "demo-kb-5", title: "Room service menu", kind: "Document", preview: "PDF menu uploaded — sandwiches, salads, late-night bites (demo file).", scope: "department", department_key: "kitchen" },
+    { id: "demo-kb-6", title: "Spa hours", kind: "FAQ", preview: "Spa open 9:00–20:00 · book via Concierge.", scope: "department", department_key: "concierge" },
+    { id: "demo-kb-7", title: "Room 306 — connecting door", kind: "FAQ", preview: "Connecting door to 308 is locked; ask Front Desk if needed.", scope: "room", department_key: null },
   ];
 
   return {
@@ -746,14 +757,66 @@ export function ackDemoPulse(state: DemoState, pulseId: string): DemoState {
 
 export function updateDemoBranding(
   state: DemoState,
-  patch: { primary_color?: string; tagline?: string; logo_url?: string | null },
+  patch: {
+    primary_color?: string;
+    tagline?: string;
+    logo_url?: string | null;
+    guest_bg_wash?: number;
+    property?: NonNullable<Hotel["branding"]>["property"];
+  },
 ): DemoState {
+  const prev = state.hotel.branding ?? {};
   return {
     ...state,
     hotel: {
       ...state.hotel,
-      branding: { ...(state.hotel.branding ?? {}), ...patch },
+      branding: {
+        ...prev,
+        ...patch,
+        property: patch.property ? { ...(prev.property ?? {}), ...patch.property } : prev.property,
+      },
     },
+    version: state.version + 1,
+  };
+}
+
+export function setDemoRequireCheckinCode(state: DemoState, require: boolean): DemoState {
+  return {
+    ...state,
+    hotel: { ...state.hotel, require_checkin_code: require },
+    version: state.version + 1,
+  };
+}
+
+export function regenerateDemoCheckinCode(state: DemoState, roomId: string): DemoState {
+  const code = `D${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+  return {
+    ...state,
+    rooms: state.rooms.map((r) => (r.id === roomId ? { ...r, checkin_code: code } : r)),
+    version: state.version + 1,
+  };
+}
+
+export function patchDemoDepartment(
+  state: DemoState,
+  deptId: string,
+  patch: Partial<Pick<DemoDepartment, "display_name" | "is_active" | "notify_email" | "escalate_after_minutes">>,
+): DemoState {
+  return {
+    ...state,
+    departments: state.departments.map((d) => (d.id === deptId ? { ...d, ...patch } : d)),
+    version: state.version + 1,
+  };
+}
+
+export function assignDemoStaffDepartment(
+  state: DemoState,
+  staffId: string,
+  department_key: string | null,
+): DemoState {
+  return {
+    ...state,
+    staff: state.staff.map((s) => (s.id === staffId ? { ...s, department_key } : s)),
     version: state.version + 1,
   };
 }
@@ -828,12 +891,19 @@ export function toggleDemoDepartment(state: DemoState, deptId: string): DemoStat
   };
 }
 
-export function addDemoKnowledge(state: DemoState, title: string, preview: string): DemoState {
+export function addDemoKnowledge(
+  state: DemoState,
+  title: string,
+  preview: string,
+  opts?: { scope?: DemoKnowledge["scope"]; department_key?: string | null; kind?: string },
+): DemoState {
   const item: DemoKnowledge = {
     id: `demo-kb-${Date.now()}`,
     title,
-    kind: "FAQ",
+    kind: opts?.kind ?? "FAQ",
     preview,
+    scope: opts?.scope ?? "general",
+    department_key: opts?.department_key ?? null,
   };
   return { ...state, knowledge: [item, ...state.knowledge], version: state.version + 1 };
 }
@@ -1114,7 +1184,7 @@ export function listDemoStaffMessagesForGuest(state: DemoState): Array<{
 }
 
 /** Persist demo sandbox across /demo/guest ↔ /demo/operations in the same browser. */
-export const DEMO_STATE_KEY = "talkstay:demo-state-v2";
+export const DEMO_STATE_KEY = "talkstay:demo-state-v3";
 
 export function loadPersistedDemoState(): DemoState | null {
   try {
@@ -1122,6 +1192,17 @@ export function loadPersistedDemoState(): DemoState | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as DemoState;
     if (!parsed?.hotel?.id || !Array.isArray(parsed.requests)) return null;
+    // Soft-migrate older in-session shapes (missing dept notify / kb scope).
+    parsed.departments = (parsed.departments ?? []).map((d: any) => ({
+      ...d,
+      notify_email: d.notify_email ?? null,
+      escalate_after_minutes: d.escalate_after_minutes ?? 15,
+    }));
+    parsed.knowledge = (parsed.knowledge ?? []).map((k: any) => ({
+      ...k,
+      scope: k.scope ?? (k.kind === "Website" ? "site" : "general"),
+      department_key: k.department_key ?? null,
+    }));
     return parsed;
   } catch {
     return null;
