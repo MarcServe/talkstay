@@ -511,63 +511,75 @@ export default function Landing() {
           <div className="mx-auto mt-10 max-w-4xl">
             <DemoVideo videoId={DEMO_VIDEO_ID} />
           </div>
-          <div className="mx-auto mt-8 grid max-w-3xl gap-4 sm:grid-cols-2">
-            <Link
-              to="/demo/guest"
-              className="group overflow-hidden rounded-2xl border border-violet-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-violet-400 hover:shadow-md"
-            >
-              <div className="aspect-[3/2] overflow-hidden bg-violet-50">
-                <picture>
-                  <source type="image/webp" srcSet={IMG.roleGuestWebpSrcSet} sizes={IMG.roleDemoSizes} />
-                  <img
-                    src={IMG.roleGuest}
-                    alt="Your Stay. Just Speak. — guest TalkStay experience"
-                    width={1536}
-                    height={1024}
-                    className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.02]"
-                    loading="lazy"
-                    decoding="async"
-                  />
-                </picture>
-              </div>
-              <div className="border-t border-violet-100 bg-violet-50/80 px-5 py-4 text-left">
-                <p className="text-[10px] font-bold uppercase tracking-wide text-violet-700">Guest</p>
-                <p className="mt-1 text-sm font-semibold text-violet-950">Guest Experience</p>
-                <p className="mt-0.5 text-xs text-violet-900/75">
-                  Ask, request, track — like after scanning a room QR or link from email.
-                </p>
-              </div>
-            </Link>
-            <Link
-              to="/demo/operations"
-              className="group overflow-hidden rounded-2xl border border-teal-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-teal-400 hover:shadow-md"
-            >
-              <div className="aspect-[3/2] overflow-hidden bg-teal-50">
-                <picture>
-                  <source type="image/webp" srcSet={IMG.roleStaffWebpSrcSet} sizes={IMG.roleDemoSizes} />
-                  <img
-                    src={IMG.roleStaff}
-                    alt="Manage Requests. Deliver Excellence. — host operations"
-                    width={1536}
-                    height={1024}
-                    className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.02]"
-                    loading="lazy"
-                    decoding="async"
-                  />
-                </picture>
-              </div>
-              <div className="border-t border-teal-100 bg-teal-50/80 px-5 py-4 text-left">
-                <p className="text-[10px] font-bold uppercase tracking-wide text-teal-700">Hotel staff</p>
-                <p className="mt-1 text-sm font-semibold text-teal-950">I'm Hotel Staff</p>
-                <p className="mt-0.5 text-xs text-teal-900/75">Live queue &amp; departments</p>
-              </div>
-            </Link>
+
+          {/* Clear break so the interactive CTAs don't crowd the video. */}
+          <div className="mx-auto mt-14 max-w-3xl border-t border-slate-200/90 pt-10 sm:mt-16 sm:pt-12">
+            <div className="mb-6 text-center sm:mb-8">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Then try it yourself
+              </p>
+              <p className="mt-1.5 text-sm text-muted-foreground">
+                Pick a side — guest phone or staff operations.
+              </p>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Link
+                to="/demo/guest"
+                className="group overflow-hidden rounded-2xl border border-violet-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-violet-400 hover:shadow-md"
+              >
+                <div className="aspect-[3/2] overflow-hidden bg-violet-50">
+                  <picture>
+                    <source type="image/webp" srcSet={IMG.roleGuestWebpSrcSet} sizes={IMG.roleDemoSizes} />
+                    <img
+                      src={IMG.roleGuest}
+                      alt="Your Stay. Just Speak. — guest TalkStay experience"
+                      width={1536}
+                      height={1024}
+                      className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.02]"
+                      loading="lazy"
+                      decoding="async"
+                    />
+                  </picture>
+                </div>
+                <div className="border-t border-violet-100 bg-violet-50/80 px-5 py-4 text-left">
+                  <p className="text-[10px] font-bold uppercase tracking-wide text-violet-700">Guest</p>
+                  <p className="mt-1 text-sm font-semibold text-violet-950">Guest Experience</p>
+                  <p className="mt-0.5 text-xs text-violet-900/75">
+                    Ask, request, track — like after scanning a room QR or link from email.
+                  </p>
+                </div>
+              </Link>
+              <Link
+                to="/demo/operations"
+                className="group overflow-hidden rounded-2xl border border-teal-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-teal-400 hover:shadow-md"
+              >
+                <div className="aspect-[3/2] overflow-hidden bg-teal-50">
+                  <picture>
+                    <source type="image/webp" srcSet={IMG.roleStaffWebpSrcSet} sizes={IMG.roleDemoSizes} />
+                    <img
+                      src={IMG.roleStaff}
+                      alt="Manage Requests. Deliver Excellence. — host operations"
+                      width={1536}
+                      height={1024}
+                      className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.02]"
+                      loading="lazy"
+                      decoding="async"
+                    />
+                  </picture>
+                </div>
+                <div className="border-t border-teal-100 bg-teal-50/80 px-5 py-4 text-left">
+                  <p className="text-[10px] font-bold uppercase tracking-wide text-teal-700">Hotel staff</p>
+                  <p className="mt-1 text-sm font-semibold text-teal-950">I'm Hotel Staff</p>
+                  <p className="mt-0.5 text-xs text-teal-900/75">Live queue &amp; departments</p>
+                </div>
+              </Link>
+            </div>
+            <p className="mt-5 text-center text-sm">
+              <Link to="/demo" className="font-medium text-violet-700 underline-offset-2 hover:underline">
+                Or open the Experience TalkStay hub
+              </Link>
+            </p>
           </div>
-          <p className="mt-4 text-center text-sm">
-            <Link to="/demo" className="font-medium text-violet-700 underline-offset-2 hover:underline">
-              Or open the Experience TalkStay hub
-            </Link>
-          </p>
         </section>
 
         {/* Old way vs TalkStay — colour + icon, full explanations kept. */}
