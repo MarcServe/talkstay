@@ -225,7 +225,7 @@ function DemoRequestsSheet({
             No requests yet — ask for towels or report a problem.
           </p>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-2">
             {visible.map((r) => {
               const awaitingConfirm = r.status === "completed";
               const confirmed = r.status === "guest_confirmed";
@@ -234,10 +234,10 @@ function DemoRequestsSheet({
               const isCancelling = cancellingId === r.id;
               const cardTone = GUEST_REQ_CARD[r.status] ?? GUEST_REQ_CARD.new;
               return (
-                <div key={r.id} className={`rounded-2xl border p-4 ${cardTone}`}>
-                  <div className="text-[15px] font-medium leading-snug">{r.summary}</div>
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${statusBadge(r.status)}`}>
+                <div key={r.id} className={`rounded-xl border p-3 ${cardTone}`}>
+                  <div className="text-sm font-medium leading-snug">{r.summary}</div>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${statusBadge(r.status)}`}>
                       <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDot(r.status)}`} />
                       {statusLabel(r.status)}
                     </span>
@@ -245,11 +245,12 @@ function DemoRequestsSheet({
                   </div>
 
                   {awaitingConfirm && (
-                    <div className="mt-3 space-y-2">
-                      <p className="text-sm font-medium">Did you receive everything?</p>
+                    <div className="mt-2 space-y-1.5">
+                      <p className="text-xs font-medium">Did you receive everything?</p>
                       <div className="flex gap-2">
                         <Button
                           size="sm"
+                          className="h-8"
                           onClick={() => {
                             demo.guestConfirm(r.id);
                             toast.success("Thanks — request closed.");
@@ -260,6 +261,7 @@ function DemoRequestsSheet({
                         <Button
                           size="sm"
                           variant="outline"
+                          className="h-8"
                           onClick={() => {
                             demo.guestReopen(r.id);
                             toast.message("Back with the team — not done yet.");
@@ -272,9 +274,9 @@ function DemoRequestsSheet({
                   )}
 
                   {confirmed && (
-                    <div className="mt-3 space-y-2 border-t pt-3">
-                      <p className="text-xs font-medium">How did we do?</p>
-                      <div className="flex gap-1">
+                    <div className="mt-2 space-y-1.5 border-t pt-2">
+                      <p className="text-[11px] font-medium">How did we do?</p>
+                      <div className="flex gap-0.5">
                         {[1, 2, 3, 4, 5].map((n) => (
                           <button
                             key={n}
@@ -283,11 +285,11 @@ function DemoRequestsSheet({
                               setRated((p) => ({ ...p, [r.id]: n }));
                               demo.guestRate(r.id, n, comments[r.id]);
                             }}
-                            className="rounded p-1 hover:bg-white/60"
+                            className="rounded p-0.5 hover:bg-white/60"
                             aria-label={`${n} stars`}
                           >
                             <Star
-                              className={`h-5 w-5 ${
+                              className={`h-4 w-4 ${
                                 (rated[r.id] ?? 0) >= n ? "fill-amber-400 text-amber-400" : "text-muted-foreground"
                               }`}
                             />
@@ -305,6 +307,7 @@ function DemoRequestsSheet({
                           <Button
                             size="sm"
                             variant="outline"
+                            className="h-8"
                             onClick={() => {
                               demo.guestRate(r.id, rated[r.id]!, comments[r.id]);
                               toast.success("Review saved — check Insights in Operations.");
@@ -318,13 +321,12 @@ function DemoRequestsSheet({
                   )}
 
                   {isOpen && (
-                    <div className="mt-3 space-y-2 border-t pt-3">
-                      <p className="text-xs font-medium">What you can do</p>
-                      <div className="grid grid-cols-3 gap-2">
+                    <div className="mt-2 space-y-1.5 border-t border-black/5 pt-2">
+                      <div className="grid grid-cols-3 gap-1.5">
                         <Button
                           size="sm"
                           variant="outline"
-                          className="h-auto flex-col gap-1 py-2 text-xs"
+                          className="h-8 gap-1 px-1.5 text-[11px]"
                           disabled={!!nudged[r.id]}
                           onClick={() => {
                             demo.guestNudge(r.id);
@@ -332,46 +334,46 @@ function DemoRequestsSheet({
                             toast.success("We've reminded the team you're waiting.");
                           }}
                         >
-                          <Bell className="h-3.5 w-3.5" />
+                          <Bell className="h-3 w-3" />
                           {nudged[r.id] ? "Reminded" : "Remind"}
                         </Button>
                         <Button
                           size="sm"
                           variant="outline"
-                          className="h-auto flex-col gap-1 py-2 text-xs"
+                          className="h-8 gap-1 px-1.5 text-[11px]"
                           onClick={() => {
                             setCancellingId(null);
                             setEditingId(isEditing ? null : r.id);
                             setEditText((p) => ({ ...p, [r.id]: p[r.id] ?? r.summary }));
                           }}
                         >
-                          <Pencil className="h-3.5 w-3.5" />
+                          <Pencil className="h-3 w-3" />
                           Update
                         </Button>
                         <Button
                           size="sm"
                           variant="outline"
-                          className="h-auto flex-col gap-1 py-2 text-xs text-red-600"
+                          className="h-8 gap-1 px-1.5 text-[11px] text-red-600"
                           onClick={() => {
                             setEditingId(null);
                             setCancellingId(isCancelling ? null : r.id);
                             setCancelReason("");
                           }}
                         >
-                          <X className="h-3.5 w-3.5" />
+                          <X className="h-3 w-3" />
                           Cancel
                         </Button>
                       </div>
                       {isEditing && (
-                        <div className="space-y-2">
+                        <div className="space-y-1.5">
                           <Input
                             value={editText[r.id] ?? ""}
                             onChange={(e) => setEditText((p) => ({ ...p, [r.id]: e.target.value }))}
-                            className="text-sm"
+                            className="h-8 text-xs"
                           />
                           <Button
                             size="sm"
-                            className="w-full"
+                            className="h-8 w-full"
                             style={{ backgroundColor: BRAND }}
                             onClick={() => {
                               const note = (editText[r.id] ?? "").trim();
@@ -387,17 +389,17 @@ function DemoRequestsSheet({
                         </div>
                       )}
                       {isCancelling && (
-                        <div className="space-y-2">
+                        <div className="space-y-1.5">
                           <Input
                             value={cancelReason}
                             onChange={(e) => setCancelReason(e.target.value)}
                             placeholder="Optional reason"
-                            className="text-sm"
+                            className="h-8 text-xs"
                           />
                           <Button
                             size="sm"
                             variant="destructive"
-                            className="w-full"
+                            className="h-8 w-full"
                             onClick={() => {
                               demo.guestCancel(r.id, cancelReason);
                               setCancellingId(null);

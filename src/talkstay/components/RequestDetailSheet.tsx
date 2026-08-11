@@ -360,13 +360,17 @@ export default function RequestDetailSheet({
             </div>
 
             {isOpen && (
-              <section className="space-y-3 rounded-2xl border bg-card p-4 shadow-sm">
-                <div>
-                  <h3 className="text-sm font-semibold">Talk to your team (not the guest)</h3>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Pick one action below. Guests never see these — use “Reply to the guest” further down
-                    if you want to message the guest.
-                  </p>
+              <section className="space-y-3 rounded-2xl border-2 border-amber-300/80 bg-amber-50/50 p-4 shadow-sm">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <h3 className="text-sm font-semibold text-amber-950">Talk to your team (not the guest)</h3>
+                    <p className="mt-1 text-xs text-amber-900/80">
+                      Pick one action below. Guests never see these — scroll down to the green box to message the guest.
+                    </p>
+                  </div>
+                  <span className="shrink-0 rounded-full border border-amber-300 bg-amber-100 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-900">
+                    Staff only
+                  </span>
                 </div>
 
                 <div className="grid gap-2 sm:grid-cols-3">
@@ -385,28 +389,28 @@ export default function RequestDetailSheet({
                         onClick={() => setTeamAction(on ? null : key)}
                         className={`rounded-xl border px-3 py-2.5 text-left transition-colors ${
                           on
-                            ? "border-violet-400 bg-violet-50 ring-2 ring-violet-500/20"
-                            : "bg-background hover:bg-muted/40"
+                            ? "border-amber-400 bg-white ring-2 ring-amber-500/25"
+                            : "border-amber-200/80 bg-white/70 hover:bg-white"
                         }`}
                       >
-                        <div className="flex items-center gap-1.5 text-sm font-medium">
-                          <Icon className="h-3.5 w-3.5 shrink-0 text-violet-700" />
+                        <div className="flex items-center gap-1.5 text-sm font-medium text-amber-950">
+                          <Icon className="h-3.5 w-3.5 shrink-0 text-amber-700" />
                           {label}
                         </div>
-                        <p className="mt-0.5 text-[11px] text-muted-foreground">{hint}</p>
+                        <p className="mt-0.5 text-[11px] text-amber-900/70">{hint}</p>
                       </button>
                     );
                   })}
                 </div>
 
                 {teamAction === "message" && (
-                  <div className="space-y-2 rounded-xl border border-violet-200/70 bg-violet-50/50 p-3">
-                    <p className="text-sm font-medium text-violet-950">Send an internal note</p>
-                    <p className="text-xs text-violet-900/80">
+                  <div className="space-y-2 rounded-xl border border-amber-300 bg-white p-3">
+                    <p className="text-sm font-medium text-amber-950">Send an internal note</p>
+                    <p className="text-xs text-amber-900/80">
                       Use this when reception or a manager needs to tell {deptLabel(req.department_key)} something
                       about this order — for example that the guest called again, or to hurry up.
                     </p>
-                    <p className="text-[11px] text-muted-foreground">
+                    <p className="text-[11px] text-amber-800/70">
                       Example: “Room called — please hurry breakfast, or message them you’re almost done.”
                     </p>
                     <Textarea
@@ -414,11 +418,11 @@ export default function RequestDetailSheet({
                       onChange={(e) => setTeamNote(e.target.value)}
                       rows={3}
                       placeholder="Write your message to the team…"
-                      className="bg-white"
+                      className="border-amber-200 bg-amber-50/30 focus-visible:ring-amber-400"
                     />
                     <Button
                       size="sm"
-                      className="bg-violet-600 hover:bg-violet-700"
+                      className="bg-amber-600 text-white hover:bg-amber-700"
                       disabled={noteBusy || !teamNote.trim()}
                       onClick={() => void postTeamNote()}
                     >
@@ -429,13 +433,13 @@ export default function RequestDetailSheet({
                 )}
 
                 {teamAction === "handler" && (
-                  <div className="space-y-2 rounded-xl border border-teal-200/70 bg-teal-50/40 p-3">
-                    <p className="text-sm font-medium text-teal-950">Say who’s handling this</p>
-                    <p className="text-xs text-teal-900/80">
+                  <div className="space-y-2 rounded-xl border border-amber-300 bg-white p-3">
+                    <p className="text-sm font-medium text-amber-950">Say who’s handling this</p>
+                    <p className="text-xs text-amber-900/80">
                       So everyone knows who owns it — pick a teammate from the list, or type a name.
                     </p>
                     {latestHandler && (
-                      <p className="rounded-lg border border-teal-200 bg-white/80 px-2.5 py-1.5 text-xs text-teal-900">
+                      <p className="rounded-lg border border-amber-200 bg-amber-50/60 px-2.5 py-1.5 text-xs text-amber-950">
                         Currently: {latestHandler}
                       </p>
                     )}
@@ -446,7 +450,7 @@ export default function RequestDetailSheet({
                         setHandlerName("");
                       }}
                     >
-                      <SelectTrigger className="bg-white"><SelectValue placeholder="Pick a teammate (optional)" /></SelectTrigger>
+                      <SelectTrigger className="border-amber-200 bg-white"><SelectValue placeholder="Pick a teammate (optional)" /></SelectTrigger>
                       <SelectContent>
                         {handlers.map((h) => (
                           <SelectItem key={h.id} value={h.id}>
@@ -456,7 +460,7 @@ export default function RequestDetailSheet({
                       </SelectContent>
                     </Select>
                     <div className="relative">
-                      <span className="mb-1 block text-[11px] text-muted-foreground">Or type a name</span>
+                      <span className="mb-1 block text-[11px] text-amber-900/70">Or type a name</span>
                       <Input
                         value={handlerName}
                         onChange={(e) => {
@@ -464,12 +468,12 @@ export default function RequestDetailSheet({
                           if (e.target.value.trim()) setHandlerPick("");
                         }}
                         placeholder="e.g. Mark"
-                        className="bg-white"
+                        className="border-amber-200 bg-white"
                       />
                     </div>
                     <Button
                       size="sm"
-                      className="bg-teal-700 hover:bg-teal-800"
+                      className="bg-amber-700 text-white hover:bg-amber-800"
                       disabled={assignBusy || (!handlerPick && !handlerName.trim())}
                       onClick={() => void markHandler()}
                     >
@@ -480,14 +484,14 @@ export default function RequestDetailSheet({
                 )}
 
                 {teamAction === "forward" && (
-                  <div className="space-y-2 rounded-xl border border-indigo-200/70 bg-indigo-50/40 p-3">
-                    <p className="text-sm font-medium text-indigo-950">Send this ticket to another department</p>
-                    <p className="text-xs text-indigo-900/80">
+                  <div className="space-y-2 rounded-xl border border-amber-300 bg-white p-3">
+                    <p className="text-sm font-medium text-amber-950">Send this ticket to another department</p>
+                    <p className="text-xs text-amber-900/80">
                       Only if this request is with the wrong team. It leaves {deptLabel(req.department_key)} and
                       appears on the new department’s Operations board (they get notified).
                     </p>
                     <Select value={forwardDept || undefined} onValueChange={setForwardDept}>
-                      <SelectTrigger className="bg-white"><SelectValue placeholder="Which department should handle it?" /></SelectTrigger>
+                      <SelectTrigger className="border-amber-200 bg-white"><SelectValue placeholder="Which department should handle it?" /></SelectTrigger>
                       <SelectContent>
                         {DEPARTMENTS.filter((d) => d.key !== req.department_key).map((d) => (
                           <SelectItem key={d.key} value={d.key}>{d.display_name}</SelectItem>
@@ -499,11 +503,11 @@ export default function RequestDetailSheet({
                       onChange={(e) => setForwardNote(e.target.value)}
                       rows={2}
                       placeholder="Optional: why you’re sending it / what they need to know…"
-                      className="bg-white"
+                      className="border-amber-200 bg-white"
                     />
                     <Button
                       size="sm"
-                      className="bg-indigo-600 hover:bg-indigo-700"
+                      className="bg-amber-800 text-white hover:bg-amber-900"
                       disabled={forwardBusy || !forwardDept}
                       onClick={() => void forwardToDept()}
                     >
@@ -535,7 +539,12 @@ export default function RequestDetailSheet({
                         <span className="text-xs text-muted-foreground">{fmtWhen(e.created_at)}</span>
                       </div>
                       {e.note && (
-                        <p className={`text-xs ${e.status === "staff_note" ? "mt-0.5 font-medium text-violet-900" : "text-muted-foreground"}`}>
+                        <p className={`text-xs ${
+                          e.status === "staff_note"
+                            ? "mt-0.5 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 font-medium text-amber-950"
+                            : "text-muted-foreground"
+                        }`}
+                        >
                           {e.status === "staff_note" || e.status === "assigned" || e.status === "forwarded"
                             ? e.note
                             : [e.actor_type, e.note].filter(Boolean).join(" · ")}
@@ -550,40 +559,59 @@ export default function RequestDetailSheet({
               )}
             </section>
 
-            <section>
-              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Message the guest ({messages.length})
-              </h3>
-              <p className="mb-2 text-[11px] text-muted-foreground">
-                This goes to the guest’s phone/app — not to staff. For staff-only notes, use step 1 above.
-              </p>
+            <section className="space-y-3 rounded-2xl border-2 border-emerald-300/80 bg-emerald-50/50 p-4 shadow-sm">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <h3 className="text-sm font-semibold text-emerald-950">
+                    Message the guest ({messages.length})
+                  </h3>
+                  <p className="mt-1 text-xs text-emerald-900/80">
+                    This goes to the guest’s phone/app. For staff-only notes, use the amber box above.
+                  </p>
+                </div>
+                <span className="shrink-0 rounded-full border border-emerald-300 bg-emerald-100 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-emerald-900">
+                  Guest sees this
+                </span>
+              </div>
               {messages.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No guest replies yet.</p>
+                <p className="text-sm text-emerald-900/70">No guest replies yet.</p>
               ) : (
                 <div className="space-y-2">
                   {messages.map((m) => (
-                    <div key={m.id} className="rounded-xl border bg-muted/30 px-3 py-2 text-sm">
-                      <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                    <div
+                      key={m.id}
+                      className={`rounded-xl border px-3 py-2 text-sm ${
+                        m.sender === "staff"
+                          ? "border-emerald-200 bg-white"
+                          : "border-emerald-200/80 bg-emerald-100/60"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2 text-xs text-emerald-900/70">
                         <span>{m.sender === "staff" ? (m.staff_label || "Staff") : "Guest"}</span>
                         <span>{fmtWhen(m.created_at)}</span>
                       </div>
-                      <p className="mt-1">{m.body}</p>
+                      <p className="mt-1 text-emerald-950">{m.body}</p>
                       {m.body_guest && m.body_guest !== m.body && (
-                        <p className="mt-0.5 text-xs italic text-muted-foreground">Guest saw: {m.body_guest}</p>
+                        <p className="mt-0.5 text-xs italic text-emerald-800/70">Guest saw: {m.body_guest}</p>
                       )}
                     </div>
                   ))}
                 </div>
               )}
-              <div className="mt-3 flex items-center gap-2">
+              <div className="flex items-center gap-2">
                 <Input
                   value={reply}
                   onChange={(e) => setReply(e.target.value)}
                   onKeyDown={(e) => { if (e.key === "Enter") sendReply(); }}
                   placeholder="Reply to the guest…"
-                  className="h-9"
+                  className="h-9 border-emerald-200 bg-white focus-visible:ring-emerald-400"
                 />
-                <Button size="sm" disabled={replyBusy || !reply.trim()} onClick={sendReply}>
+                <Button
+                  size="sm"
+                  className="bg-emerald-600 text-white hover:bg-emerald-700"
+                  disabled={replyBusy || !reply.trim()}
+                  onClick={sendReply}
+                >
                   {replyBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                 </Button>
               </div>

@@ -1425,7 +1425,7 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
         ) : reqs.length === 0 ? (
           <p className="text-sm text-muted-foreground">No requests yet. Ask in chat or tap the mic.</p>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-2">
             {reqs.map((r) => {
               // Fold the guest's optimistic close-out over the fetched status.
               const effStatus =
@@ -1444,11 +1444,11 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
               return (
                 <div
                   key={r.id}
-                  className={`rounded-2xl border p-4 backdrop-blur-md ${cardTone}`}
+                  className={`rounded-xl border p-3 backdrop-blur-md ${cardTone}`}
                 >
-                  <div className="text-[15px] font-medium leading-snug">{r.summary}</div>
-                  <div className="mt-2.5 flex flex-wrap items-center gap-2">
-                    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${statusBadge(effStatus)}`}>
+                  <div className="text-sm font-medium leading-snug">{r.summary}</div>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${statusBadge(effStatus)}`}>
                       <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDot(effStatus)}`} />
                       {statusLabel(effStatus)}
                     </span>
@@ -1456,48 +1456,46 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
 
                   {/* Staff marked it done — the guest gets the final say. */}
                   {awaitingConfirm && (
-                    <div className="mt-3 space-y-2">
-                      <p className="text-sm font-medium">Did you receive everything?</p>
-                      <p className="text-xs text-muted-foreground">Confirm so we can close it, or tell us it’s not done yet.</p>
+                    <div className="mt-2 space-y-1.5">
+                      <p className="text-xs font-medium">Did you receive everything?</p>
                       <div className="flex gap-2">
-                        <Button size="sm" onClick={() => confirmDone(r)}>Yes, all good</Button>
-                        <Button size="sm" variant="outline" onClick={() => reopen(r)}>Not yet</Button>
+                        <Button size="sm" className="h-8" onClick={() => confirmDone(r)}>Yes, all good</Button>
+                        <Button size="sm" variant="outline" className="h-8" onClick={() => reopen(r)}>Not yet</Button>
                       </div>
                     </div>
                   )}
 
                   {/* Open request — remind / update / cancel with clear guidance. */}
                   {isOpen && (
-                    <div className="mt-3 space-y-2 border-t pt-3">
-                      <p className="text-xs font-medium text-foreground">What you can do</p>
-                      <div className="grid grid-cols-3 gap-2">
+                    <div className="mt-2 space-y-1.5 border-t border-black/5 pt-2">
+                      <div className="grid grid-cols-3 gap-1.5">
                         <Button
                           size="sm"
                           variant="outline"
-                          className="h-auto flex-col gap-1 py-2 text-xs"
+                          className="h-8 gap-1 px-1.5 text-[11px]"
                           disabled={busy || nudged[r.id]}
                           onClick={() => remind(r)}
                         >
-                          {busy && !isEditing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Bell className="h-3.5 w-3.5" />}
+                          {busy && !isEditing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Bell className="h-3 w-3" />}
                           {nudged[r.id] ? "Reminded" : "Remind"}
                         </Button>
                         <Button
                           size="sm"
                           variant="outline"
-                          className="h-auto flex-col gap-1 py-2 text-xs"
+                          className="h-8 gap-1 px-1.5 text-[11px]"
                           disabled={busy}
                           onClick={() => {
                             setEditingId(isEditing ? null : r.id);
                             setEditText((p) => ({ ...p, [r.id]: p[r.id] ?? r.summary }));
                           }}
                         >
-                          <Pencil className="h-3.5 w-3.5" />
+                          <Pencil className="h-3 w-3" />
                           Update
                         </Button>
                         <Button
                           size="sm"
                           variant="outline"
-                          className="h-auto flex-col gap-1 py-2 text-xs text-red-600 hover:text-red-700"
+                          className="h-8 gap-1 px-1.5 text-[11px] text-red-600 hover:text-red-700"
                           disabled={busy}
                           onClick={() => {
                             setEditingId(null);
@@ -1505,47 +1503,36 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
                             setCancelReason("");
                           }}
                         >
-                          <X className="h-3.5 w-3.5" />
+                          <X className="h-3 w-3" />
                           Cancel
                         </Button>
                       </div>
-                      <p className="text-[11px] leading-relaxed text-muted-foreground">
-                        <strong className="font-medium text-foreground/80">Remind</strong> nudges the team you’re still waiting.
-                        {" "}
-                        <strong className="font-medium text-foreground/80">Update</strong> changes what you asked for.
-                        {" "}
-                        <strong className="font-medium text-foreground/80">Cancel</strong> stops the request (it’s removed from this list).
-                      </p>
                       {nudged[r.id] && !isEditing && !isCancelling && (
-                        <p className="text-xs text-amber-600">Team notified — they’ll pick this up shortly.</p>
+                        <p className="text-[11px] text-amber-600">Team notified — they’ll pick this up shortly.</p>
                       )}
                       {isEditing && (
-                        <div className="space-y-2 rounded-xl bg-muted/40 p-3">
-                          <p className="text-xs text-muted-foreground">What should we bring or do instead?</p>
+                        <div className="space-y-1.5 rounded-lg bg-muted/40 p-2">
                           <Input
                             value={editText[r.id] ?? ""}
                             onChange={(e) => setEditText((p) => ({ ...p, [r.id]: e.target.value }))}
                             placeholder="e.g. White wine instead of red"
                             disabled={busy}
                             autoFocus
+                            className="h-8 text-xs"
                           />
                           <div className="flex gap-2">
-                            <Button size="sm" disabled={busy || !(editText[r.id] ?? "").trim()} onClick={() => saveUpdate(r)}>
-                              {busy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+                            <Button size="sm" className="h-8" disabled={busy || !(editText[r.id] ?? "").trim()} onClick={() => saveUpdate(r)}>
+                              {busy ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
                               Send update
                             </Button>
-                            <Button size="sm" variant="ghost" disabled={busy} onClick={() => setEditingId(null)}>
+                            <Button size="sm" variant="ghost" className="h-8" disabled={busy} onClick={() => setEditingId(null)}>
                               Back
                             </Button>
                           </div>
                         </div>
                       )}
                       {isCancelling && (
-                        <div className="space-y-2 rounded-xl border border-rose-200/70 bg-rose-50/50 p-3">
-                          <p className="text-xs font-medium text-foreground">Cancel this request?</p>
-                          <p className="text-[11px] text-muted-foreground">
-                            Optional — why are you cancelling? Helps the team if something was wrong.
-                          </p>
+                        <div className="space-y-1.5 rounded-lg border border-rose-200/70 bg-rose-50/50 p-2">
                           <Input
                             value={cancelReason}
                             onChange={(e) => setCancelReason(e.target.value)}
@@ -1553,20 +1540,23 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
                             disabled={busy}
                             autoFocus
                             maxLength={280}
+                            className="h-8 text-xs"
                           />
                           <div className="flex gap-2">
                             <Button
                               size="sm"
                               variant="destructive"
+                              className="h-8"
                               disabled={busy}
                               onClick={() => cancelOpen(r)}
                             >
-                              {busy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+                              {busy ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
                               Confirm cancel
                             </Button>
                             <Button
                               size="sm"
                               variant="ghost"
+                              className="h-8"
                               disabled={busy}
                               onClick={() => { setCancellingId(null); setCancelReason(""); }}
                             >
@@ -1579,16 +1569,13 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
                   )}
 
                   {wasReopened && (
-                    <p className="mt-3 text-xs text-amber-600">Thanks — we've let the team know. They're back on it.</p>
+                    <p className="mt-2 text-[11px] text-amber-600">Thanks — we've let the team know. They're back on it.</p>
                   )}
 
                   {confirmed && (
-                    <div className="mt-3 space-y-3">
-                      <div className="space-y-2 rounded-xl border border-dashed p-3">
-                        <p className="text-xs font-medium">How was this request?</p>
-                        <p className="text-[11px] text-muted-foreground">
-                          Rate this specific ask — separate from how the stay feels overall.
-                        </p>
+                    <div className="mt-2 space-y-2">
+                      <div className="space-y-1.5 rounded-lg border border-dashed p-2">
+                        <p className="text-[11px] font-medium">How was this request?</p>
                         <div className="flex items-center gap-1">
                           {[1, 2, 3, 4, 5].map((n) => (
                             <button key={n} type="button" onClick={() => rate(r, n)} aria-label={`${n} stars`}>
