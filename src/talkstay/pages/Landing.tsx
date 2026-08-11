@@ -5,7 +5,7 @@ import {
   PlayCircle, ArrowRight, Volume2, VolumeX,
   Building2, KeyRound, Mic, Route, CheckCircle2, Languages,
   Bath, Wifi, Wrench, Star, MessageCircleOff, BarChart3,
-  ConciergeBell, DoorOpen,
+  ConciergeBell, DoorOpen, QrCode, MessageCircleQuestion,
   type LucideIcon,
 } from "lucide-react";
 import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
@@ -191,13 +191,6 @@ function Photo({ src, alt, className = "", eager = false, fit = "cover",
   );
 }
 
-const HERO_PILLS = [
-  { label: "Scan & speak", sub: "No app, no login", Icon: Mic },
-  { label: "Auto-routed", sub: "Right team, instantly", Icon: Route },
-  { label: "Tracked to done", sub: "Updates in real time", Icon: CheckCircle2 },
-  { label: "Every language", sub: "Multi-language support", Icon: Languages },
-] as const;
-
 /** Split hero: design copy on the left, lifestyle/product photo on the right. */
 function Hero({ signedIn }: { signedIn: boolean }) {
   return (
@@ -216,13 +209,12 @@ function Hero({ signedIn }: { signedIn: boolean }) {
               beautifully.
             </span>
           </h1>
-          <p className="mt-2 text-center font-serif text-xs italic tracking-wide text-violet-600/80 lg:text-left">
-            from anywhere
+          <p className="mt-3 text-lg font-medium tracking-tight text-foreground sm:text-xl lg:text-[1.35rem]">
+            Information, services and support — all at your fingertips
           </p>
-          <p className="mx-auto mt-5 max-w-xl text-base leading-relaxed text-muted-foreground sm:text-lg lg:mx-0">
-            TalkStay lets guests speak naturally to request room service, housekeeping,
-            maintenance, property information and more. Every request is routed, tracked and
-            completed with care.
+          <p className="mx-auto mt-4 max-w-xl text-base leading-relaxed text-muted-foreground sm:text-lg lg:mx-0">
+            Guests ask for answers on the spot, or request what they need — TalkStay
+            routes every ask to the right team, keeps it tracked, and closes the loop.
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3 lg:justify-start">
             <Button asChild size="lg" className="bg-violet-600 hover:bg-violet-700">
@@ -273,19 +265,49 @@ function Hero({ signedIn }: { signedIn: boolean }) {
         </div>
       </div>
 
-      <ul className="grid grid-cols-2 gap-4 sm:grid-cols-4 sm:gap-6">
-        {HERO_PILLS.map(({ label, sub, Icon }) => (
-          <li key={label} className="flex items-start gap-2.5 text-left">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-violet-100 text-violet-700">
-              <Icon className="h-4 w-4" />
+      {/* Ask / Request journey — replaces the old feature pills */}
+      <div className="overflow-hidden rounded-2xl border border-violet-200/80 bg-white/90 shadow-sm ring-1 ring-violet-500/5">
+        <div className="grid gap-0 sm:grid-cols-2">
+          <div className="border-b border-violet-100 px-5 py-4 sm:border-b-0 sm:border-r sm:px-6 sm:py-5">
+            <div className="flex items-center gap-2">
+              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-100 text-violet-700">
+                <MessageCircleQuestion className="h-4 w-4" />
+              </span>
+              <p className="text-xs font-bold uppercase tracking-wide text-violet-700">Ask</p>
             </div>
-            <div>
-              <p className="text-sm font-semibold tracking-tight">{label}</p>
-              <p className="text-xs text-muted-foreground">{sub}</p>
+            <p className="mt-3 text-base font-semibold tracking-tight text-foreground sm:text-[1.05rem]">
+              <span className="text-violet-700">Ask</span>
+              {" → Scan → Speak → Instant answer"}
+            </p>
+          </div>
+          <div className="px-5 py-4 sm:px-6 sm:py-5">
+            <div className="flex items-center gap-2">
+              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-teal-100 text-teal-800">
+                <Route className="h-4 w-4" />
+              </span>
+              <p className="text-xs font-bold uppercase tracking-wide text-teal-700">Request</p>
             </div>
-          </li>
-        ))}
-      </ul>
+            <p className="mt-3 text-base font-semibold tracking-tight text-foreground sm:text-[1.05rem]">
+              <span className="text-teal-700">Request</span>
+              {" → Right team → Track → Complete"}
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 border-t border-violet-100 bg-violet-50/60 px-5 py-3 text-xs text-muted-foreground sm:justify-start sm:px-6">
+          <span className="inline-flex items-center gap-1.5">
+            <QrCode className="h-3.5 w-3.5 text-violet-600" />
+            No app, no login — scan to start
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <Languages className="h-3.5 w-3.5 text-violet-600" />
+            Every language supported
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <CheckCircle2 className="h-3.5 w-3.5 text-violet-600" />
+            Tracked to done
+          </span>
+        </div>
+      </div>
 
       <div className="overflow-hidden rounded-3xl bg-gradient-to-r from-[#1e1458] via-[#2d1b69] to-[#3b2178] px-5 py-5 text-white shadow-xl sm:px-8">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
