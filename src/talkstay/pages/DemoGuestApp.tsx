@@ -8,18 +8,13 @@ import {
 import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
 import { statusBadge, statusLabel } from "@/talkstay/lib/statusStyles";
 import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
+import { DemoProvider, useDemo } from "@/talkstay/demo/DemoContext";
+import { inferDemoDepartment } from "@/talkstay/demo/demoStore";
+import { DEPARTMENTS } from "@/talkstay/lib/hotels";
 
 const BRAND = "#4c2bb8";
 const HOTEL = "The Grand Hotel II";
 const ROOM = "306";
-
-type DemoReq = {
-  id: string;
-  summary: string;
-  department: string;
-  status: string;
-  created_at: string;
-};
 
 type Msg =
   | { role: "assistant" | "user"; content: string }
@@ -33,12 +28,13 @@ const SUGGESTIONS = [
   "The AC isn't working",
 ];
 
-function replyFor(text: string): { say: string; request?: Omit<DemoReq, "id" | "created_at"> } {
+function replyFor(text: string): { say: string; logRequest?: boolean; department?: string } {
   const t = text.toLowerCase();
   if (/towel/.test(t)) {
     return {
-      say: "Of course — I've sent Housekeeping two extra towels for Room 306. You'll see it under Requests.",
-      request: { summary: "Deliver 2 extra towels", department: "Housekeeping", status: "new" },
+      say: "Of course — I've sent Housekeeping two extra towels for Room 306. You'll see it under Requests, and staff will see it on their Operations queue.",
+      logRequest: true,
+      department: "housekeeping",
     };
   }
   if (/breakfast|brunch/.test(t)) {
@@ -48,8 +44,9 @@ function replyFor(text: string): { say: string; request?: Omit<DemoReq, "id" | "
   }
   if (/clean|housekeep|maid|turndown/.test(t)) {
     return {
-      say: "Done — I've asked Housekeeping to clean Room 306. They'll update the status when they accept.",
-      request: { summary: "Room cleaning requested", department: "Housekeeping", status: "new" },
+      say: "Done — I've asked Housekeeping to clean Room 306. Open Operations as Housekeeping staff to accept it.",
+      logRequest: true,
+      department: "housekeeping",
     };
   }
   if (/price|cost|menu|sandwich|drink|cocktail|wine|food|bar|dinner|lunch/.test(t)) {
@@ -59,45 +56,46 @@ function replyFor(text: string): { say: string; request?: Omit<DemoReq, "id" | "
   }
   if (/ac|air.?con|broken|leak|problem|wifi|noise|complaint|not working|cold|hot/.test(t)) {
     return {
-      say: "Sorry about that — I've raised a Maintenance ticket for Room 306 and flagged it for the team. You can track it under Requests.",
-      request: { summary: "Report: AC / room issue", department: "Maintenance", status: "new" },
+      say: "Sorry about that — I've raised a Maintenance ticket for Room 306. Switch to Maintenance staff in the Operations demo to work it.",
+      logRequest: true,
+      department: "maintenance",
     };
   }
-  if (/order|burger|fries|coffee|tea|water|champagne/.test(t)) {
+  if (/order|burger|fries|coffee|tea|water|champagne|martini/.test(t)) {
+    const department = /champagne|martini|cocktail|beer|wine|lager/.test(t) ? "bar" : "kitchen";
     return {
-      say: "Got it — I've sent that to the Kitchen. They'll confirm when it's on the way.",
-      request: { summary: text.slice(0, 80), department: "Kitchen", status: "new" },
+      say: `Got it — I've sent that to the ${department === "bar" ? "Bar" : "Kitchen"}. It will show on their Operations queue.`,
+      logRequest: true,
+      department,
     };
   }
   return {
-    say: "Happy to help. Try asking for towels, breakfast hours, room cleaning, menu prices, or report a problem — just like a real stay.",
+    say: "Happy to help. Try asking for towels, breakfast hours, room cleaning, menu prices, or report a problem — requests land on the staff Operations demo.",
   };
 }
 
-function advanceStatus(s: string): string {
-  if (s === "new") return "accepted";
-  if (s === "accepted") return "in_progress";
-  if (s === "in_progress") return "completed";
-  if (s === "completed") return "guest_confirmed";
-  return s;
+function deptLabel(key: string) {
+  return DEPARTMENTS.find((d) => d.key === key)?.display_name ?? key;
 }
 
-/**
- * Marketing guest demo — feels like the post-QR guest screen, fully offline.
- */
-export default function DemoGuestApp() {
+function DemoGuestInner() {
+  const demo = useDemo()!;
   const [msgs, setMsgs] = useState<Msg[]>([
     {
       role: "assistant",
       content: `Hi! You're in Room ${ROOM} at ${HOTEL}. How can I help — anything you need, or a question about the hotel?`,
     },
   ]);
-  const [reqs, setReqs] = useState<DemoReq[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
 
+  // Requests for Room 306 from the shared demo store (seeded + guest-created).
+  const reqs = useMemo(
+    () => demo.state.requests.filter((r) => r.ts_rooms?.room_number === ROOM || r.room_id === "demo-room-306"),
+    [demo.state.requests, demo.version],
+  );
   const openCount = useMemo(
     () => reqs.filter((r) => !["completed", "guest_confirmed", "cancelled"].includes(r.status)).length,
     [reqs],
@@ -110,20 +108,18 @@ export default function DemoGuestApp() {
     setBusy(true);
     setMsgs((m) => [...m, { role: "user", content: text }]);
     await new Promise((r) => setTimeout(r, 550));
-    const { say, request } = replyFor(text);
-    let reqId: string | null = null;
-    if (request) {
-      reqId = `demo-g-${Date.now()}`;
-      const row: DemoReq = {
-        id: reqId,
-        ...request,
-        created_at: new Date().toISOString(),
-      };
-      setReqs((prev) => [row, ...prev]);
+    const { say, logRequest, department } = replyFor(text);
+    if (logRequest) {
+      const summary = text.slice(0, 120);
+      const reqId = demo.addGuestRequest({
+        summary,
+        department: department || inferDemoDepartment(summary),
+      });
+      const dept = department || inferDemoDepartment(summary);
       setMsgs((m) => [
         ...m,
         { role: "assistant", content: say },
-        { role: "request", content: `${request.department} · ${request.summary}`, reqId },
+        { role: "request", content: `${deptLabel(dept)} · ${summary}`, reqId },
       ]);
     } else {
       setMsgs((m) => [...m, { role: "assistant", content: say }]);
@@ -167,6 +163,14 @@ export default function DemoGuestApp() {
             </span>
           )}
         </Button>
+      </div>
+
+      <div className="shrink-0 border-b bg-amber-50 px-3 py-2 text-center text-[11px] text-amber-950">
+        Asks that create a request also appear in{" "}
+        <Link to="/demo/operations" className="font-semibold underline underline-offset-2">
+          Operations
+        </Link>
+        {" "}— open that demo (same browser) to accept them.
       </div>
 
       <div className="shrink-0 border-b bg-background/90 px-3 py-3 text-center backdrop-blur">
@@ -261,7 +265,7 @@ export default function DemoGuestApp() {
         </form>
         <p className="text-center text-[10px] text-muted-foreground">
           <Link to="/demo/operations" className="underline underline-offset-2 hover:text-foreground">
-            See the staff Operations demo
+            Open staff Operations demo
           </Link>
           {" · "}
           <Link to="/demo" className="underline underline-offset-2 hover:text-foreground">
@@ -286,8 +290,7 @@ export default function DemoGuestApp() {
               </Button>
             </div>
             <p className="mb-4 text-xs text-muted-foreground">
-              In a real stay these update live as Housekeeping or Kitchen works them.
-              Tap a card to simulate the next status.
+              Status updates when staff advance the ticket in the Operations demo (same browser).
             </p>
             {reqs.length === 0 ? (
               <p className="text-sm text-muted-foreground">
@@ -296,29 +299,20 @@ export default function DemoGuestApp() {
             ) : (
               <div className="space-y-3">
                 {reqs.map((r) => (
-                  <button
-                    key={r.id}
-                    type="button"
-                    className="w-full rounded-2xl border p-3.5 text-left transition hover:border-violet-300"
-                    onClick={() => {
-                      setReqs((prev) =>
-                        prev.map((x) =>
-                          x.id === r.id ? { ...x, status: advanceStatus(x.status) } : x,
-                        ),
-                      );
-                    }}
-                  >
+                  <div key={r.id} className="rounded-2xl border p-3.5">
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-medium text-muted-foreground">{r.department}</span>
+                      <span className="text-xs font-medium text-muted-foreground">
+                        {deptLabel(r.department_key)}
+                      </span>
                       <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusBadge(r.status)}`}>
                         {statusLabel(r.status)}
                       </span>
                     </div>
                     <p className="mt-1 text-sm font-medium">{r.summary}</p>
                     <p className="mt-1 text-[11px] text-muted-foreground">
-                      Room {ROOM} · tap to advance status
+                      Room {ROOM}
                     </p>
-                  </button>
+                  </div>
                 ))}
               </div>
             )}
@@ -326,5 +320,16 @@ export default function DemoGuestApp() {
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Marketing guest demo — shares sandbox state with /demo/operations.
+ */
+export default function DemoGuestApp() {
+  return (
+    <DemoProvider>
+      <DemoGuestInner />
+    </DemoProvider>
   );
 }

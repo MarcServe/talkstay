@@ -176,6 +176,132 @@ function seedRequests(): OpsRequest[] {
       created_at: ago(12),
       ts_rooms: { room_number: "612" },
     },
+    {
+      id: "demo-req-7",
+      room_id: "demo-room-306",
+      department_key: "bar",
+      summary: "Two espresso martinis to room 306",
+      summary_staff: "Bar: 2× espresso martini — charge to room",
+      status: "new",
+      priority: "normal",
+      is_complaint: false,
+      needs_triage: false,
+      guest_language: "en",
+      created_at: ago(8),
+      ts_rooms: { room_number: "306" },
+    },
+    {
+      id: "demo-req-8",
+      room_id: "demo-room-412",
+      department_key: "laundry",
+      summary: "Express laundry — shirt and trousers by 6pm",
+      summary_staff: "Laundry express: 1 shirt + 1 trousers",
+      status: "accepted",
+      priority: "normal",
+      is_complaint: false,
+      needs_triage: false,
+      guest_language: "en",
+      created_at: ago(45),
+      ts_rooms: { room_number: "412" },
+    },
+    {
+      id: "demo-req-9",
+      room_id: "demo-room-306",
+      department_key: "concierge",
+      summary: "Restaurant booking for two at 8pm tonight",
+      summary_staff: "Book table for 2 · 20:00 — guest open to recommendations",
+      status: "new",
+      priority: "normal",
+      is_complaint: false,
+      needs_triage: false,
+      guest_language: "en",
+      created_at: ago(6),
+      ts_rooms: { room_number: "306" },
+    },
+    {
+      id: "demo-req-10",
+      room_id: "demo-room-218",
+      department_key: "front_desk",
+      summary: "Print boarding passes for morning flight",
+      summary_staff: "Front desk: print 2 boarding passes",
+      status: "new",
+      priority: "normal",
+      is_complaint: false,
+      needs_triage: false,
+      guest_language: "en",
+      created_at: ago(18),
+      ts_rooms: { room_number: "218" },
+    },
+    {
+      id: "demo-req-11",
+      room_id: "demo-room-507",
+      department_key: "bar",
+      summary: "Bottle of champagne and two glasses",
+      summary_staff: "Bar: champagne + flutes to 507",
+      status: "in_progress",
+      priority: "normal",
+      is_complaint: false,
+      needs_triage: false,
+      guest_language: "en",
+      created_at: ago(28),
+      ts_rooms: { room_number: "507" },
+    },
+    {
+      id: "demo-req-12",
+      room_id: "demo-room-105",
+      department_key: "laundry",
+      summary: "Press a suit jacket for tonight",
+      summary_staff: "Laundry: press suit jacket",
+      status: "new",
+      priority: "normal",
+      is_complaint: false,
+      needs_triage: false,
+      guest_language: "en",
+      created_at: ago(14),
+      ts_rooms: { room_number: "105" },
+    },
+    {
+      id: "demo-req-13",
+      room_id: "demo-room-612",
+      department_key: "kitchen",
+      summary: "Kids meal and fruit platter",
+      summary_staff: "Kitchen: kids meal + fruit platter",
+      status: "new",
+      priority: "normal",
+      is_complaint: false,
+      needs_triage: false,
+      guest_language: "en",
+      created_at: ago(9),
+      ts_rooms: { room_number: "612" },
+    },
+    {
+      id: "demo-req-14",
+      room_id: "demo-room-306",
+      department_key: "maintenance",
+      summary: "Bathroom light flickering",
+      summary_staff: "Maintenance: flickering bathroom light",
+      status: "new",
+      priority: "normal",
+      is_complaint: false,
+      needs_triage: false,
+      guest_language: "en",
+      created_at: ago(11),
+      ts_rooms: { room_number: "306" },
+    },
+    {
+      id: "demo-req-15",
+      room_id: "demo-room-412",
+      department_key: "duty_manager",
+      summary: "Noise complaint from neighbouring room",
+      summary_staff: "Duty manager: noise complaint — room 412",
+      status: "accepted",
+      priority: "urgent",
+      is_complaint: true,
+      needs_triage: false,
+      guest_language: "en",
+      created_at: ago(25),
+      ts_rooms: { room_number: "412" },
+    },
   ];
 }
 
@@ -391,6 +517,7 @@ export function createInitialDemoState(): DemoState {
   const rooms: DemoRoom[] = [
     { id: "demo-room-105", room_number: "105", floor: "1", occupancy_status: "occupied", checkin_code: "K7M2PQ", token: "demo-tok-105" },
     { id: "demo-room-218", room_number: "218", floor: "2", occupancy_status: "occupied", checkin_code: "H4N9XR", token: "demo-tok-218" },
+    { id: "demo-room-306", room_number: "306", floor: "3", occupancy_status: "occupied", checkin_code: "R3K8NW", token: "demo-tok-306" },
     { id: "demo-room-330", room_number: "330", floor: "3", occupancy_status: "vacant", checkin_code: null, token: "demo-tok-330" },
     { id: "demo-room-412", room_number: "412", floor: "4", occupancy_status: "occupied", checkin_code: "B2W8LT", token: "demo-tok-412" },
     { id: "demo-room-507", room_number: "507", floor: "5", occupancy_status: "occupied", checkin_code: "Q9C3VZ", token: "demo-tok-507" },
@@ -717,4 +844,100 @@ export function removeDemoKnowledge(state: DemoState, id: string): DemoState {
     knowledge: state.knowledge.filter((k) => k.id !== id),
     version: state.version + 1,
   };
+}
+
+const GUEST_DEMO_ROOM = { id: "demo-room-306", room_number: "306" };
+
+/** Map guest-demo phrasing → department for the shared ops queue. */
+export function inferDemoDepartment(summary: string): string {
+  const t = summary.toLowerCase();
+  if (/towel|clean|maid|housekeep|bathrobe|linen|turndown/.test(t)) return "housekeeping";
+  if (/laundry|press|suit|shirt|dry.?clean/.test(t)) return "laundry";
+  if (/cocktail|martini|champagne|wine|beer|bar|drink/.test(t)) return "bar";
+  if (/sandwich|breakfast|dinner|lunch|food|kitchen|meal|fries|burger|order/.test(t)) return "kitchen";
+  if (/ac|air.?con|light|plumb|leak|broken|wifi|maintenance|not working/.test(t)) return "maintenance";
+  if (/taxi|restaurant|book|ticket|tour|concierge|reservation/.test(t)) return "concierge";
+  if (/noise|complaint|manager|urgent|emergency/.test(t)) return "duty_manager";
+  if (/wifi|password|check.?out|boarding|front.?desk|key/.test(t)) return "front_desk";
+  return "concierge";
+}
+
+/** Guest Experience demo → shared Operations queue (Room 306). */
+export function addDemoGuestRequest(
+  state: DemoState,
+  input: { summary: string; department?: string },
+): { state: DemoState; requestId: string } {
+  const id = `demo-guest-${Date.now()}`;
+  const department_key = input.department || inferDemoDepartment(input.summary);
+  const summary = input.summary.trim().slice(0, 160) || "Guest request";
+  const req: OpsRequest = {
+    id,
+    room_id: GUEST_DEMO_ROOM.id,
+    department_key,
+    summary,
+    summary_staff: `Guest demo · Room 306 · ${summary}`,
+    status: "new",
+    priority: /ac|broken|noise|complaint|urgent/i.test(summary) ? "urgent" : "normal",
+    is_complaint: /complaint|broken|not working|noise/i.test(summary),
+    needs_triage: false,
+    guest_language: "en",
+    created_at: new Date().toISOString(),
+    ts_rooms: { room_number: GUEST_DEMO_ROOM.room_number },
+  };
+  const detail = seedDetail(req);
+  const next: DemoState = {
+    ...state,
+    requests: [req, ...state.requests],
+    details: { ...state.details, [id]: detail },
+    insights: {
+      ...state.insights,
+      requests: [
+        {
+          id: req.id,
+          room_id: req.room_id,
+          department_key: req.department_key,
+          summary: req.summary,
+          status: req.status,
+          is_complaint: req.is_complaint,
+          is_chargeable: ["kitchen", "bar", "laundry"].includes(req.department_key),
+          price: null,
+          classification_method: "demo_guest",
+          session_id: `demo-session-${id}`,
+          created_at: req.created_at,
+          updated_at: req.created_at,
+          ts_rooms: req.ts_rooms,
+        },
+        ...state.insights.requests,
+      ],
+    },
+    version: state.version + 1,
+  };
+  return { state: next, requestId: id };
+}
+
+/** Persist demo sandbox across /demo/guest ↔ /demo/operations in the same browser. */
+export const DEMO_STATE_KEY = "talkstay:demo-state-v2";
+
+export function loadPersistedDemoState(): DemoState | null {
+  try {
+    const raw = sessionStorage.getItem(DEMO_STATE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as DemoState;
+    if (!parsed?.hotel?.id || !Array.isArray(parsed.requests)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function persistDemoState(state: DemoState) {
+  try {
+    sessionStorage.setItem(DEMO_STATE_KEY, JSON.stringify(state));
+  } catch { /* private browsing / quota */ }
+}
+
+export function clearPersistedDemoState() {
+  try {
+    sessionStorage.removeItem(DEMO_STATE_KEY);
+  } catch { /* ignore */ }
 }

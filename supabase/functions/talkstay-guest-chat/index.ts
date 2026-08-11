@@ -104,15 +104,29 @@ async function resolveRoom(
   }
   if (!hotel || hotel.slug !== hotelSlug) return null;
 
-  const [{ data: room }, { data: depts }, { data: rules }] = await Promise.all([
-    admin.from("ts_rooms").select("id, room_number, occupancy_status").eq("id", roomId).maybeSingle(),
+  let room: any = null;
+  {
+    const withPublic = await admin.from("ts_rooms")
+      .select("id, room_number, occupancy_status, is_public")
+      .eq("id", roomId).maybeSingle();
+    if (withPublic.error) {
+      const base = await admin.from("ts_rooms")
+        .select("id, room_number, occupancy_status")
+        .eq("id", roomId).maybeSingle();
+      room = base.data;
+    } else {
+      room = withPublic.data;
+    }
+  }
+  const [{ data: depts }, { data: rules }] = await Promise.all([
     admin.from("ts_departments").select("key").eq("hotel_id", hotel.id).eq("is_active", true),
     admin.from("ts_routing_rules").select("department_key, keywords").eq("hotel_id", hotel.id).eq("is_active", true),
   ]);
   if (!room) return null;
   // Checked out → every saved link/bookmark stops working immediately, anywhere.
-  // The printed QR is unchanged and revives when the next guest is checked in.
-  if (room.occupancy_status === "vacant") {
+  // Public/shared QR areas (lobby, bar, spa) stay reachable without a stay.
+  const isPublic = !!room.is_public;
+  if (room.occupancy_status === "vacant" && !isPublic) {
     return { status: "checked_out", hotelName: hotel.name, roomNumber: room.room_number };
   }
 

@@ -40,7 +40,7 @@ type DemoRole =
 const ROLE_OPTIONS: { id: string; label: string; role: DemoRole }[] = [
   { id: "owner", label: "Owner (all departments)", role: { kind: "owner" } },
   { id: "manager", label: "Manager (all departments)", role: { kind: "manager" } },
-  ...DEPARTMENTS.filter((d) => d.key !== "duty_manager").map((d) => ({
+  ...DEPARTMENTS.map((d) => ({
     id: `staff-${d.key}`,
     label: `${d.display_name} staff`,
     role: { kind: "staff" as const, department: d.key },

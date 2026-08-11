@@ -1,5 +1,5 @@
 import {
-  createContext, useCallback, useContext, useMemo, useState, type ReactNode,
+  createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode,
 } from "react";
 import type {
   InsightsData, OpsQueueData, OpsTimeRange, RequestDetailData,
@@ -9,14 +9,18 @@ import {
   DEMO_ACTOR,
   DEMO_SESSION_KEY,
   ackDemoPulse,
+  addDemoGuestRequest,
   addDemoKnowledge,
   addDemoRoom,
   addDemoStaff,
   advanceDemoRequest,
+  clearPersistedDemoState,
   createInitialDemoState,
   escalateDemoRequest,
   getDemoOpsQueue,
   getDemoRequestDetail,
+  loadPersistedDemoState,
+  persistDemoState,
   removeDemoKnowledge,
   removeDemoRoom,
   removeDemoStaff,
@@ -48,6 +52,8 @@ export type DemoApi = {
   toggleDepartment: (deptId: string) => void;
   addKnowledge: (title: string, preview: string) => void;
   removeKnowledge: (id: string) => void;
+  /** Guest demo → ops queue. Returns the new request id. */
+  addGuestRequest: (input: { summary: string; department?: string }) => string;
   reset: () => void;
 };
 
@@ -82,7 +88,24 @@ export function clearDemoEntered() {
 }
 
 export function DemoProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<DemoState>(() => createInitialDemoState());
+  const [state, setState] = useState<DemoState>(() => loadPersistedDemoState() ?? createInitialDemoState());
+
+  useEffect(() => {
+    persistDemoState(state);
+  }, [state]);
+
+  // Another demo tab (guest ↔ ops) wrote to sessionStorage — pick it up.
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== "talkstay:demo-state-v2" || !e.newValue) return;
+      try {
+        const parsed = JSON.parse(e.newValue) as DemoState;
+        if (parsed?.hotel?.id) setState(parsed);
+      } catch { /* ignore */ }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
 
   const advance = useCallback((requestId: string, to: string, opts?: { cancelReason?: string }) => {
     setState((s) => advanceDemoRequest(s, requestId, to, opts));
@@ -123,7 +146,17 @@ export function DemoProvider({ children }: { children: ReactNode }) {
   const removeKnowledge = useCallback((id: string) => {
     setState((s) => removeDemoKnowledge(s, id));
   }, []);
+  const addGuestRequest = useCallback((input: { summary: string; department?: string }) => {
+    let id = "";
+    setState((s) => {
+      const out = addDemoGuestRequest(s, input);
+      id = out.requestId;
+      return out.state;
+    });
+    return id;
+  }, []);
   const reset = useCallback(() => {
+    clearPersistedDemoState();
     setState(createInitialDemoState());
   }, []);
 
@@ -148,11 +181,12 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     toggleDepartment,
     addKnowledge,
     removeKnowledge,
+    addGuestRequest,
     reset,
   }), [
     state, advance, escalate, reply, ackPulse, updateBranding,
     addRoom, removeRoom, toggleRoomOccupancy, addStaff, removeStaff,
-    toggleDepartment, addKnowledge, removeKnowledge, reset,
+    toggleDepartment, addKnowledge, removeKnowledge, addGuestRequest, reset,
   ]);
 
   return <DemoContext.Provider value={api}>{children}</DemoContext.Provider>;

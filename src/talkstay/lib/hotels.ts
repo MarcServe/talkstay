@@ -127,6 +127,23 @@ export interface Room {
   occupancy_status?: "occupied" | "vacant";
   last_guest_activity_at?: string | null;
   checkin_code?: string | null;
+  /**
+   * NULL = inherit hotel default; true = always require; false = never require.
+   * Public QR areas should use is_public (which forces no code).
+   */
+  require_checkin_code?: boolean | null;
+  /** Shared/public QR (lobby, bar, spa) — no code, reachable without check-in. */
+  is_public?: boolean;
+}
+
+/** Effective check-in code policy for a unit. */
+export function roomRequiresCheckinCode(
+  room: Pick<Room, "is_public" | "require_checkin_code">,
+  hotelRequires: boolean,
+): boolean {
+  if (room.is_public) return false;
+  if (room.require_checkin_code != null) return !!room.require_checkin_code;
+  return hotelRequires;
 }
 
 /** For display only: turn an uploaded image's storage URL into something
@@ -198,6 +215,43 @@ export async function regenerateCheckinCode(roomId: string): Promise<string> {
   const { error } = await supabase.from("ts_rooms").update({ checkin_code: code }).eq("id", roomId);
   if (error) throw error;
   return code;
+}
+
+/**
+ * Mark a unit as a public/shared QR area (lobby, restaurant, spa) or a private room.
+ * Public: no check-in code, reachable even when vacant.
+ */
+export async function setRoomPublicQr(roomId: string, isPublic: boolean): Promise<void> {
+  const patch = isPublic
+    ? { is_public: true, require_checkin_code: false }
+    : { is_public: false, require_checkin_code: null };
+  const { error } = await supabase.from("ts_rooms").update(patch).eq("id", roomId);
+  if (error) throw error;
+}
+
+/**
+ * Per-room override for check-in codes (ignored when is_public).
+ * Pass null to inherit the hotel default again.
+ */
+export async function setRoomRequireCheckinCode(
+  roomId: string,
+  require: boolean | null,
+): Promise<void> {
+  const patch: Record<string, unknown> = { require_checkin_code: require };
+  if (require === true) {
+    patch.is_public = false;
+    // Ensure a code exists if the room is occupied.
+    const { data: room } = await supabase
+      .from("ts_rooms")
+      .select("checkin_code, occupancy_status")
+      .eq("id", roomId)
+      .maybeSingle();
+    if (room?.occupancy_status === "occupied" && !room.checkin_code) {
+      patch.checkin_code = genCheckinCode();
+    }
+  }
+  const { error } = await supabase.from("ts_rooms").update(patch).eq("id", roomId);
+  if (error) throw error;
 }
 
 /** Email a room's current check-in code + a direct link to its assistant,

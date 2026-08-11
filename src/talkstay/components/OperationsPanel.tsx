@@ -141,6 +141,12 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
   const [dept, setDept] = useState<string>(lockedDepartment ?? "all");
   // BI card drill-down (today / active / completed today / accepted today).
   const [boardFocus, setBoardFocus] = useState<BoardFocus>(null);
+
+  // Keep queue filter in sync when demo "View as" (or real staff lock) changes.
+  useEffect(() => {
+    setDept(lockedDepartment ?? "all");
+    setBoardFocus(null);
+  }, [lockedDepartment]);
   const queueRef = useRef<HTMLDivElement>(null);
   // Per-request "reply to guest" composer state.
   const [replyOpen, setReplyOpen] = useState<Record<string, boolean>>({});
@@ -276,7 +282,10 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
     return true;
   };
 
-  const inDept = (r: Req) => dept === "all" || r.department_key === dept;
+  const inDept = (r: Req) => {
+    const scope = lockedDepartment ?? dept;
+    return scope === "all" || r.department_key === scope;
+  };
 
   const inTime = (r: Req) => {
     const range = TIME_RANGES.find((t) => t.id === timeRange);
