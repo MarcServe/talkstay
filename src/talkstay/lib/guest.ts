@@ -135,6 +135,33 @@ export async function sendMessage(args: {
   return data as { reply: string; requests: GuestRequest[]; language: string; cards?: GuestCard[] };
 }
 
+/** Marketing /demo/guest — same guest-chat contract, no live room token. */
+export async function fetchDemoContext() {
+  const { data, error } = await fn({ action: "context", demo: true });
+  if (error) throw await realError(error);
+  if ((data as any)?.error) throw new Error((data as any).error);
+  return data as {
+    hotelName: string; roomNumber: string; language: string; greeting: string;
+    departments: string[]; branding?: GuestBranding; assistantId?: string | null;
+    pulseAsk?: boolean;
+  };
+}
+
+export async function sendDemoMessage(args: {
+  sessionId: string; message: string; history: ChatMsg[];
+}) {
+  const { data, error } = await fn({
+    action: "message",
+    demo: true,
+    sessionId: args.sessionId,
+    message: args.message,
+    history: args.history,
+  });
+  if (error) throw await realError(error);
+  if ((data as any)?.error) throw new Error((data as any).error);
+  return data as { reply: string; requests: GuestRequest[]; language: string; cards?: GuestCard[] };
+}
+
 export interface StaffMessage { id: string; request_id: string; staff_label: string | null; content: string; created_at: string; }
 
 /** Human staff replies to this session's requests, optionally only newer than `since`. */

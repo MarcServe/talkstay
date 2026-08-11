@@ -512,6 +512,181 @@ async function translateForStaff(apiKey: string, text: string, targetLang: strin
   } catch { return null; }
 }
 
+const DEMO_HOTEL_NAME = "The Grand Hotel II";
+const DEMO_ROOM = "306";
+const DEMO_KNOWLEDGE = `Breakfast: served daily 7:00–10:30 in The Garden Room on the ground floor; continental and hot options included.
+Wi-Fi: network "GrandHotel-Guest", password on the desk card.
+Checkout: 11:00; late checkout via Front Desk when available.
+Pool & spa: indoor pool 6:00–22:00; spa bookings via Concierge.
+In-room dining: club sandwich £14, Caesar salad £11, house lager £6, espresso martini £12.
+Housekeeping: towels, toiletries, room clean — usually 10–15 minutes.
+Maintenance: AC, leaks, TV, Wi-Fi faults — someone will attend shortly.
+Concierge: taxis, local tips, restaurant bookings.`;
+
+const DEMO_DEPTS = [
+  "housekeeping", "laundry", "kitchen", "bar", "maintenance",
+  "concierge", "front_desk", "duty_manager",
+];
+
+/** /demo/guest marketing sandbox — LLM + request detection, no DB writes. */
+async function handleMarketingDemo(body: any, OPENAI_API_KEY: string) {
+  const action = body.action || "context";
+  if (action === "context") {
+    return json({
+      hotelName: DEMO_HOTEL_NAME,
+      roomNumber: DEMO_ROOM,
+      language: "en",
+      departments: DEMO_DEPTS,
+      branding: { primary_color: "#4c2bb8" },
+      pulseAsk: false,
+      assistantId: "talkstay-demo",
+      greeting: `Hi! You're in ${formatRoomLabel(DEMO_ROOM)} at ${DEMO_HOTEL_NAME}. How can I help — anything you need, or a question about the hotel?`,
+    });
+  }
+
+  if (action !== "message") {
+    return json({ error: "unsupported_demo_action" }, 400);
+  }
+
+  const message = String(body.message || "").trim();
+  if (!message) return json({ error: "Empty message" }, 400);
+  const history = Array.isArray(body.history) ? body.history : [];
+
+  const demoCtx: RoomCtx = {
+    hotelId: "demo",
+    hotelName: DEMO_HOTEL_NAME,
+    assistantId: "talkstay-demo",
+    roomId: "demo-room-306",
+    roomNumber: DEMO_ROOM,
+    language: "en",
+    slug: "grand-hotel-demo",
+    departments: DEMO_DEPTS,
+    rules: [],
+    branding: { primary_color: "#4c2bb8" },
+    pulseEnabled: false,
+  };
+
+  const createdRequests: any[] = [];
+  const pushReq = (dept: string, summary: string, isComplaint = false) => {
+    const d = DEMO_DEPTS.includes(dept) ? dept : "front_desk";
+    createdRequests.push({
+      id: `demo-req-${Date.now()}-${createdRequests.length}`,
+      department_key: d,
+      summary: summary.slice(0, 200),
+      status: "new",
+      is_complaint: isComplaint,
+    });
+  };
+
+  const system = `You are the in-room assistant for ${DEMO_HOTEL_NAME}, Room ${DEMO_ROOM}.
+Be warm and brief (1–3 short sentences). Use the hotel knowledge below.
+When the guest wants something done or reports a problem, call create_service_request.
+For pure questions (hours, prices, wifi), just answer — do not create a request.
+Never invent facts outside the knowledge.
+
+HOTEL KNOWLEDGE
+${DEMO_KNOWLEDGE}`;
+
+  const tools = [{
+    type: "function",
+    function: {
+      name: "create_service_request",
+      description: "Log a guest request to a hotel department.",
+      parameters: {
+        type: "object",
+        properties: {
+          department: { type: "string", enum: DEMO_DEPTS },
+          summary: { type: "string" },
+          is_complaint: { type: "boolean" },
+        },
+        required: ["department", "summary"],
+      },
+    },
+  }];
+
+  const messages: any[] = [
+    { role: "system", content: system },
+    ...history.slice(-8).map((m: any) => ({
+      role: m.role === "assistant" ? "assistant" : "user",
+      content: String(m.content ?? ""),
+    })),
+    { role: "user", content: message },
+  ];
+
+  if (!OPENAI_API_KEY) {
+    const det = classifyDeterministic(message, demoCtx);
+    if (det) {
+      pushReq(det.dept, message.slice(0, 120));
+      const eta = ETA[det.dept] || "shortly";
+      return json({
+        reply: `Of course — I've passed that to the team for Room ${DEMO_ROOM}. Expect help ${eta}. Anything else?`,
+        requests: createdRequests,
+        language: "en",
+      });
+    }
+    return json({
+      reply: "Happy to help — ask about breakfast, Wi-Fi, dining, or request towels, cleaning, or a repair.",
+      requests: [],
+      language: "en",
+    });
+  }
+
+  try {
+    const resp = await fetch(OPENAI, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages,
+        tools,
+        tool_choice: "auto",
+        temperature: 0.4,
+        max_tokens: 280,
+      }),
+    });
+    if (!resp.ok) throw new Error(`openai ${resp.status}`);
+    const data = await resp.json();
+    const choice = data?.choices?.[0]?.message;
+    const toolCalls = choice?.tool_calls ?? [];
+    for (const tc of toolCalls) {
+      if (tc?.function?.name !== "create_service_request") continue;
+      let args: any = {};
+      try { args = JSON.parse(tc.function.arguments || "{}"); } catch { /* */ }
+      pushReq(String(args.department || "front_desk"), String(args.summary || message), !!args.is_complaint);
+    }
+    let reply = String(choice?.content || "").trim();
+    if (!reply && createdRequests.length) {
+      const d = createdRequests[0].department_key;
+      reply = `Done — I've sent that to the team for Room ${DEMO_ROOM}. They'll help ${ETA[d] || "shortly"}. Anything else?`;
+    }
+    if (!reply) {
+      const det = classifyDeterministic(message, demoCtx);
+      if (det && !createdRequests.length) {
+        pushReq(det.dept, message.slice(0, 120));
+        reply = `Of course — I've passed that to the team. Expect help ${ETA[det.dept] || "shortly"}.`;
+      } else {
+        reply = "Happy to help — what else can I do for you?";
+      }
+    }
+    return json({ reply, requests: createdRequests, language: "en" });
+  } catch {
+    const det = classifyDeterministic(message, demoCtx);
+    if (det) {
+      pushReq(det.dept, message.slice(0, 120));
+      return json({
+        reply: `Of course — I've passed that to the team for Room ${DEMO_ROOM}. Expect help ${ETA[det.dept] || "shortly"}.`,
+        requests: createdRequests,
+        language: "en",
+      });
+    }
+    return json({
+      reply: "Sorry — I had a brief hiccup. Please try again, or ask about breakfast, towels, or a repair.",
+      requests: [],
+      language: "en",
+    });
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
@@ -522,6 +697,13 @@ serve(async (req) => {
 
     const body = await req.json();
     const { action = "message", hotelSlug, roomId, token, message, sessionId, history = [], deviceId, code } = body;
+
+    // Marketing /demo/guest — same brain shape as a real stay; requests are not
+    // written to the DB (the browser sandbox mirrors them into Operations demo).
+    if (body.demo === true) {
+      return await handleMarketingDemo(body, OPENAI_API_KEY);
+    }
+
     if (!hotelSlug || !roomId || !token) return json({ error: "Missing hotel/room/token" }, 400);
 
     const ctx = await resolveRoom(admin, hotelSlug, roomId, token);

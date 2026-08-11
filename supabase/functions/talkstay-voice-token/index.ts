@@ -31,7 +31,77 @@ serve(async (req) => {
     // it, and the client's SDP handshake must request the exact same model.
     const MODEL = "gpt-realtime";
 
-    const { hotelSlug, roomId, token, deviceId, code, sessionId } = await req.json();
+    const body = await req.json();
+    const { demo, hotelSlug, roomId, token, deviceId, code, sessionId } = body;
+
+    // Marketing /demo/guest — same Realtime voice stack as a real stay, no QR token.
+    if (demo === true) {
+      const instructions = `You are the in-room voice assistant for The Grand Hotel II, speaking with the guest in Room 306.
+
+Be warm, brief and natural — like a great concierge. Keep answers to 1–3 short sentences.
+Reply in whatever language the guest speaks (hotel default: English).
+
+WHAT YOU DO
+- Answer questions about the hotel from the knowledge below (breakfast, wifi, checkout, facilities, dining).
+- When the guest ASKS FOR SOMETHING (towels, food, drinks, laundry, a repair, a taxi, late checkout),
+  confirm it warmly and say you've passed it to the right team with a rough time —
+  the request is logged automatically, so never ask them to call reception or repeat themselves.
+- For complaints or anything upsetting: apologise sincerely, don't try to fix it yourself,
+  and tell them the duty manager has been notified and will contact them shortly.
+- Never invent facts that aren't in the knowledge below. If you don't know, say you'll check with the team.
+
+CONVERSATION STYLE — this is a spoken conversation, not a Q&A form. Never just answer and go silent.
+Close each turn by keeping the conversation open with a short warm check-in, and vary your phrasing.
+
+HOTEL KNOWLEDGE
+Breakfast: served daily 7:00–10:30 in The Garden Room on the ground floor; continental and hot options included.
+Wi-Fi: network "GrandHotel-Guest", password on the desk card; ask Front Desk if it fails.
+Checkout: 11:00; late checkout via Front Desk when available.
+Pool & spa: indoor pool 6:00–22:00; spa bookings via Concierge.
+In-room dining: club sandwich £14, Caesar salad £11, house lager £6, espresso martini £12; kitchen ~20–30 min, bar ~15–20 min.
+Housekeeping: extra towels, toiletries, or room clean — usually 10–15 minutes.
+Maintenance: AC, leaks, TV, Wi-Fi faults — someone will attend shortly.
+Concierge: taxis, local tips, restaurant bookings.
+This is a live product demo of TalkStay — behave exactly like a real in-room stay assistant.`;
+
+      const resp = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session: {
+            type: "realtime",
+            model: MODEL,
+            instructions,
+            audio: {
+              input: {
+                format: { type: "audio/pcm", rate: 24000 },
+                transcription: { model: "whisper-1" },
+                noise_reduction: { type: "near_field" },
+                turn_detection: {
+                  type: "server_vad", threshold: 0.8,
+                  prefix_padding_ms: 300, silence_duration_ms: 1100,
+                  interrupt_response: true, create_response: true,
+                },
+              },
+              output: { format: { type: "audio/pcm", rate: 24000 }, voice: "shimmer" },
+            },
+          },
+        }),
+      });
+      if (!resp.ok) {
+        const detail = await resp.text();
+        return json({ error: `OpenAI error ${resp.status}`, detail: detail.slice(0, 300) }, 502);
+      }
+      const data = await resp.json();
+      const value = data?.value ?? data?.client_secret?.value ?? data?.client_secret;
+      if (!value) return json({ error: "No ephemeral key returned" }, 502);
+      return json({
+        ...data,
+        model: MODEL,
+        client_secret: { value, expires_at: data?.expires_at },
+      });
+    }
+
     if (!hotelSlug || !roomId || !token) return json({ error: "Missing hotel/room/token" }, 400);
 
     // Verify the room QR token.
@@ -40,13 +110,18 @@ serve(async (req) => {
       .eq("token", token).eq("room_id", roomId).eq("is_active", true).maybeSingle();
     if (!tok) return json({ error: "invalid_token" }, 403);
 
-    const [{ data: hotel }, { data: room }] = await Promise.all([
+    const [{ data: hotel }, roomRes] = await Promise.all([
       admin.from("ts_hotels").select("id, name, slug, assistant_id, default_language").eq("id", tok.hotel_id).maybeSingle(),
-      admin.from("ts_rooms").select("room_number, occupancy_status").eq("id", roomId).maybeSingle(),
+      admin.from("ts_rooms").select("room_number, occupancy_status, is_public").eq("id", roomId).maybeSingle(),
     ]);
+    let room = roomRes.data as { room_number?: string; occupancy_status?: string; is_public?: boolean } | null;
+    if (roomRes.error) {
+      const base = await admin.from("ts_rooms").select("room_number, occupancy_status").eq("id", roomId).maybeSingle();
+      room = base.data;
+    }
     if (!hotel || hotel.slug !== hotelSlug) return json({ error: "invalid_token" }, 403);
-    // Stay ended → no voice session from a saved link.
-    if (room?.occupancy_status === "vacant") return json({ error: "checked_out" }, 403);
+    // Stay ended → no voice session from a saved link (public QR areas stay open).
+    if (room?.occupancy_status === "vacant" && !room?.is_public) return json({ error: "checked_out" }, 403);
     // Same stay+device gate as the chat path (rejects a previous guest's device).
     // By the time voice starts, the device is normally enrolled via the chat
     // context call, so this returns 'ok'; the code branches are here for safety.
