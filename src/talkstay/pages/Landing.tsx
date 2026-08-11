@@ -526,8 +526,10 @@ export default function Landing() {
               </div>
               <div className="border-t border-violet-100 bg-violet-50/80 px-5 py-4 text-left">
                 <p className="text-[10px] font-bold uppercase tracking-wide text-violet-700">Guest</p>
-                <p className="mt-1 text-sm font-semibold text-violet-950">I'm a Guest</p>
-                <p className="mt-0.5 text-xs text-violet-900/75">Ask, request, track — like after scanning a room QR.</p>
+                <p className="mt-1 text-sm font-semibold text-violet-950">Guest Experience</p>
+                <p className="mt-0.5 text-xs text-violet-900/75">
+                  Ask, request, track — like after scanning a room QR or link from email.
+                </p>
               </div>
             </Link>
             <Link
