@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import {
   PlayCircle, ArrowRight, Volume2, VolumeX,
-  Building2, KeyRound, Mic, Route, CheckCircle2, Languages,
+  Building2, KeyRound, Mic, CheckCircle2, Languages,
   Bath, Wifi, Wrench, Star, MessageCircleOff, BarChart3,
   ConciergeBell, DoorOpen, QrCode,
   type LucideIcon,
