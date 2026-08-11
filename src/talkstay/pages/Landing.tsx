@@ -511,16 +511,18 @@ export default function Landing() {
               className="group overflow-hidden rounded-2xl border border-violet-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-violet-400 hover:shadow-md"
             >
               <div className="relative aspect-[16/10] overflow-hidden bg-violet-950">
-                <Photo
-                  src={IMG.roleGuest}
-                  webp={IMG.roleGuestWebp}
-                  webpSrcSet={IMG.roleGuestWebpSrcSet}
-                  sizes={IMG.roleDemoSizes}
-                  width={1536}
-                  height={1024}
-                  alt="Your Stay. Just Speak. — guest TalkStay experience"
-                  className="h-full w-full object-cover object-[center_30%] transition duration-500 group-hover:scale-[1.03]"
-                />
+                <picture>
+                  <source type="image/webp" srcSet={IMG.roleGuestWebpSrcSet} sizes={IMG.roleDemoSizes} />
+                  <img
+                    src={IMG.roleGuest}
+                    alt="Your Stay. Just Speak. — guest TalkStay experience"
+                    width={1536}
+                    height={1024}
+                    className="h-full w-full object-cover object-[center_30%] transition duration-500 group-hover:scale-[1.03]"
+                    loading="lazy"
+                    decoding="async"
+                  />
+                </picture>
                 <div className="absolute inset-0 bg-gradient-to-t from-violet-950/75 via-transparent to-transparent" />
                 <span className="absolute left-3 top-3 rounded-full bg-violet-600 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
                   Guest
@@ -536,16 +538,18 @@ export default function Landing() {
               className="group overflow-hidden rounded-2xl border border-teal-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-teal-400 hover:shadow-md"
             >
               <div className="relative aspect-[16/10] overflow-hidden bg-teal-950">
-                <Photo
-                  src={IMG.roleStaff}
-                  webp={IMG.roleStaffWebp}
-                  webpSrcSet={IMG.roleStaffWebpSrcSet}
-                  sizes={IMG.roleDemoSizes}
-                  width={1536}
-                  height={1024}
-                  alt="Manage Requests. Deliver Excellence. — host operations"
-                  className="h-full w-full object-cover object-[center_30%] transition duration-500 group-hover:scale-[1.03]"
-                />
+                <picture>
+                  <source type="image/webp" srcSet={IMG.roleStaffWebpSrcSet} sizes={IMG.roleDemoSizes} />
+                  <img
+                    src={IMG.roleStaff}
+                    alt="Manage Requests. Deliver Excellence. — host operations"
+                    width={1536}
+                    height={1024}
+                    className="h-full w-full object-cover object-[center_30%] transition duration-500 group-hover:scale-[1.03]"
+                    loading="lazy"
+                    decoding="async"
+                  />
+                </picture>
                 <div className="absolute inset-0 bg-gradient-to-t from-teal-950/75 via-transparent to-transparent" />
                 <span className="absolute left-3 top-3 rounded-full bg-teal-600 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
                   Hotel staff
