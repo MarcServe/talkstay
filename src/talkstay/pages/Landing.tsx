@@ -98,11 +98,11 @@ function DemoVideo({ videoId }: { videoId: string }) {
 const IMG = {
   hero: "/marketing/hero.jpg",
   heroWebp: "/marketing/hero.webp",
-  heroWebpSrcSet: "/marketing/hero-720.webp 720w, /marketing/hero.webp 763w",
+  heroWebpSrcSet: "/marketing/hero-720.webp 720w, /marketing/hero.webp 1388w",
   heroSizes: "(min-width: 1024px) 45vw, min(100vw, 40rem)",
   // Tiny blurred stand-in so the hero frame never looks empty while bytes arrive.
   heroLqip:
-    "data:image/jpeg;base64,/9j/2wBDABQUFBQVFBcZGRcfIh4iHy4rJycrLkYyNjI2MkZqQk5CQk5Cal5yXVZdcl6phXZ2hanDpJukw+zT0+z/////////2wBDARQUFBQVFBcZGRcfIh4iHy4rJycrLkYyNjI2MkZqQk5CQk5Cal5yXVZdcl6phXZ2hanDpJukw+zT0+z/////////wgARCAAWABgDASIAAhEBAxEB/8QAGQABAQADAQAAAAAAAAAAAAAAAAUBAgQD/8QAFwEBAAMAAAAAAAAAAAAAAAAAAwABBP/aAAwDAQACEAMQAAAA27J1pUnvRlTgpiTIo//EACIQAAIBBAEEAwAAAAAAAAAAAAECAwAEEhMFERQhIjEyQf/aAAgBAQABPwCa8RmlikLBxIS3iouPRkR8xiw61yFpH2zhfIFSrB3N5kR12tSaNC7AHCwI3xlV+pZ31+Mo1YZev2q4tkNzIT+tVpPHFPGoz6aStStFyE5RQVVY/ev/xAAaEQEBAQEAAwAAAAAAAAAAAAABAgAREhMh/9oACAECAQE/APTMyePfrqUpF1XSyLuCu//EABgRAQEBAQEAAAAAAAAAAAAAAAEAAiES/9oACAEDAQE/AHawCHLWQw8hfJf/2Q==",
+    "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDABQODxIPDRQSEBIXFRQYHjIhHhwcHj0sLiQySUBMS0dARkVQWnNiUFVtVkVGZIhlbXd7gYKBTmCNl4x9lnN+gXz/2wBDARUXFx4aHjshITt8U0ZTfHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHz/wAARCAAUABgDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwC/o0iPbEGKLMbYJYAls81BfxRtLPBHuNxK6shUfKgJ6Gl0a+lFylp5SLGC+G7kir32KO3umvIlZJpWO9uWGD7dOuKmUbrU0i7M5rXNOkhtFMjKxQ8bCTx/SithUMlxLPMC8e3YisMcAnkj8aKzUlHQtx5jHinlivjLHIysCxGO2etb9reTXNkJJCCSeg6UUUTbuNJWK8ztsjXsVyaKKKie5Udj/9k=",
   howItWorks: "/marketing/how-it-works.jpg",
   howItWorksWebp: "/marketing/how-it-works.webp",
   howItWorksWebpSrcSet:
@@ -245,11 +245,11 @@ function Hero({ signedIn }: { signedIn: boolean }) {
           webpSrcSet={IMG.heroWebpSrcSet}
           sizes={IMG.heroSizes}
           lqip={IMG.heroLqip}
-          width={763}
-          height={719}
-          alt="Guest scanning a TalkStay bedside QR stand to open the voice room assistant on their phone"
+          width={1388}
+          height={1133}
+          alt="Guest in a hotel room using TalkStay voice on their phone — QR bedside stand and live request chat with housekeeping"
           eager
-          className="aspect-[763/719] w-full rounded-3xl shadow-xl ring-1 ring-black/5"
+          className="aspect-[1388/1133] w-full rounded-3xl shadow-xl ring-1 ring-black/5"
         />
       </div>
 
