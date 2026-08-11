@@ -510,7 +510,7 @@ export default function Landing() {
               to="/demo/guest"
               className="group overflow-hidden rounded-2xl border border-violet-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-violet-400 hover:shadow-md"
             >
-              <div className="relative aspect-[16/10] overflow-hidden bg-violet-950">
+              <div className="aspect-[3/2] overflow-hidden bg-violet-50">
                 <picture>
                   <source type="image/webp" srcSet={IMG.roleGuestWebpSrcSet} sizes={IMG.roleDemoSizes} />
                   <img
@@ -518,26 +518,23 @@ export default function Landing() {
                     alt="Your Stay. Just Speak. — guest TalkStay experience"
                     width={1536}
                     height={1024}
-                    className="h-full w-full object-cover object-[center_30%] transition duration-500 group-hover:scale-[1.03]"
+                    className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.02]"
                     loading="lazy"
                     decoding="async"
                   />
                 </picture>
-                <div className="absolute inset-0 bg-gradient-to-t from-violet-950/75 via-transparent to-transparent" />
-                <span className="absolute left-3 top-3 rounded-full bg-violet-600 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
-                  Guest
-                </span>
               </div>
               <div className="border-t border-violet-100 bg-violet-50/80 px-5 py-4 text-left">
-                <p className="text-sm font-semibold text-violet-950">Guest Experience</p>
-                <p className="mt-1 text-xs text-violet-900/75">Ask, request, track — like after scanning a room QR.</p>
+                <p className="text-[10px] font-bold uppercase tracking-wide text-violet-700">Guest</p>
+                <p className="mt-1 text-sm font-semibold text-violet-950">I'm a Guest</p>
+                <p className="mt-0.5 text-xs text-violet-900/75">Ask, request, track — like after scanning a room QR.</p>
               </div>
             </Link>
             <Link
               to="/demo/operations"
               className="group overflow-hidden rounded-2xl border border-teal-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-teal-400 hover:shadow-md"
             >
-              <div className="relative aspect-[16/10] overflow-hidden bg-teal-950">
+              <div className="aspect-[3/2] overflow-hidden bg-teal-50">
                 <picture>
                   <source type="image/webp" srcSet={IMG.roleStaffWebpSrcSet} sizes={IMG.roleDemoSizes} />
                   <img
@@ -545,19 +542,16 @@ export default function Landing() {
                     alt="Manage Requests. Deliver Excellence. — host operations"
                     width={1536}
                     height={1024}
-                    className="h-full w-full object-cover object-[center_30%] transition duration-500 group-hover:scale-[1.03]"
+                    className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.02]"
                     loading="lazy"
                     decoding="async"
                   />
                 </picture>
-                <div className="absolute inset-0 bg-gradient-to-t from-teal-950/75 via-transparent to-transparent" />
-                <span className="absolute left-3 top-3 rounded-full bg-teal-600 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
-                  Hotel staff
-                </span>
               </div>
               <div className="border-t border-teal-100 bg-teal-50/80 px-5 py-4 text-left">
-                <p className="text-sm font-semibold text-teal-950">Operations Dashboard</p>
-                <p className="mt-1 text-xs text-teal-900/75">Routing, departments, status, Insights — by staff role.</p>
+                <p className="text-[10px] font-bold uppercase tracking-wide text-teal-700">Hotel staff</p>
+                <p className="mt-1 text-sm font-semibold text-teal-950">I'm Hotel Staff</p>
+                <p className="mt-0.5 text-xs text-teal-900/75">Live queue &amp; departments</p>
               </div>
             </Link>
           </div>
