@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Button } from "@/components/ui/button";
 import {
-  ArrowLeft, ArrowRight, BarChart3, BookOpen, Building2, Inbox, LogOut,
-  Menu, Palette, PlayCircle, QrCode, RotateCcw, Users, X,
+  ArrowLeft, BarChart3, BookOpen, Building2, Inbox, LogOut,
+  Menu, Palette, QrCode, RotateCcw, Users, X,
 } from "lucide-react";
 import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
 import OperationsPanel from "@/talkstay/components/OperationsPanel";
@@ -16,7 +15,7 @@ import {
   DemoStaffPanel,
 } from "@/talkstay/components/DemoSetupPanels";
 import {
-  DemoProvider, clearDemoEntered, hasEnteredDemo, markDemoEntered, useDemo,
+  DemoProvider, clearDemoEntered, markDemoEntered, useDemo,
 } from "@/talkstay/demo/DemoContext";
 import { DEPARTMENTS } from "@/talkstay/lib/hotels";
 
@@ -47,92 +46,6 @@ const ROLE_OPTIONS: { id: string; label: string; role: DemoRole }[] = [
   })),
 ];
 
-const STEPS = [
-  {
-    n: "1",
-    title: "Pair with the Guest demo",
-    body: "Open /demo/guest in another tab. Ask for towels or wine — it lands here on Room 306.",
-  },
-  {
-    n: "2",
-    title: "Reply & complete the loop",
-    body: "Accept → Reply (“Coming in 10”) → Complete. The guest sees your reply, confirms, and can rate.",
-  },
-  {
-    n: "3",
-    title: "Switch roles & check Insights",
-    body: "View as Housekeeping vs Owner. Guest stay reviews and star ratings appear under Insights.",
-  },
-  {
-    n: "4",
-    title: "Reset anytime",
-    body: "Use Reset demo data in the sidebar to restore the sample hotel.",
-  },
-] as const;
-
-function DemoGate({ onEnter }: { onEnter: () => void }) {
-  return (
-    <div data-talkstay className="ts-atmosphere min-h-screen text-foreground">
-      <header className="mx-auto flex max-w-3xl items-center justify-between px-6 py-5">
-        <Link to="/demo" className="flex items-center gap-2.5 transition-opacity hover:opacity-80">
-          <TalkStayLogo size={28} />
-          <span className="text-lg font-semibold tracking-tight">TalkStay</span>
-        </Link>
-        <Button asChild variant="ghost" size="sm">
-          <Link to="/demo/guest">Guest demo</Link>
-        </Button>
-      </header>
-
-      <main className="mx-auto max-w-3xl px-6 pb-16">
-        <div className="rounded-3xl border bg-gradient-to-b from-teal-50 to-white p-6 shadow-sm sm:p-10">
-          <p className="inline-flex items-center gap-1.5 rounded-full bg-teal-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-teal-800">
-            <PlayCircle className="h-3.5 w-3.5" />
-            Operations dashboard demo · no signup
-          </p>
-          <h1 className="mt-4 text-3xl font-bold tracking-tight sm:text-4xl">
-            See how hotel staff run TalkStay.
-          </h1>
-          <p className="mt-3 text-muted-foreground">
-            Incoming requests, department routing, status changes, guest confirmation and Insights —
-            on a sandbox of The Grand Hotel II. Changes stay on your device only.
-          </p>
-
-          <div className="mt-5 rounded-xl border border-teal-200/80 bg-white/80 px-4 py-3 text-sm text-muted-foreground">
-            <p className="font-medium text-foreground">Department dashboards by role</p>
-            <p className="mt-1">
-              Owners and managers allocate staff to a department. Each staff member then gets their
-              own queue — not a shared inbox. Try switching roles after you enter.
-            </p>
-          </div>
-
-          <ol className="mt-8 space-y-4">
-            {STEPS.map((s) => (
-              <li key={s.n} className="flex gap-3">
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-teal-700 text-sm font-bold text-white">
-                  {s.n}
-                </span>
-                <div>
-                  <p className="font-semibold tracking-tight">{s.title}</p>
-                  <p className="mt-0.5 text-sm text-muted-foreground">{s.body}</p>
-                </div>
-              </li>
-            ))}
-          </ol>
-
-          <div className="mt-8 flex flex-wrap gap-3">
-            <Button size="lg" className="bg-teal-700 hover:bg-teal-800" onClick={onEnter}>
-              Enter operations demo <ArrowRight className="ml-1.5 h-4 w-4" />
-            </Button>
-            <Button asChild size="lg" variant="outline">
-              <Link to="/demo">All demos</Link>
-            </Button>
-          </div>
-        </div>
-      </main>
-    </div>
-  );
-}
-
 function roleLabel(role: DemoRole): string {
   if (role.kind === "owner") return "Owner · all departments";
   if (role.kind === "manager") return "Manager · all departments";
@@ -145,7 +58,6 @@ function DemoDashboard() {
   const navigate = useNavigate();
   const [active, setActive] = useState<NavKey>("operations");
   const [navOpen, setNavOpen] = useState(false);
-  const [guideOpen, setGuideOpen] = useState(true);
   const [roleId, setRoleId] = useState("owner");
 
   const demoRole = ROLE_OPTIONS.find((r) => r.id === roleId)?.role ?? { kind: "owner" as const };
@@ -262,29 +174,6 @@ function DemoDashboard() {
 
         <main className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-8">
           <div className="mx-auto min-w-0 max-w-5xl">
-            {guideOpen && (
-              <div className="mb-5 rounded-2xl border border-teal-200 bg-teal-50 px-4 py-3 sm:px-5">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold text-teal-950">How staff dashboards work</p>
-                    <p className="mt-1 text-sm text-teal-900/80">
-                      Owners/managers invite people and assign a department. Staff only see their
-                      team's queue; managers see everything plus Insights. Use <strong>View as</strong> in
-                      the sidebar to try each role.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    className="shrink-0 rounded-lg p-1 text-teal-600 hover:bg-teal-100"
-                    onClick={() => setGuideOpen(false)}
-                    aria-label="Dismiss guide"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-              </div>
-            )}
-
             <div className="mb-6 min-w-0">
               <h1 className="text-2xl font-bold tracking-tight">{activeNav.label}</h1>
               <p className="mt-1 text-sm text-muted-foreground">{activeNav.desc}</p>
@@ -312,22 +201,10 @@ function DemoDashboard() {
 }
 
 function DemoShell() {
-  const [entered, setEntered] = useState(() => hasEnteredDemo());
-
+  // Skip the instruction gate — open straight into the operations dashboard.
   useEffect(() => {
-    // Campaign UTM/source stays in the URL for analytics; no auth side effects.
+    markDemoEntered();
   }, []);
-
-  if (!entered) {
-    return (
-      <DemoGate
-        onEnter={() => {
-          markDemoEntered();
-          setEntered(true);
-        }}
-      />
-    );
-  }
 
   return (
     <DemoProvider>
