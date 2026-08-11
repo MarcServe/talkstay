@@ -9,6 +9,7 @@ import {
   DEMO_ACTOR,
   DEMO_SESSION_KEY,
   ackDemoPulse,
+  addDemoGuestPulse,
   addDemoGuestRequest,
   addDemoKnowledge,
   addDemoRoom,
@@ -19,6 +20,13 @@ import {
   escalateDemoRequest,
   getDemoOpsQueue,
   getDemoRequestDetail,
+  guestCancelDemoRequest,
+  guestConfirmDemoRequest,
+  guestNudgeDemoRequest,
+  guestRateDemoRequest,
+  guestReopenDemoRequest,
+  guestUpdateDemoRequest,
+  listDemoStaffMessagesForGuest,
   loadPersistedDemoState,
   persistDemoState,
   removeDemoKnowledge,
@@ -54,6 +62,14 @@ export type DemoApi = {
   removeKnowledge: (id: string) => void;
   /** Guest demo → ops queue. Returns the new request id. */
   addGuestRequest: (input: { summary: string; department?: string }) => string;
+  guestConfirm: (requestId: string) => void;
+  guestReopen: (requestId: string) => void;
+  guestCancel: (requestId: string, reason?: string) => void;
+  guestNudge: (requestId: string) => void;
+  guestUpdate: (requestId: string, note: string) => void;
+  guestRate: (requestId: string, rating: number, comment?: string) => void;
+  guestPulse: (input: { rating: number; text?: string }) => void;
+  listStaffMessagesForGuest: () => ReturnType<typeof listDemoStaffMessagesForGuest>;
   reset: () => void;
 };
 
@@ -155,6 +171,27 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     });
     return id;
   }, []);
+  const guestConfirm = useCallback((requestId: string) => {
+    setState((s) => guestConfirmDemoRequest(s, requestId));
+  }, []);
+  const guestReopen = useCallback((requestId: string) => {
+    setState((s) => guestReopenDemoRequest(s, requestId));
+  }, []);
+  const guestCancel = useCallback((requestId: string, reason?: string) => {
+    setState((s) => guestCancelDemoRequest(s, requestId, reason));
+  }, []);
+  const guestNudge = useCallback((requestId: string) => {
+    setState((s) => guestNudgeDemoRequest(s, requestId));
+  }, []);
+  const guestUpdate = useCallback((requestId: string, note: string) => {
+    setState((s) => guestUpdateDemoRequest(s, requestId, note));
+  }, []);
+  const guestRate = useCallback((requestId: string, rating: number, comment?: string) => {
+    setState((s) => guestRateDemoRequest(s, requestId, rating, comment));
+  }, []);
+  const guestPulse = useCallback((input: { rating: number; text?: string }) => {
+    setState((s) => addDemoGuestPulse(s, input));
+  }, []);
   const reset = useCallback(() => {
     clearPersistedDemoState();
     setState(createInitialDemoState());
@@ -182,11 +219,21 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     addKnowledge,
     removeKnowledge,
     addGuestRequest,
+    guestConfirm,
+    guestReopen,
+    guestCancel,
+    guestNudge,
+    guestUpdate,
+    guestRate,
+    guestPulse,
+    listStaffMessagesForGuest: () => listDemoStaffMessagesForGuest(state),
     reset,
   }), [
     state, advance, escalate, reply, ackPulse, updateBranding,
     addRoom, removeRoom, toggleRoomOccupancy, addStaff, removeStaff,
-    toggleDepartment, addKnowledge, removeKnowledge, addGuestRequest, reset,
+    toggleDepartment, addKnowledge, removeKnowledge, addGuestRequest,
+    guestConfirm, guestReopen, guestCancel, guestNudge, guestUpdate, guestRate, guestPulse,
+    reset,
   ]);
 
   return <DemoContext.Provider value={api}>{children}</DemoContext.Provider>;

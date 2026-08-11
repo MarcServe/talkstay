@@ -71,8 +71,8 @@ export default function DemoHub() {
             </div>
             <div className="flex flex-1 flex-col border-t border-violet-100 bg-gradient-to-b from-violet-50/90 to-white p-5 sm:p-6">
               <p className="text-sm leading-relaxed text-slate-600">
-                Tap to Talk with the real in-room voice assistant — ask for towels, breakfast hours,
-                room cleaning, food &amp; drink, report a problem, and track request status.
+                Real Tap-to-Talk voice, staff replies in chat, confirm &amp; rate requests,
+                and mid-stay review — the full loop buyers care about.
               </p>
               <span className="mt-5 inline-flex items-center text-sm font-semibold text-violet-700">
                 Guest Experience Demo

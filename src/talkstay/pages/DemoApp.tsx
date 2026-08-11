@@ -50,18 +50,18 @@ const ROLE_OPTIONS: { id: string; label: string; role: DemoRole }[] = [
 const STEPS = [
   {
     n: "1",
-    title: "Work the Operations queue",
-    body: "Accept → Start → Complete a request from Room 306. Reply to the guest from the card.",
+    title: "Pair with the Guest demo",
+    body: "Open /demo/guest in another tab. Ask for towels or wine — it lands here on Room 306.",
   },
   {
     n: "2",
-    title: "Switch to a department role",
-    body: "Housekeeping staff only see housekeeping tickets. Managers and owners see every department plus Insights.",
+    title: "Reply & complete the loop",
+    body: "Accept → Reply (“Coming in 10”) → Complete. The guest sees your reply, confirms, and can rate.",
   },
   {
     n: "3",
-    title: "Explore Insights & setup",
-    body: "As owner/manager: Insights, Rooms & QR, Branding, Departments, Knowledge and Staff.",
+    title: "Switch roles & check Insights",
+    body: "View as Housekeeping vs Owner. Guest stay reviews and star ratings appear under Insights.",
   },
   {
     n: "4",

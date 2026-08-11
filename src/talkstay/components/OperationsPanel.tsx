@@ -194,8 +194,9 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
     }
     if (demo) {
       demo.advance(r.id, to, cancelReason ? { cancelReason } : undefined);
-      if (to === "completed") toast.success("Marked complete (demo — guest notify skipped).");
-      else if (to === "cancelled") toast.success("Cancelled (demo).");
+      if (to === "completed") toast.success("Marked complete — guest can confirm in the Guest demo (same browser).");
+      else if (to === "cancelled") toast.success("Cancelled — guest demo will update.");
+      else toast.message("Status updated — guest demo stays in sync.");
       return;
     }
     const { data: { user } } = await supabase.auth.getUser();
@@ -262,7 +263,7 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
       setReplyBusy((p) => ({ ...p, [r.id]: false }));
       setReplyText((p) => ({ ...p, [r.id]: "" }));
       setReplyOpen((p) => ({ ...p, [r.id]: false }));
-      toast.success("Reply saved in demo (not sent to a real guest).");
+      toast.success("Reply sent to the Guest demo (open /demo/guest in this browser).");
       return;
     }
     const { data, error } = await supabase.functions.invoke("talkstay-reply", { body: { requestId: r.id, body: text } });

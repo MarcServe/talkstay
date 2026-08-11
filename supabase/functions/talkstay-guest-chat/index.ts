@@ -567,8 +567,15 @@ async function handleMarketingDemo(body: any, OPENAI_API_KEY: string) {
   };
 
   const createdRequests: any[] = [];
+  const correctDemoDept = (dept: string, text: string) => {
+    const t = `${text}`.toLowerCase();
+    if (/cocktail|martini|champagne|wine|beer|lager|vodka|gin|whisky|whiskey|spirits|minibar/.test(t)) {
+      return "bar";
+    }
+    return DEMO_DEPTS.includes(dept) ? dept : "front_desk";
+  };
   const pushReq = (dept: string, summary: string, isComplaint = false) => {
-    const d = DEMO_DEPTS.includes(dept) ? dept : "front_desk";
+    const d = correctDemoDept(dept, `${summary} ${message}`);
     createdRequests.push({
       id: `demo-req-${Date.now()}-${createdRequests.length}`,
       department_key: d,
@@ -584,6 +591,11 @@ When the guest wants something done or reports a problem, call create_service_re
 For pure questions (hours, prices, wifi), just answer — do not create a request.
 Never invent facts outside the knowledge.
 
+ROUTING (critical)
+- Wine, beer, cocktails, champagne, spirits, soft drinks from the bar → department "bar"
+- Food, meals, sandwiches, room-service plates → department "kitchen"
+- Towels / room clean → housekeeping; AC / leaks / TV → maintenance
+
 HOTEL KNOWLEDGE
 ${DEMO_KNOWLEDGE}`;
 
@@ -591,7 +603,7 @@ ${DEMO_KNOWLEDGE}`;
     type: "function",
     function: {
       name: "create_service_request",
-      description: "Log a guest request to a hotel department.",
+      description: "Log a guest request to a hotel department. Use bar for any alcoholic or bar drink (wine, beer, cocktails). Use kitchen only for food.",
       parameters: {
         type: "object",
         properties: {

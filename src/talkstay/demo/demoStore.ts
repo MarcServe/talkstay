@@ -853,13 +853,30 @@ export function inferDemoDepartment(summary: string): string {
   const t = summary.toLowerCase();
   if (/towel|clean|maid|housekeep|bathrobe|linen|turndown/.test(t)) return "housekeeping";
   if (/laundry|press|suit|shirt|dry.?clean/.test(t)) return "laundry";
-  if (/cocktail|martini|champagne|wine|beer|bar|drink/.test(t)) return "bar";
-  if (/sandwich|breakfast|dinner|lunch|food|kitchen|meal|fries|burger|order/.test(t)) return "kitchen";
+  // Drinks before food — "bottle of wine" must not fall through to kitchen.
+  if (/cocktail|martini|champagne|wine|beer|lager|vodka|gin|whisky|whiskey|spirits|minibar|\bbar\b|\bdrink/.test(t)) {
+    return "bar";
+  }
+  if (/sandwich|breakfast|dinner|lunch|food|kitchen|meal|fries|burger|pizza|salad|coffee|tea/.test(t)) {
+    return "kitchen";
+  }
   if (/ac|air.?con|light|plumb|leak|broken|wifi|maintenance|not working/.test(t)) return "maintenance";
   if (/taxi|restaurant|book|ticket|tour|concierge|reservation/.test(t)) return "concierge";
   if (/noise|complaint|manager|urgent|emergency/.test(t)) return "duty_manager";
   if (/wifi|password|check.?out|boarding|front.?desk|key/.test(t)) return "front_desk";
   return "concierge";
+}
+
+/** Prefer keyword truth over a wrong LLM department (e.g. wine → kitchen). */
+export function resolveDemoDepartment(summary: string, hinted?: string | null): string {
+  const inferred = inferDemoDepartment(summary);
+  const hint = (hinted || "").trim();
+  if (!hint) return inferred;
+  if (inferred === "bar" && hint === "kitchen") return "bar";
+  if (/cocktail|martini|champagne|wine|beer|lager|vodka|gin|whisky|whiskey|spirits|minibar/.test(summary.toLowerCase())) {
+    return "bar";
+  }
+  return hint;
 }
 
 /** Guest Experience demo → shared Operations queue (Room 306). */
@@ -868,8 +885,8 @@ export function addDemoGuestRequest(
   input: { summary: string; department?: string },
 ): { state: DemoState; requestId: string } {
   const id = `demo-guest-${Date.now()}`;
-  const department_key = input.department || inferDemoDepartment(input.summary);
   const summary = input.summary.trim().slice(0, 160) || "Guest request";
+  const department_key = resolveDemoDepartment(summary, input.department);
   const req: OpsRequest = {
     id,
     room_id: GUEST_DEMO_ROOM.id,
@@ -913,6 +930,187 @@ export function addDemoGuestRequest(
     version: state.version + 1,
   };
   return { state: next, requestId: id };
+}
+
+/** Guest confirms staff marked a request complete. */
+export function guestConfirmDemoRequest(state: DemoState, requestId: string): DemoState {
+  return advanceDemoRequest(state, requestId, "guest_confirmed", { note: "Guest confirmed — all good" });
+}
+
+/** Guest says not done yet after staff completed. */
+export function guestReopenDemoRequest(state: DemoState, requestId: string): DemoState {
+  return advanceDemoRequest(state, requestId, "reopened", { note: "Guest: not received yet" });
+}
+
+/** Guest cancels an open request. */
+export function guestCancelDemoRequest(state: DemoState, requestId: string, reason?: string): DemoState {
+  return advanceDemoRequest(state, requestId, "cancelled", {
+    cancelReason: reason?.trim() || "Cancelled by guest",
+  });
+}
+
+/** Guest nudges waiting staff (surfaces as follow-up / escalation). */
+export function guestNudgeDemoRequest(state: DemoState, requestId: string): DemoState {
+  const req = state.requests.find((r) => r.id === requestId);
+  if (!req) return state;
+  const at = new Date().toISOString();
+  const note = "Guest reminded the team they are still waiting";
+  const details = { ...state.details };
+  const prev = details[requestId] ?? seedDetail(req);
+  details[requestId] = {
+    ...prev,
+    events: [
+      ...prev.events,
+      {
+        id: `${requestId}-nudge-${Date.now()}`,
+        request_id: requestId,
+        status: "escalated",
+        note,
+        actor_type: "guest",
+        created_at: at,
+      },
+    ],
+  };
+  return {
+    ...state,
+    details,
+    escalations: { ...state.escalations, [requestId]: { note, at } },
+    escalationEvents: [
+      ...state.escalationEvents,
+      { id: `${requestId}-esc-nudge-${Date.now()}`, request_id: requestId, note },
+    ],
+    version: state.version + 1,
+  };
+}
+
+/** Guest edits an open request and alerts staff. */
+export function guestUpdateDemoRequest(state: DemoState, requestId: string, note: string): DemoState {
+  const text = note.trim().slice(0, 160);
+  if (!text) return state;
+  const req = state.requests.find((r) => r.id === requestId);
+  if (!req) return state;
+  const at = new Date().toISOString();
+  const requests = state.requests.map((r) =>
+    r.id === requestId
+      ? { ...r, summary: text, summary_staff: `Guest demo · Room 306 · ${text}` }
+      : r,
+  );
+  const details = { ...state.details };
+  const prev = details[requestId] ?? seedDetail(req);
+  details[requestId] = {
+    ...prev,
+    request: { ...prev.request, summary: text, summary_staff: `Guest demo · Room 306 · ${text}`, updated_at: at },
+    events: [
+      ...prev.events,
+      {
+        id: `${requestId}-upd-${Date.now()}`,
+        request_id: requestId,
+        status: "updated",
+        note: `Guest updated: ${text}`,
+        actor_type: "guest",
+        created_at: at,
+      },
+    ],
+  };
+  const nudged = guestNudgeDemoRequest(
+    { ...state, requests, details, version: state.version },
+    requestId,
+  );
+  return {
+    ...nudged,
+    insights: {
+      ...nudged.insights,
+      requests: nudged.insights.requests.map((r) =>
+        r.id === requestId ? { ...r, summary: text, updated_at: at } : r,
+      ),
+    },
+  };
+}
+
+/** Star rating after guest confirms — feeds Insights. */
+export function guestRateDemoRequest(
+  state: DemoState,
+  requestId: string,
+  rating: number,
+  comment?: string,
+): DemoState {
+  const cleaned = Math.min(5, Math.max(1, Math.round(rating)));
+  const ratings = [
+    { request_id: requestId, rating: cleaned, comment: comment?.trim() || null },
+    ...state.insights.ratings.filter((r) => r.request_id !== requestId),
+  ];
+  return {
+    ...state,
+    insights: { ...state.insights, ratings },
+    version: state.version + 1,
+  };
+}
+
+/** Mid-stay pulse from the guest demo — shows on Insights. */
+export function addDemoGuestPulse(
+  state: DemoState,
+  input: { rating: number; text?: string },
+): DemoState {
+  const rating = Math.min(5, Math.max(1, Math.round(input.rating)));
+  const body = (input.text || "").trim() || (
+    rating >= 4 ? "Stay is going well." : "Something could be better during this stay."
+  );
+  const pulse = {
+    id: `demo-pulse-guest-${Date.now()}`,
+    body,
+    rating,
+    sentiment: rating >= 4 ? "positive" : rating >= 3 ? "neutral" : "negative",
+    severity: rating <= 2 ? "high" : rating === 3 ? "medium" : "low",
+    department_key: rating <= 2 ? "duty_manager" : "front_desk",
+    issue_key: "general",
+    issue_label: "General stay",
+    request_id: null as string | null,
+    acknowledged_at: null as string | null,
+    created_at: new Date().toISOString(),
+    ts_rooms: { room_number: GUEST_DEMO_ROOM.room_number },
+  };
+  return {
+    ...state,
+    insights: {
+      ...state.insights,
+      pulses: [pulse, ...state.insights.pulses],
+    },
+    version: state.version + 1,
+  };
+}
+
+/** Staff messages for Room 306 — Guest demo polls these. */
+export function listDemoStaffMessagesForGuest(state: DemoState): Array<{
+  id: string;
+  request_id: string;
+  staff_label: string | null;
+  content: string;
+  created_at: string;
+}> {
+  const out: Array<{
+    id: string;
+    request_id: string;
+    staff_label: string | null;
+    content: string;
+    created_at: string;
+  }> = [];
+  for (const r of state.requests) {
+    if (r.room_id !== GUEST_DEMO_ROOM.id && r.ts_rooms?.room_number !== GUEST_DEMO_ROOM.room_number) {
+      continue;
+    }
+    const msgs = state.details[r.id]?.messages ?? [];
+    for (const m of msgs) {
+      if (m.sender !== "staff") continue;
+      out.push({
+        id: m.id,
+        request_id: r.id,
+        staff_label: m.staff_label ?? DEMO_ACTOR,
+        content: m.body_guest || m.body,
+        created_at: m.created_at,
+      });
+    }
+  }
+  return out.sort((a, b) => a.created_at.localeCompare(b.created_at));
 }
 
 /** Persist demo sandbox across /demo/guest ↔ /demo/operations in the same browser. */
