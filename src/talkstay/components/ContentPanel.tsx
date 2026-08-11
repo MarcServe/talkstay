@@ -1,14 +1,12 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Loader2, Globe } from "lucide-react";
+import { Loader2, Globe, Upload } from "lucide-react";
 import { ingestHotelWebsite, setHotelWebsite, isPlaceholderWebsite, type Hotel } from "@/talkstay/lib/hotels";
 
-// TalkWeb's Content section, reused wholesale for the hotel's linked assistant
-// (mirrors TalkWeb Dashboard.tsx `activeView === 'content'`).
+// TalkWeb's Content section, reused for the hotel's linked assistant.
 const CrawlStatusBanner = React.lazy(() =>
   import("@/components/CrawlStatusBanner").then((m) => ({ default: m.CrawlStatusBanner }))
 );
@@ -21,11 +19,10 @@ const ContentRefreshManager = React.lazy(() =>
 
 export default function ContentPanel({ hotel }: { hotel: Hotel }) {
   const assistantId = hotel.assistant_id;
-  // The real saved value (assistants.website_url) — may be the NOT-NULL
-  // placeholder for a hotel that never set a real website.
   const [savedUrl, setSavedUrl] = useState("");
   const [websiteInput, setWebsiteInput] = useState("");
   const [savingWebsite, setSavingWebsite] = useState(false);
+  const uploadAnchorRef = useRef<HTMLDivElement>(null);
 
   const hasRealWebsite = !isPlaceholderWebsite(savedUrl);
 
@@ -65,39 +62,67 @@ export default function ContentPanel({ hotel }: { hotel: Hotel }) {
     }
   };
 
-  return (
-    <div className="space-y-6">
-      <p className="text-sm text-muted-foreground">
-        Your property's website content powers the assistant. Add it once to build starter knowledge
-        automatically, then re-scrape after site updates — or upload documents (menus, policies,
-        guides) below, which get indexed the same way.
-      </p>
+  const openUpload = () => {
+    uploadAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    window.setTimeout(() => {
+      uploadAnchorRef.current?.querySelector<HTMLInputElement>('input[type="file"]')?.click();
+    }, 50);
+  };
 
-      <div className="space-y-2 rounded-xl border p-4">
-        <Label className="flex items-center gap-1.5 text-sm"><Globe className="h-3.5 w-3.5" /> Property website</Label>
-        {!hasRealWebsite && (
-          <p className="text-xs text-muted-foreground">
-            No website connected yet. Add one to scan it into the knowledge base — or skip this and just upload documents below if you don't have one.
-          </p>
-        )}
-        <div className="flex flex-wrap gap-2">
-          <Input
-            value={websiteInput}
-            onChange={(e) => setWebsiteInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") saveWebsite(); }}
-            placeholder="yourhotel.com"
-            className="min-w-[200px] flex-1"
-          />
-          <Button size="sm" disabled={savingWebsite || !websiteInput.trim()} onClick={saveWebsite}>
-            {savingWebsite ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
-            {hasRealWebsite ? "Update & rescan" : "Add & scan website"}
-          </Button>
+  return (
+    <div className="space-y-5">
+      <div className="rounded-2xl border border-dashed bg-muted/20 p-4">
+        <div className="flex items-start gap-3">
+          <Upload className="mt-0.5 h-5 w-5 shrink-0 text-violet-600" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium">Website crawl &amp; document upload</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Paste your website to crawl pages, or upload menus / house rules as PDF or images.
+              TalkStay extracts answers automatically for the guest assistant.
+            </p>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <div className="relative min-w-[200px] flex-1">
+                <Globe className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={websiteInput}
+                  onChange={(e) => setWebsiteInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") void saveWebsite(); }}
+                  placeholder="yourhotel.com"
+                  className="h-9 pl-9"
+                />
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={savingWebsite || !websiteInput.trim()}
+                onClick={() => void saveWebsite()}
+              >
+                {savingWebsite ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+                Crawl website
+              </Button>
+              <Button size="sm" variant="outline" onClick={openUpload}>
+                <Upload className="mr-1 h-3.5 w-3.5" /> Upload menu / PDF
+              </Button>
+            </div>
+            {!hasRealWebsite && (
+              <p className="mt-2 text-[11px] text-muted-foreground">
+                No website connected yet — crawl when you have one, or upload documents anytime.
+              </p>
+            )}
+            <div ref={uploadAnchorRef} className="mt-3">
+              <React.Suspense fallback={null}>
+                <DocumentUploadSection
+                  assistantId={assistantId}
+                  websiteUrl={hasRealWebsite ? savedUrl : ""}
+                  variant="simple"
+                  onUploadComplete={() => toast.success("Document indexed.")}
+                />
+              </React.Suspense>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Re-scrape / refresh tools only make sense once a REAL website is set —
-          otherwise they'd operate on the NOT-NULL placeholder and could index
-          TalkStay's own marketing site into this hotel's knowledge base. */}
       {hasRealWebsite && (
         <>
           <React.Suspense fallback={null}>
@@ -112,19 +137,11 @@ export default function ContentPanel({ hotel }: { hotel: Hotel }) {
               }}
             />
           </React.Suspense>
-          <React.Suspense fallback={<div className="p-6 text-center text-sm text-muted-foreground">Loading…</div>}>
+          <React.Suspense fallback={null}>
             <ContentRefreshManager assistantId={assistantId} />
           </React.Suspense>
         </>
       )}
-
-      <React.Suspense fallback={<div className="p-6 text-center text-sm text-muted-foreground">Loading…</div>}>
-        <DocumentUploadSection
-          assistantId={assistantId}
-          websiteUrl={hasRealWebsite ? savedUrl : ""}
-          onUploadComplete={() => toast.success("Document indexed.")}
-        />
-      </React.Suspense>
     </div>
   );
 }

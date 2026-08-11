@@ -382,15 +382,16 @@ export default function StaffPanel({ hotel }: { hotel: Hotel }) {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <LiveShareCard hotel={hotel} />
-      <form onSubmit={invite} className="flex flex-wrap items-end gap-3">
+
+      <form onSubmit={invite} className="flex flex-wrap items-end gap-3 rounded-2xl border bg-card p-4 shadow-sm">
         <div className="min-w-[140px]">
           <label className="mb-1 block text-xs text-muted-foreground">Name</label>
-          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Sarah" />
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Sarah" className="w-36" />
         </div>
         <div className="min-w-[200px] flex-1">
-          <label className="mb-1 block text-xs text-muted-foreground">Staff email</label>
+          <label className="mb-1 block text-xs text-muted-foreground">Email</label>
           <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@yourproperty.com" />
         </div>
         <div>
@@ -413,114 +414,123 @@ export default function StaffPanel({ hotel }: { hotel: Hotel }) {
             </SelectContent>
           </Select>
         </div>
-        <Button type="submit" disabled={busy}>
+        <Button type="submit" disabled={busy} className="bg-violet-600 hover:bg-violet-700">
           {busy ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <UserPlus className="mr-1 h-4 w-4" />}
-          Add staff
-        </Button>
-        <Button type="button" variant="outline" onClick={() => setBulkOpen((o) => !o)}>
-          <FileSpreadsheet className="mr-1 h-4 w-4" />
-          Import team
+          Invite staff
         </Button>
       </form>
 
-      {bulkOpen && (
-        <div className="space-y-3 rounded-2xl border p-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h3 className="text-sm font-semibold">Import team (Excel, CSV or paste)</h3>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                Upload your hotel roster as <strong>.xlsx</strong> / <strong>.xls</strong>, or CSV.
-                Columns: <code className="text-[11px]">name, email, department, role</code>
-                {" "}(also recognises First name / Last name, Dept, Team, Outlet).
-                Departments: housekeeping, laundry, kitchen, bar, maintenance, concierge, front_desk, duty_manager.
-                Role: staff or manager. Max 100 per import — each person gets an invite email.
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <input
-                ref={fileRef}
-                type="file"
-                accept=".xlsx,.xls,.xlsm,.csv,text/csv,text/plain,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                className="hidden"
-                onChange={onRosterFile}
-              />
-              <Button type="button" size="sm" variant="outline" onClick={downloadSample}>
-                <Download className="mr-1 h-3.5 w-3.5" /> Sample CSV
-              </Button>
-              <Button type="button" size="sm" variant="outline" onClick={() => fileRef.current?.click()}>
-                <Upload className="mr-1 h-3.5 w-3.5" /> Upload Excel / CSV
-              </Button>
-            </div>
-          </div>
-          <Textarea
-            value={bulkText}
-            onChange={(e) => setBulkText(e.target.value)}
-            rows={8}
-            placeholder={SAMPLE_CSV.trim()}
-            className="font-mono text-xs"
-          />
-          <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="rounded-2xl border border-dashed bg-muted/20 p-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <FileSpreadsheet className="h-5 w-5 shrink-0 text-violet-600" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium">Bulk import (CSV / Excel)</p>
             <p className="text-xs text-muted-foreground">
-              {bulkText.trim()
-                ? `${parsedPreview.rows.length} ready${parsedPreview.errors.length ? ` · ${parsedPreview.errors.length} line issue(s)` : ""}`
-                : "Upload an Excel roster, a CSV, or paste rows to preview."}
+              Columns: name, email, department, role — max 100 per import. Each person gets an invite email.
             </p>
-            <Button type="button" disabled={bulkBusy || !parsedPreview.rows.length} onClick={runBulk}>
-              {bulkBusy ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <UserPlus className="mr-1 h-4 w-4" />}
-              Send {parsedPreview.rows.length || ""} invite{parsedPreview.rows.length === 1 ? "" : "s"}
-            </Button>
           </div>
-          {parsedPreview.rows.length > 0 && (
-            <div className="max-h-40 overflow-auto rounded-xl border bg-muted/20 text-xs">
-              <table className="w-full">
-                <thead className="sticky top-0 bg-muted/80 text-left text-muted-foreground">
-                  <tr>
-                    <th className="px-3 py-1.5">Name</th>
-                    <th className="px-3 py-1.5">Email</th>
-                    <th className="px-3 py-1.5">Department</th>
-                    <th className="px-3 py-1.5">Role</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {parsedPreview.rows.slice(0, 40).map((r) => (
-                    <tr key={r.email} className="border-t">
-                      <td className="px-3 py-1">{r.name || "—"}</td>
-                      <td className="px-3 py-1">{r.email}</td>
-                      <td className="px-3 py-1">{r.departmentKey ?? "All"}</td>
-                      <td className="px-3 py-1 capitalize">{r.role ?? "staff"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {parsedPreview.rows.length > 40 && (
-                <p className="border-t px-3 py-1.5 text-muted-foreground">…and {parsedPreview.rows.length - 40} more</p>
-              )}
-            </div>
-          )}
-          {bulkReport && (
-            <pre className="whitespace-pre-wrap rounded-xl border bg-muted/30 p-3 text-xs text-muted-foreground">{bulkReport}</pre>
-          )}
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".xlsx,.xls,.xlsm,.csv,text/csv,text/plain,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            className="hidden"
+            onChange={onRosterFile}
+          />
+          <Button type="button" size="sm" variant="outline" onClick={downloadSample}>
+            <Download className="mr-1 h-3.5 w-3.5" /> Sample CSV
+          </Button>
+          <Button type="button" size="sm" variant="outline" onClick={() => fileRef.current?.click()}>
+            <Upload className="mr-1 h-3.5 w-3.5" /> Upload roster
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="text-xs text-muted-foreground"
+            onClick={() => setBulkOpen((o) => !o)}
+          >
+            {bulkOpen || bulkText.trim() ? "Hide paste" : "Or paste rows"}
+          </Button>
         </div>
-      )}
+
+        {(bulkOpen || !!bulkText.trim()) && (
+          <div className="mt-3 space-y-3">
+            <Textarea
+              value={bulkText}
+              onChange={(e) => setBulkText(e.target.value)}
+              rows={6}
+              placeholder={SAMPLE_CSV.trim()}
+              className="font-mono text-xs"
+            />
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs text-muted-foreground">
+                {bulkText.trim()
+                  ? `${parsedPreview.rows.length} ready${parsedPreview.errors.length ? ` · ${parsedPreview.errors.length} line issue(s)` : ""}`
+                  : "Upload a roster or paste rows to preview."}
+              </p>
+              <Button type="button" size="sm" disabled={bulkBusy || !parsedPreview.rows.length} onClick={runBulk}>
+                {bulkBusy ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <UserPlus className="mr-1 h-4 w-4" />}
+                Send {parsedPreview.rows.length || ""} invite{parsedPreview.rows.length === 1 ? "" : "s"}
+              </Button>
+            </div>
+            {parsedPreview.rows.length > 0 && (
+              <div className="max-h-40 overflow-auto rounded-xl border bg-background/70 text-xs">
+                <table className="w-full">
+                  <thead className="sticky top-0 bg-muted/80 text-left text-muted-foreground">
+                    <tr>
+                      <th className="px-3 py-1.5">Name</th>
+                      <th className="px-3 py-1.5">Email</th>
+                      <th className="px-3 py-1.5">Department</th>
+                      <th className="px-3 py-1.5">Role</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {parsedPreview.rows.slice(0, 40).map((r) => (
+                      <tr key={r.email} className="border-t">
+                        <td className="px-3 py-1">{r.name || "—"}</td>
+                        <td className="px-3 py-1">{r.email}</td>
+                        <td className="px-3 py-1">{r.departmentKey ?? "All"}</td>
+                        <td className="px-3 py-1 capitalize">{r.role ?? "staff"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {parsedPreview.rows.length > 40 && (
+                  <p className="border-t px-3 py-1.5 text-muted-foreground">…and {parsedPreview.rows.length - 40} more</p>
+                )}
+              </div>
+            )}
+            {bulkReport && (
+              <pre className="whitespace-pre-wrap rounded-xl border bg-muted/30 p-3 text-xs text-muted-foreground">{bulkReport}</pre>
+            )}
+          </div>
+        )}
+      </div>
 
       {loading ? (
         <div className="flex items-center gap-2 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</div>
       ) : staff.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          No staff yet. Add someone above, or use <strong>Import team</strong> to invite a whole roster at once.
+          No staff yet. Invite someone above, or upload a roster.
         </p>
       ) : (
         <div className="overflow-x-auto rounded-2xl border">
-          <table className="w-full min-w-[760px] text-sm">
-            <thead className="bg-muted/50 text-left text-xs text-muted-foreground">
-              <tr><th className="px-4 py-2">Name</th><th className="px-4 py-2">Email</th><th className="px-4 py-2">Department</th><th className="px-4 py-2">Role</th><th className="px-4 py-2 text-right">Invite</th></tr>
+          <table className="w-full min-w-[760px] text-left text-sm">
+            <thead className="bg-muted/50 text-xs uppercase tracking-wide text-muted-foreground">
+              <tr>
+                <th className="px-4 py-3 font-medium">Name</th>
+                <th className="px-4 py-3 font-medium">Email</th>
+                <th className="px-4 py-3 font-medium">Department</th>
+                <th className="px-4 py-3 font-medium">Role</th>
+                <th className="px-4 py-3 font-medium text-right">Invite</th>
+              </tr>
             </thead>
             <tbody>
               {staff.map((s) => {
                 const isOwner = s.role === "owner";
                 return (
                 <tr key={s.id} className="border-t align-middle">
-                  <td className="px-4 py-2">
+                  <td className="px-4 py-3">
                     <Input
                       className="h-8 w-36"
                       value={drafts[s.id] ?? s.name ?? ""}
@@ -531,8 +541,8 @@ export default function StaffPanel({ hotel }: { hotel: Hotel }) {
                       onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
                     />
                   </td>
-                  <td className="px-4 py-2 text-muted-foreground">{s.email}</td>
-                  <td className="px-4 py-2">
+                  <td className="px-4 py-3 text-muted-foreground">{s.email}</td>
+                  <td className="px-4 py-3">
                     <Select
                       value={s.department_key ?? ALL_DEPTS}
                       disabled={isOwner || s.role === "manager" || savingId === s.id}
@@ -545,7 +555,7 @@ export default function StaffPanel({ hotel }: { hotel: Hotel }) {
                       </SelectContent>
                     </Select>
                   </td>
-                  <td className="px-4 py-2">
+                  <td className="px-4 py-3">
                     {isOwner ? (
                       <span className="capitalize text-muted-foreground">Owner</span>
                     ) : (
@@ -558,7 +568,7 @@ export default function StaffPanel({ hotel }: { hotel: Hotel }) {
                       </Select>
                     )}
                   </td>
-                  <td className="px-4 py-2 text-right">
+                  <td className="px-4 py-3 text-right">
                     <div className="flex items-center justify-end gap-1">
                       {resendingId === s.id ? (
                         <span className="inline-flex items-center gap-1.5 px-2 text-xs text-muted-foreground">

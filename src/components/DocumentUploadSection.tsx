@@ -30,6 +30,8 @@ interface DocumentUploadSectionProps {
   assistantId: string;
   websiteUrl: string;
   onUploadComplete?: () => void;
+  /** TalkStay Knowledge: dashed simple chrome (same features, fewer clicks). */
+  variant?: "default" | "simple";
 }
 
 type ParsedPage = {url: string;title: string;content: string;headings: string[];};
@@ -106,7 +108,9 @@ onProgress: (status: string, pct: number) => void)
   return pages.filter((p) => p.content.trim().length > 20);
 }
 
-export const DocumentUploadSection = ({ assistantId, websiteUrl, onUploadComplete }: DocumentUploadSectionProps) => {
+export const DocumentUploadSection = ({
+  assistantId, websiteUrl, onUploadComplete, variant = "default",
+}: DocumentUploadSectionProps) => {
   const [uploading, setUploading] = useState(false);
   const [reindexingDocs, setReindexingDocs] = useState(false);
   const [reindexProgress, setReindexProgress] = useState<{current: number;total: number;status: string;} | null>(null);
@@ -446,6 +450,78 @@ export const DocumentUploadSection = ({ assistantId, websiteUrl, onUploadComplet
   };
 
   const isMultiple = selectedFiles.length > 1;
+  const simple = variant === "simple";
+
+  if (simple) {
+    return (
+      <div className="space-y-3">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept={ACCEPTED_FORMATS}
+          multiple
+          onChange={handleFileSelect}
+          className="hidden"
+        />
+
+        {selectedFiles.length > 0 && (
+          <div className="space-y-1 max-h-36 overflow-y-auto rounded-xl border bg-background/70 p-2">
+            {selectedFiles.map((file, idx) => (
+              <div key={`${file.name}-${idx}`} className="flex items-center justify-between rounded-lg px-2 py-1.5 text-xs">
+                <span className="mr-2 truncate">{file.name}</span>
+                <div className="flex shrink-0 items-center gap-2">
+                  <span className="text-muted-foreground">{(file.size / 1024).toFixed(0)} KB</span>
+                  {!uploading && (
+                    <button type="button" onClick={() => removeFile(idx)} className="text-muted-foreground hover:text-destructive">
+                      <X className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {uploading && (
+          <div className="space-y-2">
+            <Progress value={progress} className="h-2" />
+            <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              {progressStatus}
+            </p>
+            <KeepTabOpenNotice visible={true} />
+          </div>
+        )}
+
+        {selectedFiles.length > 0 && !uploading && (
+          <Button type="button" size="sm" onClick={handleUpload} className="bg-violet-600 hover:bg-violet-700">
+            <Upload className="mr-1 h-3.5 w-3.5" />
+            Upload &amp; index {isMultiple ? `${selectedFiles.length} files` : "file"}
+          </Button>
+        )}
+
+        {!uploading && (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={handleReindexDocuments}
+            disabled={reindexingDocs}
+            className="h-8 px-0 text-xs text-muted-foreground hover:bg-transparent hover:text-foreground"
+          >
+            {reindexingDocs ? (
+              <><Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> Re-indexing…</>
+            ) : (
+              <><RotateCcw className="mr-1 h-3.5 w-3.5" /> Re-index uploaded documents</>
+            )}
+          </Button>
+        )}
+        {reindexProgress && (
+          <p className="text-[11px] text-muted-foreground">{reindexProgress.status}</p>
+        )}
+      </div>
+    );
+  }
 
   return (
     <Card className="border-l-4 border-l-ai-pink">

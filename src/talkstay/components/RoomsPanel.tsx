@@ -1,10 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { QRCodeCanvas } from "qrcode.react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import { toast } from "sonner";
-import { Trash2, QrCode, Loader2, ExternalLink, RefreshCw, Copy, Mail, Plus } from "lucide-react";
+import {
+  Trash2, QrCode, Loader2, ExternalLink, RefreshCw, Copy, Mail, Plus,
+  Search, LayoutGrid, List,
+} from "lucide-react";
 import {
   addRoom, deleteRoom, getRoomToken, listRooms, setRoomOccupancy, setRequireCheckinCode,
   regenerateCheckinCode, sendCheckinCodeEmail, setRoomPublicQr, setRoomRequireCheckinCode,
@@ -13,6 +19,19 @@ import {
 import { getPublicBaseUrl } from "@/config/environment";
 import { OCCUPANCY_STYLE } from "@/talkstay/lib/statusStyles";
 import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
+
+type RoomStatusFilter = "all" | "occupied" | "vacant" | "public";
+type RoomsView = "card" | "list";
+const ROOMS_VIEW_KEY = "talkstay-rooms-view";
+
+function readRoomsView(): RoomsView {
+  try {
+    const v = localStorage.getItem(ROOMS_VIEW_KEY);
+    return v === "list" ? "list" : "card";
+  } catch {
+    return "card";
+  }
+}
 
 function guestUrl(hotel: Hotel, room: Room, token: string): string {
   // Always the canonical production URL — a printed QR must resolve on a guest's
@@ -35,6 +54,28 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
   const [emailFor, setEmailFor] = useState<Room | null>(null);
   const [emailInput, setEmailInput] = useState("");
   const [emailSending, setEmailSending] = useState(false);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<RoomStatusFilter>("all");
+  const [view, setView] = useState<RoomsView>(readRoomsView);
+
+  const setRoomsView = (next: RoomsView) => {
+    setView(next);
+    try { localStorage.setItem(ROOMS_VIEW_KEY, next); } catch { /* ignore */ }
+  };
+
+  const filteredRooms = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return rooms.filter((r) => {
+      if (q) {
+        const hay = `${r.room_number} ${r.floor ?? ""} ${r.checkin_code ?? ""}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      if (statusFilter === "public") return !!r.is_public;
+      if (statusFilter === "occupied") return !r.is_public && r.occupancy_status === "occupied";
+      if (statusFilter === "vacant") return !r.is_public && r.occupancy_status !== "occupied";
+      return true;
+    });
+  }, [rooms, search, statusFilter]);
 
   const toggleRequireCode = async () => {
     const next = !requireCode;
@@ -290,8 +331,128 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
           No units yet. Add a room number or a name (e.g. Ocean Suite) — a secure QR code is generated automatically.
         </p>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {rooms.map((r) => {
+        <>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative min-w-[180px] flex-1">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search name, floor, or code…"
+                className="h-9 pl-8"
+              />
+            </div>
+            <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as RoomStatusFilter)}>
+              <SelectTrigger className="h-9 w-[140px]">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All units</SelectItem>
+                <SelectItem value="occupied">Occupied</SelectItem>
+                <SelectItem value="vacant">Vacant</SelectItem>
+                <SelectItem value="public">Public QR</SelectItem>
+              </SelectContent>
+            </Select>
+            <div className="flex rounded-lg border p-0.5">
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className={`h-8 gap-1.5 px-2.5 ${view === "card" ? "bg-violet-100 text-violet-900 hover:bg-violet-100" : ""}`}
+                onClick={() => setRoomsView("card")}
+                aria-pressed={view === "card"}
+                title="Card view"
+              >
+                <LayoutGrid className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Cards</span>
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                className={`h-8 gap-1.5 px-2.5 ${view === "list" ? "bg-violet-100 text-violet-900 hover:bg-violet-100" : ""}`}
+                onClick={() => setRoomsView("list")}
+                aria-pressed={view === "list"}
+                title="List view"
+              >
+                <List className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">List</span>
+              </Button>
+            </div>
+          </div>
+
+          {filteredRooms.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No units match{search.trim() ? ` “${search.trim()}”` : ""}. Try another search or clear the filter.
+            </p>
+          ) : view === "list" ? (
+            <div className="divide-y overflow-hidden rounded-2xl border bg-card">
+              {filteredRooms.map((r) => {
+                const occupied = r.occupancy_status === "occupied";
+                const isPublic = !!r.is_public;
+                const needsCode = roomRequiresCheckinCode(r, requireCode);
+                const previewHref = tokens[r.id] ? guestUrl(hotel, r, tokens[r.id]) : null;
+                return (
+                  <div
+                    key={r.id}
+                    className={`flex flex-wrap items-center gap-3 px-4 py-3 ${
+                      isPublic ? "bg-sky-50/40" : ""
+                    }`}
+                  >
+                    <div className="min-w-[120px] flex-1">
+                      <div className="font-semibold tracking-tight">{formatRoomLabel(r.room_number)}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {r.floor ? r.floor : "No floor / area"}
+                        {needsCode && occupied && r.checkin_code ? ` · ${r.checkin_code}` : ""}
+                      </div>
+                    </div>
+                    {isPublic ? (
+                      <Badge variant="outline" className="border-sky-300 bg-sky-50 text-sky-800">Public QR</Badge>
+                    ) : (
+                      <Badge
+                        variant="outline"
+                        className={`capitalize ${OCCUPANCY_STYLE[r.occupancy_status ?? "vacant"] ?? OCCUPANCY_STYLE.vacant}`}
+                      >
+                        {r.occupancy_status}
+                      </Badge>
+                    )}
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <Button size="sm" variant="outline" className="h-8" onClick={() => showQr(r)}>
+                        <QrCode className="mr-1 h-3.5 w-3.5" /> QR
+                      </Button>
+                      {previewHref ? (
+                        <Button size="sm" variant="outline" className="h-8" asChild>
+                          <a href={previewHref} target="_blank" rel="noopener noreferrer">
+                            <ExternalLink className="mr-1 h-3.5 w-3.5" /> Preview
+                          </a>
+                        </Button>
+                      ) : (
+                        <Button size="sm" variant="outline" className="h-8" onClick={() => previewFallback(r)}>
+                          <ExternalLink className="mr-1 h-3.5 w-3.5" /> Preview
+                        </Button>
+                      )}
+                      {!isPublic && (
+                        <Button size="sm" variant="outline" className="h-8" onClick={() => toggleOccupancy(r)}>
+                          {occupied ? "Check out" : "Check in"}
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-8 text-destructive hover:text-destructive"
+                        onClick={() => onDelete(r)}
+                        title="Delete room"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {filteredRooms.map((r) => {
             const occupied = r.occupancy_status === "occupied";
             const isPublic = !!r.is_public;
             const needsCode = roomRequiresCheckinCode(r, requireCode);
@@ -418,8 +579,10 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
                 </div>
               </div>
             );
-          })}
-        </div>
+              })}
+            </div>
+          )}
+        </>
       )}
 
       {qr && (
