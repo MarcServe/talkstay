@@ -12,6 +12,7 @@ import { conversationMemory } from "@/utils/ConversationMemory";
 import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
 import { statusBadge, statusDot, statusLabel } from "@/talkstay/lib/statusStyles";
 import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
+import NoIndexMeta from "@/talkstay/components/NoIndexMeta";
 import { DemoProvider, useDemo, type DemoApi } from "@/talkstay/demo/DemoContext";
 import { DEPARTMENTS } from "@/talkstay/lib/hotels";
 import {
@@ -974,6 +975,7 @@ function DemoGuestInner() {
 export default function DemoGuestApp() {
   return (
     <DemoProvider>
+      <NoIndexMeta />
       <DemoGuestInner />
     </DemoProvider>
   );

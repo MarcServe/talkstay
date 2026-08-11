@@ -611,14 +611,21 @@ export default function Landing() {
       </main>
 
       <footer className="border-t">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-6 py-8 text-sm text-muted-foreground">
+        <div className="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-8 text-sm text-muted-foreground sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
           <Link to="/" className="flex items-center gap-2 transition-colors hover:text-foreground">
             <TalkStayLogo size={22} />
             <span>© {new Date().getFullYear()} TalkStay by TalkWeb</span>
           </Link>
-          <Link to="/app" className="transition-colors hover:text-foreground">
-            {user ? "Open dashboard" : "Property sign in"}
-          </Link>
+          <div className="flex flex-wrap gap-x-4 gap-y-2">
+            <Link to="/privacy" className="transition-colors hover:text-foreground">Privacy</Link>
+            <Link to="/terms" className="transition-colors hover:text-foreground">Terms</Link>
+            <Link to="/cookies" className="transition-colors hover:text-foreground">Cookies</Link>
+            <Link to="/acceptable-use" className="transition-colors hover:text-foreground">Acceptable use</Link>
+            <Link to="/data-processing" className="transition-colors hover:text-foreground">Data processing</Link>
+            <Link to="/app" className="transition-colors hover:text-foreground">
+              {user ? "Open dashboard" : "Property sign in"}
+            </Link>
+          </div>
         </div>
       </footer>
     </div>

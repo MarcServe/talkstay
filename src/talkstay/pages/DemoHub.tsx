@@ -4,6 +4,7 @@ import {
   ArrowRight, QrCode, Shield, Users,
 } from "lucide-react";
 import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
+import NoIndexMeta from "@/talkstay/components/NoIndexMeta";
 
 const GUEST_IMG = {
   jpg: "/marketing/guest-square.jpg",
@@ -20,6 +21,7 @@ const STAFF_IMG = "/marketing/auth-side.jpg";
 export default function DemoHub() {
   return (
     <div data-talkstay className="ts-atmosphere min-h-screen text-foreground">
+      <NoIndexMeta />
       <header className="mx-auto flex max-w-5xl items-center justify-between px-6 py-5">
         <Link to="/" className="flex items-center gap-2.5 transition-opacity hover:opacity-80">
           <TalkStayLogo size={28} />
@@ -168,6 +170,16 @@ export default function DemoHub() {
           </Button>
         </div>
       </main>
+
+      <footer className="border-t">
+        <div className="mx-auto flex max-w-5xl flex-wrap gap-x-4 gap-y-2 px-6 py-6 text-xs text-muted-foreground">
+          <span>© {new Date().getFullYear()} TalkStay by TalkWeb</span>
+          <Link to="/privacy" className="hover:text-foreground">Privacy</Link>
+          <Link to="/terms" className="hover:text-foreground">Terms</Link>
+          <Link to="/cookies" className="hover:text-foreground">Cookies</Link>
+          <Link to="/acceptable-use" className="hover:text-foreground">Acceptable use</Link>
+        </div>
+      </footer>
     </div>
   );
 }

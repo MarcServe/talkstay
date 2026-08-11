@@ -5,18 +5,22 @@ import AdminHotels from "@/talkstay/admin/AdminHotels";
 import AdminHotelDetail from "@/talkstay/admin/AdminHotelDetail";
 import AdminLiveLinks from "@/talkstay/admin/AdminLiveLinks";
 import AdminUsers from "@/talkstay/admin/AdminUsers";
+import NoIndexMeta from "@/talkstay/components/NoIndexMeta";
 
 /** TalkStay platform admin — /admin/* */
 export default function TalkStayAdminApp() {
   return (
-    <Routes>
-      <Route element={<TalkStayAdminLayout />}>
-        <Route index element={<AdminOverview />} />
-        <Route path="hotels" element={<AdminHotels />} />
-        <Route path="hotels/:hotelId" element={<AdminHotelDetail />} />
-        <Route path="live-links" element={<AdminLiveLinks />} />
-        <Route path="users" element={<AdminUsers />} />
-      </Route>
-    </Routes>
+    <>
+      <NoIndexMeta />
+      <Routes>
+        <Route element={<TalkStayAdminLayout />}>
+          <Route index element={<AdminOverview />} />
+          <Route path="hotels" element={<AdminHotels />} />
+          <Route path="hotels/:hotelId" element={<AdminHotelDetail />} />
+          <Route path="live-links" element={<AdminLiveLinks />} />
+          <Route path="users" element={<AdminUsers />} />
+        </Route>
+      </Routes>
+    </>
   );
 }

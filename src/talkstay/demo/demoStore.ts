@@ -1006,6 +1006,7 @@ export function addDemoGuestRequest(
     needs_triage: false,
     guest_language: "en",
     created_at: new Date().toISOString(),
+    source: "guest_app",
     ts_rooms: { room_number: GUEST_DEMO_ROOM.room_number },
   };
   const detail = seedDetail(req);
@@ -1037,6 +1038,96 @@ export function addDemoGuestRequest(
     version: state.version + 1,
   };
   return { state: next, requestId: id };
+}
+
+const OPEN_STATUSES = new Set(["new", "accepted", "in_progress", "on_the_way", "reopened", "escalated"]);
+
+/** Open tickets for a room — used by Log order duplicate checks in demo. */
+export function listDemoOpenForRoom(state: DemoState, roomId: string) {
+  return state.requests
+    .filter((r) => r.room_id === roomId && OPEN_STATUSES.has(r.status))
+    .map((r) => ({
+      id: r.id,
+      department_key: r.department_key,
+      summary: r.summary,
+      summary_staff: r.summary_staff,
+      status: r.status,
+      source: r.source ?? null,
+      created_at: r.created_at,
+    }));
+}
+
+/** Staff-logged phone / walk-in order in the demo sandbox. */
+export function addDemoStaffOrder(
+  state: DemoState,
+  input: {
+    roomId: string;
+    departmentKey: string;
+    summary: string;
+    source: string;
+    priority?: string;
+    force?: boolean;
+  },
+): { state: DemoState; requestId?: string; duplicate?: boolean; open?: ReturnType<typeof listDemoOpenForRoom>; roomNumber?: string } {
+  const room = state.rooms.find((r) => r.id === input.roomId);
+  if (!room) return { state, duplicate: false };
+
+  const open = listDemoOpenForRoom(state, input.roomId);
+  const sameTeam = open.filter((o) => o.department_key === input.departmentKey);
+  if (sameTeam.length && !input.force) {
+    return { state, duplicate: true, open: sameTeam, roomNumber: room.room_number };
+  }
+
+  const id = `demo-staff-order-${Date.now()}`;
+  const summary = input.summary.trim().slice(0, 200) || "Staff-logged order";
+  const req: OpsRequest = {
+    id,
+    room_id: room.id,
+    department_key: input.departmentKey,
+    summary,
+    summary_staff: `Staff log (${input.source}) · ${formatRoomLabelSafe(room.room_number)} · ${summary}`,
+    status: "new",
+    priority: input.priority === "urgent" || input.priority === "high" ? input.priority : "normal",
+    is_complaint: false,
+    needs_triage: false,
+    guest_language: "en",
+    created_at: new Date().toISOString(),
+    source: input.source,
+    ts_rooms: { room_number: room.room_number },
+  };
+  const detail = seedDetail(req);
+  const next: DemoState = {
+    ...state,
+    requests: [req, ...state.requests],
+    details: { ...state.details, [id]: detail },
+    insights: {
+      ...state.insights,
+      requests: [
+        {
+          id: req.id,
+          room_id: req.room_id,
+          department_key: req.department_key,
+          summary: req.summary,
+          status: req.status,
+          is_complaint: false,
+          is_chargeable: ["kitchen", "bar", "laundry"].includes(req.department_key),
+          price: null,
+          classification_method: "demo_staff_log",
+          session_id: `demo-session-${id}`,
+          created_at: req.created_at,
+          updated_at: req.created_at,
+          ts_rooms: req.ts_rooms,
+        },
+        ...state.insights.requests,
+      ],
+    },
+    version: state.version + 1,
+  };
+  return { state: next, requestId: id, roomNumber: room.room_number };
+}
+
+function formatRoomLabelSafe(roomNumber: string) {
+  return /^\d+$/.test(roomNumber) ? `Room ${roomNumber}` : roomNumber;
 }
 
 /** Guest confirms staff marked a request complete. */

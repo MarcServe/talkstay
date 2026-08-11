@@ -3,7 +3,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { ThemeProvider } from "next-themes";
 import Landing from "@/talkstay/pages/Landing";
 
@@ -16,6 +16,11 @@ const DemoGuestApp = lazy(() => import("@/talkstay/pages/DemoGuestApp"));
 const LiveView = lazy(() => import("@/talkstay/pages/LiveView"));
 const TalkStayAdminApp = lazy(() => import("@/talkstay/admin/TalkStayAdminApp"));
 const NotFound = lazy(() => import("@/talkstay/pages/NotFound"));
+const PrivacyPolicyPage = lazy(() => import("@/talkstay/pages/legal/PrivacyPolicyPage"));
+const TermsOfUsePage = lazy(() => import("@/talkstay/pages/legal/TermsOfUsePage"));
+const CookiePolicyPage = lazy(() => import("@/talkstay/pages/legal/CookiePolicyPage"));
+const AcceptableUsePage = lazy(() => import("@/talkstay/pages/legal/AcceptableUsePage"));
+const DataProcessingPage = lazy(() => import("@/talkstay/pages/legal/DataProcessingPage"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -46,6 +51,17 @@ const App = () => (
             <Routes>
               {/* Marketing */}
               <Route path="/" element={<Landing />} />
+
+              {/* Legal — production-ready public policies */}
+              <Route path="/privacy" element={<PrivacyPolicyPage />} />
+              <Route path="/privacy-policy" element={<Navigate to="/privacy" replace />} />
+              <Route path="/terms" element={<TermsOfUsePage />} />
+              <Route path="/terms-of-use" element={<Navigate to="/terms" replace />} />
+              <Route path="/terms-of-service" element={<Navigate to="/terms" replace />} />
+              <Route path="/cookies" element={<CookiePolicyPage />} />
+              <Route path="/cookie-policy" element={<Navigate to="/cookies" replace />} />
+              <Route path="/acceptable-use" element={<AcceptableUsePage />} />
+              <Route path="/data-processing" element={<DataProcessingPage />} />
 
               {/* Guest PWA — scanned from a room QR code */}
               <Route path="/h/:hotelSlug/r/:roomId" element={<GuestApp />} />

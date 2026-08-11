@@ -11,6 +11,7 @@ import { pushSupported } from "@/talkstay/lib/push";
 import { alertIncoming } from "@/talkstay/lib/alerts";
 import { iosNeedsHomeScreenInstall, IOS_ADD_HOME_SCREEN_HINT } from "@/talkstay/lib/install";
 import InstallAppBanner from "@/talkstay/components/InstallAppBanner";
+import NoIndexMeta from "@/talkstay/components/NoIndexMeta";
 import {
   fetchContext, sendMessage, fetchMyRequests, submitReview, saveGuestContact,
   confirmRequest, reopenRequest, cancelRequest, nudgeRequest, updateRequest, repeatRequest,
@@ -201,6 +202,15 @@ export default function GuestApp() {
   const [params] = useSearchParams();
   const token = params.get("token") || "";
 
+  return (
+    <>
+      <NoIndexMeta />
+      <GuestAppInner hotelSlug={hotelSlug} roomId={roomId} token={token} />
+    </>
+  );
+}
+
+function GuestAppInner({ hotelSlug, roomId, token }: { hotelSlug: string; roomId: string; token: string }) {
   const [ctx, setCtx] = useState<Ctx | null>(null);
   const [invalid, setInvalid] = useState(false);
   const [checkedOut, setCheckedOut] = useState(false);

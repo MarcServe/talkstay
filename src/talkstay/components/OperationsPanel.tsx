@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import {
-  Loader2, AlertTriangle, RefreshCw, MessageCircle, Send,
+  Loader2, AlertTriangle, RefreshCw, MessageCircle, Send, Search,
   UtensilsCrossed, BedDouble, Wrench, Wine, Shirt, ConciergeBell, KeyRound, ShieldAlert,
   ArrowDownRight, ArrowUpRight, Clock3, Phone,
 } from "lucide-react";
@@ -129,11 +129,13 @@ const TIME_RANGES: { id: TimeRange; short: string; ms: number | null }[] = [
 const OVERDUE_MIN = 5; // a 'new' request older than this is flagged overdue
 const minsSince = (iso: string) => (Date.now() - new Date(iso).getTime()) / 60000;
 
-export default function OperationsPanel({ hotel, lockedDepartment = null, onClearDepartmentLock }: {
+export default function OperationsPanel({ hotel, lockedDepartment = null, onClearDepartmentLock, focusRequestId = null }: {
   hotel: Hotel;
   lockedDepartment?: string | null;
   /** Demo-only: leave a staff "View as" lock and return to all departments. */
   onClearDepartmentLock?: () => void;
+  /** Open this ticket when set (e.g. jumped from Log order). */
+  focusRequestId?: string | null;
 }) {
   const qc = useQueryClient();
   const demo = useDemo();
@@ -157,8 +159,16 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
   const [replyBusy, setReplyBusy] = useState<Record<string, boolean>>({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [logOpen, setLogOpen] = useState(false);
+  const [roomQuery, setRoomQuery] = useState("");
   const { data: queue, isPending, isFetching, isError, error } = useOpsQueue(hotel.id, timeRange);
   useOpsRealtime(hotel.id);
+
+  useEffect(() => {
+    if (!focusRequestId) return;
+    setSelectedId(focusRequestId);
+    setFilter("all");
+    setBoardFocus(null);
+  }, [focusRequestId]);
 
   const reqs = queue?.requests ?? [];
   const ack = queue?.ack ?? {};
@@ -313,13 +323,36 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
     return true;
   };
 
+  const roomQ = roomQuery.trim().toLowerCase();
+
+  const matchesRoomSearch = (r: Req) => {
+    if (!roomQ) return true;
+    const num = (r.ts_rooms?.room_number ?? "").toLowerCase();
+    const label = formatRoomLabel(r.ts_rooms?.room_number).toLowerCase();
+    const summary = `${r.summary ?? ""} ${r.summary_staff ?? ""}`.toLowerCase();
+    return num.includes(roomQ) || label.includes(roomQ) || summary.includes(roomQ);
+  };
+
   const filtered = useMemo(
     () => reqs.filter((r) =>
-      inDept(r) && inTime(r) && matchesFilter(r, filter) && matchesBoardFocus(r, boardFocus),
+      inDept(r)
+      && inTime(r)
+      && matchesFilter(r, filter)
+      && matchesBoardFocus(r, boardFocus)
+      && matchesRoomSearch(r),
     ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [reqs, filter, dept, escalations, timeRange, boardFocus, ack]
+    [reqs, filter, dept, escalations, timeRange, boardFocus, ack, roomQuery]
   );
+
+  /** Room lookup ignores status pills so staff can find any open/closed ticket fast. */
+  const roomHits = useMemo(() => {
+    if (!roomQ) return [] as typeof reqs;
+    return reqs
+      .filter((r) => inDept(r) && inTime(r) && matchesRoomSearch(r))
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reqs, dept, timeRange, roomQuery, lockedDepartment]);
 
   const revealQueue = (note?: string) => {
     if (note) toast.message(note, { duration: 1800 });
@@ -487,6 +520,99 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
 
   return (
     <div className="min-w-0 space-y-4 overflow-x-hidden">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-sky-200/80 bg-sky-50/70 px-4 py-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-sky-950">Find a room’s tickets first</p>
+          <p className="mt-0.5 text-xs text-sky-900/80">
+            Guest-app requests already land on this board. Search the room to open what’s in progress —
+            only use <span className="font-medium">Log order</span> for phone, walk-in, or front-desk
+            calls that aren’t already logged.
+          </p>
+          <div className="relative mt-2.5 max-w-md">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-sky-700/70" />
+            <Input
+              value={roomQuery}
+              onChange={(e) => {
+                setRoomQuery(e.target.value);
+                if (e.target.value.trim()) {
+                  setBoardFocus(null);
+                  setFilter("all");
+                }
+              }}
+              placeholder="Search room number or keyword…"
+              className="h-9 border-sky-200/80 bg-white/90 pl-8"
+              aria-label="Search tickets by room"
+            />
+          </div>
+        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          className="shrink-0 border-violet-300 bg-white text-violet-800 hover:bg-violet-50"
+          onClick={() => setLogOpen(true)}
+        >
+          <Phone className="mr-1.5 h-3.5 w-3.5" /> Log phone / walk-in
+        </Button>
+      </div>
+
+      {roomQ && (
+        <div className="rounded-2xl border bg-card p-4 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p className="text-sm font-medium">
+                {roomHits.length === 0
+                  ? `No tickets match “${roomQuery.trim()}”`
+                  : `${roomHits.length} ticket${roomHits.length === 1 ? "" : "s"} for “${roomQuery.trim()}”`}
+              </p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {roomHits.length === 0
+                  ? "If this came in by phone or walk-in and isn’t on the board yet, log it below."
+                  : "Open a ticket to see status, who’s handling it, and the guest thread — don’t log a duplicate."}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" variant="ghost" onClick={() => setRoomQuery("")}>Clear search</Button>
+              {roomHits.length === 0 && (
+                <Button size="sm" className="bg-violet-600 hover:bg-violet-700" onClick={() => setLogOpen(true)}>
+                  <Phone className="mr-1.5 h-3.5 w-3.5" /> Log order
+                </Button>
+              )}
+            </div>
+          </div>
+          {roomHits.length > 0 && (
+            <ul className="mt-3 divide-y rounded-xl border">
+              {roomHits.slice(0, 12).map((r) => {
+                const acked = ack[r.id];
+                return (
+                  <li key={r.id}>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedId(r.id)}
+                      className="flex w-full min-w-0 items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-muted/40"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-semibold">{formatRoomLabel(r.ts_rooms?.room_number)}</span>
+                          <Badge variant="outline" className={`capitalize ${statusBadge(r.status)}`}>
+                            {statusLabel(r.status)}
+                          </Badge>
+                          <span className="text-xs text-muted-foreground">{deptLabel(r.department_key)}</span>
+                        </div>
+                        <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                          {r.summary_staff || r.summary}
+                          {acked?.by ? ` · Accepted by ${acked.by}` : ""}
+                        </p>
+                      </div>
+                      <span className="shrink-0 text-xs font-medium text-violet-700">Open</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      )}
+
       {/* BI strip — click a card to filter the queue below */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <OpsStat
@@ -744,11 +870,15 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
               {DEPARTMENTS.map((d) => <option key={d.key} value={d.key}>{d.display_name}</option>)}
             </select>
           )}
-          {!demo && (
-            <Button size="sm" onClick={() => setLogOpen(true)} title="Log a phone or walk-in order">
-              <Phone className="mr-1.5 h-3.5 w-3.5" /> Log order
-            </Button>
-          )}
+          <Button
+            size="sm"
+            variant="outline"
+            className="border-violet-300 text-violet-800 hover:bg-violet-50"
+            onClick={() => setLogOpen(true)}
+            title="Only for phone, walk-in, or front-desk — search the room above first"
+          >
+            <Phone className="mr-1.5 h-3.5 w-3.5" /> Log phone / walk-in
+          </Button>
           <ExportReportButton
             buildPayload={buildExportPayload}
             disabled={loading || !exportScope.length}
@@ -766,13 +896,18 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
           lockedDepartment={lockedDepartment}
           onClose={() => setLogOpen(false)}
           onCreated={() => refresh()}
+          onOpenRequest={(id) => setSelectedId(id)}
         />
       )}
 
       {loading ? (
         <div className="flex items-center gap-2 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading queue…</div>
       ) : filtered.length === 0 ? (
-        <p className="py-10 text-center text-sm text-muted-foreground">Nothing here right now.</p>
+        <p className="py-10 text-center text-sm text-muted-foreground">
+          {roomQ
+            ? "No matching tickets in the filtered queue — see room results above, or clear search."
+            : "Nothing here right now."}
+        </p>
       ) : (
         <div className="grid gap-3">
           {filtered.map((r) => {

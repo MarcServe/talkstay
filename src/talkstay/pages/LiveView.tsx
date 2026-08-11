@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
+import NoIndexMeta from "@/talkstay/components/NoIndexMeta";
 import { DEPARTMENTS } from "@/talkstay/lib/hotels";
 import { statusBadge, statusCard, statusLabel } from "@/talkstay/lib/statusStyles";
 import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
@@ -99,6 +100,7 @@ export default function LiveView() {
   if (loading && !data) {
     return (
       <div className="flex min-h-screen items-center justify-center text-muted-foreground">
+        <NoIndexMeta />
         <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading live view…
       </div>
     );
@@ -107,6 +109,7 @@ export default function LiveView() {
   if (error && !data) {
     return (
       <div data-talkstay className="ts-atmosphere flex min-h-screen flex-col items-center justify-center gap-4 px-6 text-center">
+        <NoIndexMeta />
         <AlertTriangle className="h-8 w-8 text-amber-500" />
         <h1 className="text-xl font-semibold">Live view unavailable</h1>
         <p className="max-w-sm text-sm text-muted-foreground">{error}</p>
@@ -123,6 +126,7 @@ export default function LiveView() {
 
   return (
     <div data-talkstay className="ts-atmosphere min-h-screen text-foreground">
+      <NoIndexMeta />
       <header className="sticky top-0 z-20 border-b bg-white/90 backdrop-blur">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
           <div className="flex min-w-0 items-center gap-3">

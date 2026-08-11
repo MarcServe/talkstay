@@ -3,13 +3,14 @@ import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import {
   ArrowLeft, BarChart3, BookOpen, Building2, Inbox, LogOut,
-  Menu, Palette, QrCode, RotateCcw, Users, X,
+  Menu, Palette, Phone, QrCode, RotateCcw, Users, X,
 } from "lucide-react";
 import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
 import OperationsPanel from "@/talkstay/components/OperationsPanel";
 import InsightsPanel from "@/talkstay/components/InsightsPanel";
 import BrandingPanel from "@/talkstay/components/BrandingPanel";
 import KnowledgePanel from "@/talkstay/components/KnowledgePanel";
+import LogOrderDialog from "@/talkstay/components/LogOrderDialog";
 import {
   DemoDepartmentsPanel,
   DemoRoomsPanel,
@@ -19,9 +20,11 @@ import {
   DemoProvider, clearDemoEntered, markDemoEntered, useDemo,
 } from "@/talkstay/demo/DemoContext";
 import { DEPARTMENTS } from "@/talkstay/lib/hotels";
+import NoIndexMeta from "@/talkstay/components/NoIndexMeta";
 
 const NAV = [
-  { key: "operations", label: "Operations", icon: Inbox, desc: "Work the live request queue — accept, start, complete, reply.", adminOnly: false },
+  { key: "operations", label: "Operations", icon: Inbox, desc: "Live queue — search a room to open tickets fast. Guest-app requests land here automatically.", adminOnly: false },
+  { key: "log_order", label: "Log order", icon: Phone, desc: "Only for phone, walk-in or front-desk calls that aren’t already on the board.", adminOnly: false },
   { key: "insights", label: "Insights", icon: BarChart3, desc: "See volumes, departments, ratings and guest pulse.", adminOnly: true },
   { key: "rooms", label: "Rooms & QR", icon: QrCode, desc: "Add rooms and print the QR code guests scan to reach you.", adminOnly: true },
   { key: "branding", label: "Branding", icon: Palette, desc: "Your logo, colour and the printable in-room poster.", adminOnly: true },
@@ -60,6 +63,7 @@ function DemoDashboard() {
   const [active, setActive] = useState<NavKey>("operations");
   const [navOpen, setNavOpen] = useState(false);
   const [roleId, setRoleId] = useState("owner");
+  const [focusRequestId, setFocusRequestId] = useState<string | null>(null);
 
   const demoRole = ROLE_OPTIONS.find((r) => r.id === roleId)?.role ?? { kind: "owner" as const };
   const isAdmin = demoRole.kind === "owner" || demoRole.kind === "manager";
@@ -68,7 +72,7 @@ function DemoDashboard() {
   const activeNav = visibleNav.find((n) => n.key === active) ?? visibleNav[0];
 
   useEffect(() => {
-    if (!isAdmin && active !== "operations") setActive("operations");
+    if (!isAdmin && active !== "operations" && active !== "log_order") setActive("operations");
   }, [isAdmin, active]);
 
   const go = (k: NavKey) => { setActive(k); setNavOpen(false); };
@@ -196,6 +200,7 @@ function DemoDashboard() {
               <OperationsPanel
                 hotel={demo.hotel}
                 lockedDepartment={lockedDepartment}
+                focusRequestId={focusRequestId}
                 onClearDepartmentLock={
                   lockedDepartment
                     ? () => {
@@ -204,6 +209,18 @@ function DemoDashboard() {
                       }
                     : undefined
                 }
+              />
+            )}
+            {active === "log_order" && (
+              <LogOrderDialog
+                hotel={demo.hotel}
+                lockedDepartment={lockedDepartment}
+                variant="panel"
+                onCreated={() => toast.message("Order is on the Operations queue.")}
+                onOpenRequest={(id) => {
+                  setFocusRequestId(id);
+                  setActive("operations");
+                }}
               />
             )}
             {active === "insights" && isAdmin && <InsightsPanel hotel={demo.hotel} />}
@@ -232,6 +249,7 @@ function DemoShell() {
 
   return (
     <DemoProvider>
+      <NoIndexMeta />
       <DemoDashboard />
     </DemoProvider>
   );

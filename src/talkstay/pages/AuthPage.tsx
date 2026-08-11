@@ -666,6 +666,14 @@ export default function AuthPage() {
           {mode === "signin" ? "Sign up" : "Sign in"}
         </button>
       </p>
+      <p className="mt-4 text-center text-[11px] leading-relaxed text-white/35">
+        By continuing you agree to our{" "}
+        <a href="/terms" className="underline hover:text-white/60">Terms of Use</a>
+        {" "}and{" "}
+        <a href="/privacy" className="underline hover:text-white/60">Privacy Policy</a>,
+        and acknowledge the{" "}
+        <a href="/cookies" className="underline hover:text-white/60">Cookie Policy</a>.
+      </p>
     </AuthShell>
   );
 }

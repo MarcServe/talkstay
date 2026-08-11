@@ -15,6 +15,7 @@ import {
   addDemoKnowledge,
   addDemoRoom,
   addDemoStaff,
+  addDemoStaffOrder,
   advanceDemoRequest,
   assignDemoStaffDepartment,
   clearPersistedDemoState,
@@ -28,6 +29,7 @@ import {
   guestRateDemoRequest,
   guestReopenDemoRequest,
   guestUpdateDemoRequest,
+  listDemoOpenForRoom,
   listDemoStaffMessagesForGuest,
   loadPersistedDemoState,
   patchDemoDepartment,
@@ -85,6 +87,16 @@ export type DemoApi = {
   ) => void;
   /** Guest demo → ops queue. Returns the new request id. */
   addGuestRequest: (input: { summary: string; department?: string }) => string;
+  /** Staff phone/walk-in log with duplicate guard. */
+  logStaffOrder: (input: {
+    roomId: string;
+    departmentKey: string;
+    summary: string;
+    source: string;
+    priority?: string;
+    force?: boolean;
+  }) => { requestId?: string; duplicate?: boolean; open?: ReturnType<typeof listDemoOpenForRoom>; roomNumber?: string };
+  listOpenForRoom: (roomId: string) => ReturnType<typeof listDemoOpenForRoom>;
   guestConfirm: (requestId: string) => void;
   guestReopen: (requestId: string) => void;
   guestCancel: (requestId: string, reason?: string) => void;
@@ -256,6 +268,27 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     });
     return id;
   }, []);
+  const listOpenForRoom = useCallback((roomId: string) => listDemoOpenForRoom(state, roomId), [state]);
+  const logStaffOrder = useCallback((input: {
+    roomId: string;
+    departmentKey: string;
+    summary: string;
+    source: string;
+    priority?: string;
+    force?: boolean;
+  }) => {
+    let result: ReturnType<typeof addDemoStaffOrder> | null = null;
+    setState((s) => {
+      result = addDemoStaffOrder(s, input);
+      return result.duplicate ? s : result.state;
+    });
+    return {
+      requestId: result?.requestId,
+      duplicate: result?.duplicate,
+      open: result?.open,
+      roomNumber: result?.roomNumber,
+    };
+  }, []);
   const guestConfirm = useCallback((requestId: string) => {
     setState((s) => guestConfirmDemoRequest(s, requestId));
   }, []);
@@ -311,6 +344,8 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     removeKnowledge,
     updateKnowledge,
     addGuestRequest,
+    logStaffOrder,
+    listOpenForRoom,
     guestConfirm,
     guestReopen,
     guestCancel,
@@ -324,7 +359,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     state, advance, escalate, reply, ackPulse, updateBranding,
     addRoom, removeRoom, toggleRoomOccupancy, setRoomPublic, setRequireCheckinCode, regenerateCheckinCode,
     addStaff, removeStaff, assignStaffDepartment, toggleDepartment, patchDepartment,
-    addKnowledge, removeKnowledge, updateKnowledge, addGuestRequest,
+    addKnowledge, removeKnowledge, updateKnowledge, addGuestRequest, logStaffOrder, listOpenForRoom,
     guestConfirm, guestReopen, guestCancel, guestNudge, guestUpdate, guestRate, guestPulse,
     reset,
   ]);

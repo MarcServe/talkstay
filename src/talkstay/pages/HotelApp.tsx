@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import {
-  Loader2, LogOut, Bell, Menu, X, ChevronDown,
+  Loader2, LogOut, Bell, Menu, X, ChevronDown, Phone,
   Inbox, BarChart3, QrCode, Building2, BookOpen, Users, Palette,
 } from "lucide-react";
 import { enablePush, pushSupported } from "@/talkstay/lib/push";
@@ -21,20 +21,23 @@ import RoomsPanel from "@/talkstay/components/RoomsPanel";
 import DepartmentsPanel from "@/talkstay/components/DepartmentsPanel";
 import KnowledgePanel from "@/talkstay/components/KnowledgePanel";
 import BrandingPanel from "@/talkstay/components/BrandingPanel";
+import LogOrderDialog from "@/talkstay/components/LogOrderDialog";
 import StaffAlertsHost from "@/talkstay/components/StaffAlertsHost";
 import InstallAppBanner from "@/talkstay/components/InstallAppBanner";
+import NoIndexMeta from "@/talkstay/components/NoIndexMeta";
 import { createHotel, ingestHotelWebsite, DEPARTMENTS, type Hotel, type PropertyProfile } from "@/talkstay/lib/hotels";
 import { talkstayKeys } from "@/talkstay/lib/data";
 import {
-  useHotelAccess, usePrefetchHotelData,
+  useHotelAccess, usePrefetchHotelData, invalidateOps,
 } from "@/talkstay/hooks/useTalkStayQueries";
 import PropertyProfileFields from "@/talkstay/components/PropertyProfileFields";
 
 const StaffPanel = lazy(() => import("@/talkstay/components/StaffPanel"));
 
 const NAV = [
-  // `admin: true` = owner/manager only. Department staff see just Operations.
-  { key: "operations", label: "Operations", icon: Inbox, admin: false, desc: "Live queue with today’s volumes — click any request for the full chat and timeline." },
+  // `admin: true` = owner/manager only. Department staff see Operations + Log order.
+  { key: "operations", label: "Operations", icon: Inbox, admin: false, desc: "Live queue — search a room to open tickets fast. Guest-app requests land here automatically." },
+  { key: "log_order", label: "Log order", icon: Phone, admin: false, desc: "Only for phone, walk-in or front-desk calls that aren’t already on the board." },
   { key: "insights", label: "Insights", icon: BarChart3, admin: true, desc: "Analytics board plus business intelligence — click charts to filter the brief and records." },
   { key: "rooms", label: "Rooms & QR", icon: QrCode, admin: true, desc: "Add rooms or named units and print the QR guests scan." },
   { key: "branding", label: "Branding", icon: Palette, admin: true, desc: "Logo, colour, property profile (type/address/scale), and the printable poster." },
@@ -161,11 +164,32 @@ function NoAccess({ email }: { email?: string | null }) {
   );
 }
 
-function Panel({ active, hotel, onHotel, departmentKey }: {
-  active: NavKey; hotel: Hotel; onHotel: (h: Hotel) => void; departmentKey?: string | null;
+function Panel({ active, hotel, onHotel, departmentKey, focusRequestId, onOpenRequest }: {
+  active: NavKey;
+  hotel: Hotel;
+  onHotel: (h: Hotel) => void;
+  departmentKey?: string | null;
+  focusRequestId?: string | null;
+  onOpenRequest?: (requestId: string) => void;
 }) {
+  const qc = useQueryClient();
   switch (active) {
-    case "operations": return <OperationsPanel hotel={hotel} lockedDepartment={departmentKey ?? null} />;
+    case "operations": return (
+      <OperationsPanel
+        hotel={hotel}
+        lockedDepartment={departmentKey ?? null}
+        focusRequestId={focusRequestId}
+      />
+    );
+    case "log_order": return (
+      <LogOrderDialog
+        hotel={hotel}
+        lockedDepartment={departmentKey ?? null}
+        variant="panel"
+        onCreated={() => { void invalidateOps(qc, hotel.id); }}
+        onOpenRequest={onOpenRequest}
+      />
+    );
     case "insights": return <InsightsPanel hotel={hotel} />;
     case "rooms": return <RoomsPanel hotel={hotel} onHotel={onHotel} />;
     case "branding": return <BrandingPanel hotel={hotel} onSaved={(b) => onHotel({ ...hotel, branding: b })} />;
@@ -189,6 +213,7 @@ export default function HotelApp() {
 
   const [active, setActive] = useState<NavKey>("operations");
   const [navOpen, setNavOpen] = useState(false);
+  const [focusRequestId, setFocusRequestId] = useState<string | null>(null);
 
   useEffect(() => {
     if (isError && error) toast.error(error.message ?? "Failed to load property");
@@ -337,6 +362,7 @@ export default function HotelApp() {
     // Viewport shell: overflow-x-hidden on min-h-screen was computing overflow-y
     // to auto without a max height, so the page couldn't scroll and sticky nav stuck.
     <div data-talkstay className="ts-atmosphere flex h-[100dvh] overflow-hidden">
+      <NoIndexMeta />
       <StaffAlertsHost hotelId={hotel.id} departmentKey={lockedDepartment} />
 
       {/* Desktop sidebar — fixed column, not sticky */}
@@ -372,7 +398,17 @@ export default function HotelApp() {
                 {hotel.name} · printed {new Date().toLocaleString()}
               </p>
             </div>
-            <Panel active={effectiveActive} hotel={hotel} onHotel={setHotel} departmentKey={lockedDepartment} />
+            <Panel
+              active={effectiveActive}
+              hotel={hotel}
+              onHotel={setHotel}
+              departmentKey={lockedDepartment}
+              focusRequestId={focusRequestId}
+              onOpenRequest={(id) => {
+                setFocusRequestId(id);
+                setActive("operations");
+              }}
+            />
           </div>
         </main>
       </div>
