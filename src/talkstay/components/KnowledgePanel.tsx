@@ -19,6 +19,7 @@ import ContentPanel from "@/talkstay/components/ContentPanel";
 import type { GuestCard } from "@/talkstay/lib/guest";
 import { cn } from "@/lib/utils";
 import { KB_SCOPE_CARD, KB_SCOPE_STYLE } from "@/talkstay/lib/statusStyles";
+import { useDemo } from "@/talkstay/demo/DemoContext";
 
 // "site" = the hotel's website & uploaded documents (TalkWeb Content section);
 // the other three are TalkStay's layered, access-controlled entries.
@@ -420,6 +421,7 @@ function MediaEditor({
 }
 
 export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
+  const demo = useDemo();
   const [scope, setScope] = useState<Scope>("site");
   const [dept, setDept] = useState(DEPARTMENTS[0].key);
   const [rooms, setRooms] = useState<Room[]>([]);
@@ -444,9 +446,32 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const scanRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => { listRooms(hotel.id).then((r) => { setRooms(r); if (r[0]) setRoomId(r[0].id); }); }, [hotel.id]);
+  useEffect(() => {
+    if (demo) {
+      const rs = demo.state.rooms as unknown as Room[];
+      setRooms(rs);
+      if (rs[0]) setRoomId((prev) => prev || rs[0].id);
+      return;
+    }
+    listRooms(hotel.id).then((r) => { setRooms(r); if (r[0]) setRoomId(r[0].id); });
+  }, [hotel.id, demo, demo?.state.rooms, demo?.version]);
 
   const load = async () => {
+    if (demo) {
+      setEntries(
+        demo.state.knowledge.map((k) => ({
+          id: k.id,
+          title: k.title,
+          content: k.preview,
+          scope: k.scope,
+          department_key: k.department_key,
+          room_id: null,
+          media: null,
+        })),
+      );
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     const { data, error } = await supabase
       .from("ts_knowledge")
@@ -467,7 +492,7 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
     }
     setLoading(false);
   };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [hotel.id]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [hotel.id, demo?.version]);
 
   const visible = useMemo(() => entries.filter((e) => {
     if (e.scope !== scope) return false;
@@ -495,6 +520,9 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
   });
 
   const uploadToLibrary = async (file: File): Promise<string> => {
+    if (demo) {
+      return URL.createObjectURL(file);
+    }
     const path = `talkstay/${hotel.id}/kb-${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.\-]/g, "_")}`;
     const { error } = await supabase.storage.from("logos").upload(path, file, { upsert: true });
     if (error) throw error;
@@ -518,6 +546,18 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
   /** Camera / gallery → OCR → save organised guest card in one step. */
   const scanAndSave = async (file: File) => {
     if (scope === "room" && !roomId) { toast.error("Add a room first."); return; }
+    if (demo) {
+      setScanBusy(true);
+      const label = file.name.replace(/\.[^.]+$/, "") || "From photo";
+      demo.addKnowledge(label, `Photo scan saved in demo — “${file.name}”. OCR runs on live accounts.`, {
+        scope: scope === "site" ? "general" : scope,
+        department_key: scope === "department" ? dept : null,
+        kind: "FAQ",
+      });
+      setScanBusy(false);
+      toast.success(`Saved “${label}” (demo).`);
+      return;
+    }
     setScanBusy(true);
     try {
       const imageUrl = await uploadToLibrary(file);
@@ -567,6 +607,18 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
     const bodyContent = flattenMediaToContent(title, media, content);
     if (!bodyContent) return;
     if (scope === "room" && !roomId) { toast.error("Add a room first."); return; }
+    if (demo) {
+      setBusy(true);
+      demo.addKnowledge(title.trim() || "Untitled", bodyContent, {
+        scope: scope === "site" ? "general" : scope,
+        department_key: scope === "department" ? dept : null,
+        kind: "FAQ",
+      });
+      setTitle(""); setContent(""); setMedia(emptyMedia());
+      setBusy(false);
+      toast.success("Saved (demo).");
+      return;
+    }
     setBusy(true);
     try {
       const { data, error } = await supabase.functions.invoke("talkstay-knowledge", {
@@ -596,6 +648,17 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
     e.target.value = "";
     if (!file) return;
     if (scope === "room" && !roomId) { toast.error("Add a room first."); return; }
+    if (demo) {
+      setBusy(true);
+      demo.addKnowledge(file.name.replace(/\.[^.]+$/, ""), `Document indexed in demo — “${file.name}”. Full parsing runs on live accounts.`, {
+        scope: scope === "site" ? "general" : scope,
+        department_key: scope === "department" ? dept : null,
+        kind: "Document",
+      });
+      setBusy(false);
+      toast.success(`Indexed “${file.name}” (demo).`);
+      return;
+    }
     setBusy(true);
     try {
       let text: string;
@@ -624,6 +687,10 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
   };
 
   const del = async (id: string) => {
+    if (demo) {
+      demo.removeKnowledge(id);
+      return;
+    }
     const { data, error } = await supabase.functions.invoke("talkstay-knowledge", { body: { action: "delete", id } });
     if (error || (data as any)?.error) {
       toast.error(error ? await invokeErrorMessage(error, data) : (data as any)?.error);
@@ -646,6 +713,15 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
     if (!bodyContent.trim()) return;
     setEditBusy(true);
     try {
+      if (demo) {
+        demo.updateKnowledge(editingId, {
+          title: editTitle.trim() || "Untitled",
+          preview: bodyContent,
+        });
+        setEditingId(null);
+        toast.success("Updated (demo).");
+        return;
+      }
       const { data, error } = await supabase.functions.invoke("talkstay-knowledge", {
         body: {
           action: "update",
@@ -672,6 +748,10 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
   const replaceInFiltered = async () => {
     const find = search.trim();
     if (!find || matchCount === 0) return;
+    if (demo) {
+      toast.message("Find & replace across cards runs on live Knowledge.");
+      return;
+    }
     const label = replaceWith
       ? `Replace ${matchCount} match${matchCount === 1 ? "" : "es"} of “${find}” with “${replaceWith}” in ${filtered.length} card${filtered.length === 1 ? "" : "s"}?`
       : `Remove ${matchCount} match${matchCount === 1 ? "" : "es"} of “${find}” from ${filtered.length} card${filtered.length === 1 ? "" : "s"}?`;

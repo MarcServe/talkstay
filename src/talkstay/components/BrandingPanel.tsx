@@ -12,9 +12,19 @@ import {
 } from "@/talkstay/lib/hotels";
 import PosterPanel from "@/talkstay/components/PosterPanel";
 import PropertyProfileFields from "@/talkstay/components/PropertyProfileFields";
+import { useDemo } from "@/talkstay/demo/DemoContext";
 
 const DEFAULT_COLOR = "#7c3aed";
 const DEFAULT_GUEST_WASH = 0.88;
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("Couldn't read file"));
+    reader.readAsDataURL(file);
+  });
+}
 
 /** Identity (logo/colour/tagline — used everywhere) and Poster (the printable
  *  in-room QR poster) share one brand colour + logo, so they live under one
@@ -41,12 +51,23 @@ export default function BrandingPanel({ hotel, onSaved }: { hotel: Hotel; onSave
 }
 
 function PropertyTab({ hotel, onSaved }: { hotel: Hotel; onSaved?: (b: HotelBranding) => void }) {
+  const demo = useDemo();
   const [profile, setProfile] = useState<PropertyProfile>(() => ({ ...(hotel.branding?.property ?? {}) }));
   const [saving, setSaving] = useState(false);
 
   const save = async () => {
     setSaving(true);
     try {
+      if (demo) {
+        const branding: HotelBranding = {
+          ...(hotel.branding ?? {}),
+          property: profile,
+        };
+        demo.updateBranding(branding);
+        onSaved?.(branding);
+        toast.success("Property profile saved (demo).");
+        return;
+      }
       const branding = await updatePropertyProfile(hotel.id, hotel.branding, profile);
       onSaved?.(branding);
       toast.success("Property profile saved — Insights will use this for smarter advice.");
@@ -75,6 +96,7 @@ function PropertyTab({ hotel, onSaved }: { hotel: Hotel; onSaved?: (b: HotelBran
 }
 
 function IdentityTab({ hotel, onSaved }: { hotel: Hotel; onSaved?: (b: HotelBranding) => void }) {
+  const demo = useDemo();
   const [logo, setLogo] = useState(hotel.branding?.logo_url ?? "");
   const [color, setColor] = useState(hotel.branding?.primary_color ?? DEFAULT_COLOR);
   const [tagline, setTagline] = useState(hotel.branding?.tagline ?? "Scan. Speak. Consider it done.");
@@ -100,6 +122,12 @@ function IdentityTab({ hotel, onSaved }: { hotel: Hotel; onSaved?: (b: HotelBran
     if (!file) return;
     setUploading(true);
     try {
+      if (demo) {
+        const dataUrl = await readFileAsDataUrl(file);
+        setLogo(dataUrl);
+        toast.success("Logo uploaded (demo).");
+        return;
+      }
       const path = `talkstay/${hotel.id}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.\-]/g, "_")}`;
       const { error } = await supabase.storage.from("logos").upload(path, file, { upsert: true });
       if (error) throw error;
@@ -125,6 +153,13 @@ function IdentityTab({ hotel, onSaved }: { hotel: Hotel; onSaved?: (b: HotelBran
       tagline: tagline.trim() || null,
       guest_bg_wash: clampGuestBgWash(guestWash),
     };
+    if (demo) {
+      demo.updateBranding(branding);
+      setSaving(false);
+      onSaved?.(branding);
+      toast.success("Branding saved (demo).");
+      return;
+    }
     const { error } = await supabase.from("ts_hotels").update({ branding }).eq("id", hotel.id);
     setSaving(false);
     if (error) { toast.error(error.message); return; }

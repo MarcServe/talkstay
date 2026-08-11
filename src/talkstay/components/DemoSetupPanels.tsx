@@ -12,7 +12,7 @@ import {
 import { toast } from "sonner";
 import {
   BookOpen, Building2, Copy, Download, ExternalLink, FileSpreadsheet, Info,
-  LayoutGrid, Link2, List, Mail, Palette, Plus, Printer, QrCode, RefreshCw,
+  LayoutGrid, List, Mail, Palette, Plus, Printer, QrCode, RefreshCw,
   Search, Trash2, Upload, UserPlus, X,
 } from "lucide-react";
 import { DEPARTMENTS } from "@/talkstay/lib/hotels";
@@ -28,7 +28,7 @@ const deptLabel = (k: string | null) =>
 const ALL_DEPTS = "__all__";
 const ROOMS_VIEW_KEY = "talkstay-demo-rooms-view";
 
-type RoomStatusFilter = "all" | "occupied" | "vacant";
+type RoomStatusFilter = "all" | "occupied" | "vacant" | "public";
 type RoomsView = "card" | "list";
 type KbScope = "site" | "general" | "department" | "room";
 
@@ -101,11 +101,30 @@ export function DemoRoomsPanel() {
         const hay = `${r.room_number} ${r.floor ?? ""} ${r.checkin_code ?? ""}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
-      if (statusFilter === "occupied") return r.occupancy_status === "occupied";
-      if (statusFilter === "vacant") return r.occupancy_status !== "occupied";
+      if (statusFilter === "public") return !!r.is_public;
+      if (statusFilter === "occupied") return !r.is_public && r.occupancy_status === "occupied";
+      if (statusFilter === "vacant") return !r.is_public && r.occupancy_status !== "occupied";
       return true;
     });
   }, [rooms, search, statusFilter]);
+
+  const copyCode = async (code: string) => {
+    try {
+      await navigator.clipboard.writeText(code);
+      toast.success(`Code ${code} copied`);
+    } catch {
+      toast.error("Couldn't copy");
+    }
+  };
+
+  const togglePublic = (roomId: string, currentlyPublic: boolean) => {
+    demo.setRoomPublic(roomId, !currentlyPublic);
+    toast.success(
+      !currentlyPublic
+        ? "Public QR — no check-in code, always open (demo)."
+        : "Private unit again (demo).",
+    );
+  };
 
   const add = () => {
     if (!num.trim()) return;
@@ -138,8 +157,9 @@ export function DemoRoomsPanel() {
         <div className="min-w-0">
           <div className="text-sm font-medium">Require a check-in code (default)</div>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Property default for private rooms. New devices must enter the room’s code before connecting —
-            so a checked-out guest can’t keep chatting on a saved link.
+            Property default for private rooms. New devices must enter the room’s code before connecting.
+            Override per unit below — use <span className="font-medium text-foreground">Public QR</span> for
+            lobby, bar, or shared spaces where anyone can scan freely.
           </p>
         </div>
         <Switch
@@ -173,6 +193,7 @@ export function DemoRoomsPanel() {
                 <SelectItem value="all">All units</SelectItem>
                 <SelectItem value="occupied">Occupied</SelectItem>
                 <SelectItem value="vacant">Vacant</SelectItem>
+                <SelectItem value="public">Public QR</SelectItem>
               </SelectContent>
             </Select>
             <div className="flex rounded-lg border p-0.5">
@@ -207,76 +228,151 @@ export function DemoRoomsPanel() {
             </p>
           ) : view === "list" ? (
             <div className="divide-y overflow-hidden rounded-2xl border bg-card">
-              {filteredRooms.map((r) => (
-                <div key={r.id} className="flex flex-wrap items-center gap-3 px-4 py-3">
-                  <div className="min-w-[120px] flex-1">
-                    <div className="font-semibold tracking-tight">{formatRoomLabel(r.room_number)}</div>
-                    <div className="text-xs text-muted-foreground">
-                      Floor {r.floor ?? "—"}
-                      {r.checkin_code ? ` · ${r.checkin_code}` : ""}
+              {filteredRooms.map((r) => {
+                const isPublic = !!r.is_public;
+                const showCode = !isPublic && !!r.checkin_code && r.occupancy_status === "occupied";
+                return (
+                  <div
+                    key={r.id}
+                    className={`flex flex-wrap items-center gap-3 px-4 py-3 ${isPublic ? "bg-sky-50/40" : ""}`}
+                  >
+                    <div className="min-w-[110px] flex-1">
+                      <div className="font-semibold tracking-tight">{formatRoomLabel(r.room_number)}</div>
+                      <div className="text-xs text-muted-foreground">
+                        Floor {r.floor ?? "—"}
+                      </div>
+                    </div>
+
+                    {showCode ? (
+                      <button
+                        type="button"
+                        onClick={() => void copyCode(r.checkin_code!)}
+                        title="Copy check-in code"
+                        className="inline-flex items-center gap-1.5 rounded-lg border bg-muted/40 px-2 py-1 font-mono text-sm tracking-widest hover:border-violet-300 hover:bg-violet-50/60"
+                      >
+                        {r.checkin_code}
+                        <Copy className="h-3.5 w-3.5 text-muted-foreground" />
+                      </button>
+                    ) : (
+                      <span className="w-[88px] shrink-0 text-center text-[10px] text-muted-foreground">
+                        {isPublic ? "No code" : "—"}
+                      </span>
+                    )}
+
+                    <label className="flex cursor-pointer items-center gap-2 rounded-lg border px-2 py-1.5 text-xs">
+                      <span className={isPublic ? "font-medium text-sky-800" : "text-muted-foreground"}>
+                        Public QR
+                      </span>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={isPublic}
+                        aria-label={`Public QR for ${formatRoomLabel(r.room_number)}`}
+                        onClick={() => togglePublic(r.id, isPublic)}
+                        className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${isPublic ? "bg-sky-600" : "bg-muted-foreground/30"}`}
+                      >
+                        <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all ${isPublic ? "left-[18px]" : "left-0.5"}`} />
+                      </button>
+                    </label>
+
+                    {isPublic ? (
+                      <Badge variant="outline" className="border-sky-300 bg-sky-50 text-sky-800">Public QR</Badge>
+                    ) : (
+                      <Badge
+                        variant="outline"
+                        className={`capitalize ${OCCUPANCY_STYLE[r.occupancy_status ?? "vacant"] ?? OCCUPANCY_STYLE.vacant}`}
+                      >
+                        {r.occupancy_status}
+                      </Badge>
+                    )}
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <Button size="sm" variant="outline" className="h-8" onClick={() => setQrRoomId(r.id)}>
+                        <QrCode className="mr-1 h-3.5 w-3.5" /> QR
+                      </Button>
+                      <Button size="sm" variant="outline" className="h-8" asChild>
+                        <Link to="/demo/guest" target="_blank" rel="noreferrer">
+                          <ExternalLink className="mr-1 h-3.5 w-3.5" /> Preview
+                        </Link>
+                      </Button>
+                      {!isPublic && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-8"
+                          onClick={() => {
+                            if (r.occupancy_status === "occupied"
+                              && !confirm(`Check out ${formatRoomLabel(r.room_number)}?`)) return;
+                            demo.toggleRoomOccupancy(r.id);
+                          }}
+                        >
+                          {r.occupancy_status === "occupied" ? "Check out" : "Check in"}
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-8 text-destructive"
+                        onClick={() => {
+                          if (!confirm(`Delete ${formatRoomLabel(r.room_number)}?`)) return;
+                          demo.removeRoom(r.id);
+                        }}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
                     </div>
                   </div>
-                  <Badge
-                    variant="outline"
-                    className={`capitalize ${OCCUPANCY_STYLE[r.occupancy_status ?? "vacant"] ?? OCCUPANCY_STYLE.vacant}`}
-                  >
-                    {r.occupancy_status}
-                  </Badge>
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <Button size="sm" variant="outline" className="h-8" onClick={() => setQrRoomId(r.id)}>
-                      <QrCode className="mr-1 h-3.5 w-3.5" /> QR
-                    </Button>
-                    <Button size="sm" variant="outline" className="h-8" asChild>
-                      <Link to="/demo/guest" target="_blank" rel="noreferrer">
-                        <ExternalLink className="mr-1 h-3.5 w-3.5" /> Preview
-                      </Link>
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-8"
-                      onClick={() => {
-                        if (r.occupancy_status === "occupied"
-                          && !confirm(`Check out ${formatRoomLabel(r.room_number)}?`)) return;
-                        demo.toggleRoomOccupancy(r.id);
-                      }}
-                    >
-                      {r.occupancy_status === "occupied" ? "Check out" : "Check in"}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-8 text-destructive"
-                      onClick={() => {
-                        if (!confirm(`Delete ${formatRoomLabel(r.room_number)}?`)) return;
-                        demo.removeRoom(r.id);
-                      }}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {filteredRooms.map((r) => (
-                <div key={r.id} className="rounded-2xl border bg-card p-4 shadow-sm">
+              {filteredRooms.map((r) => {
+                const isPublic = !!r.is_public;
+                return (
+                <div
+                  key={r.id}
+                  className={`rounded-2xl border bg-card p-4 shadow-sm ${
+                    isPublic ? "border-sky-300/80 ring-1 ring-sky-500/10" : ""
+                  }`}
+                >
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <div className="font-semibold">{formatRoomLabel(r.room_number)}</div>
                       <div className="text-xs text-muted-foreground">
                         Floor {r.floor ?? "—"}
-                        {r.checkin_code ? ` · code ${r.checkin_code}` : ""}
+                        {!isPublic && r.checkin_code ? ` · code ${r.checkin_code}` : ""}
                       </div>
                     </div>
-                    <Badge
-                      variant="outline"
-                      className={`capitalize ${OCCUPANCY_STYLE[r.occupancy_status ?? "vacant"] ?? OCCUPANCY_STYLE.vacant}`}
-                    >
-                      {r.occupancy_status}
-                    </Badge>
+                    {isPublic ? (
+                      <Badge variant="outline" className="border-sky-300 bg-sky-50 text-sky-800">Public QR</Badge>
+                    ) : (
+                      <Badge
+                        variant="outline"
+                        className={`capitalize ${OCCUPANCY_STYLE[r.occupancy_status ?? "vacant"] ?? OCCUPANCY_STYLE.vacant}`}
+                      >
+                        {r.occupancy_status}
+                      </Badge>
+                    )}
                   </div>
+
+                  <div className="mt-3 flex items-center justify-between gap-2 rounded-xl border bg-muted/30 px-2.5 py-2">
+                    <div className="min-w-0">
+                      <div className="text-xs font-medium">Public QR area</div>
+                      <p className="text-[10px] leading-snug text-muted-foreground">
+                        Lobby, bar, spa — no code, always open
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={isPublic}
+                      onClick={() => togglePublic(r.id, isPublic)}
+                      className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${isPublic ? "bg-sky-600" : "bg-muted-foreground/30"}`}
+                    >
+                      <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all ${isPublic ? "left-[18px]" : "left-0.5"}`} />
+                    </button>
+                  </div>
+
                   <div className="mt-3 flex flex-wrap gap-2">
                     <Button size="sm" variant="outline" onClick={() => setQrRoomId(r.id)}>
                       <QrCode className="mr-1 h-3.5 w-3.5" /> QR
@@ -286,19 +382,12 @@ export function DemoRoomsPanel() {
                         <ExternalLink className="mr-1 h-3.5 w-3.5" /> Preview
                       </Link>
                     </Button>
-                    {r.checkin_code && (
+                    {!isPublic && r.checkin_code && (
                       <>
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={async () => {
-                            try {
-                              await navigator.clipboard.writeText(r.checkin_code!);
-                              toast.success(`Code ${r.checkin_code} copied`);
-                            } catch {
-                              toast.error("Couldn't copy");
-                            }
-                          }}
+                          onClick={() => void copyCode(r.checkin_code!)}
                         >
                           <Copy className="mr-1 h-3.5 w-3.5" /> Code
                         </Button>
@@ -317,18 +406,20 @@ export function DemoRoomsPanel() {
                         </Button>
                       </>
                     )}
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        if (r.occupancy_status === "occupied"
-                          && !confirm(`Check out ${formatRoomLabel(r.room_number)}?`)) return;
-                        demo.toggleRoomOccupancy(r.id);
-                        toast.message(r.occupancy_status === "occupied" ? "Checked out (demo)." : "Checked in (demo).");
-                      }}
-                    >
-                      {r.occupancy_status === "occupied" ? "Check out" : "Check in"}
-                    </Button>
+                    {!isPublic && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          if (r.occupancy_status === "occupied"
+                            && !confirm(`Check out ${formatRoomLabel(r.room_number)}?`)) return;
+                          demo.toggleRoomOccupancy(r.id);
+                          toast.message(r.occupancy_status === "occupied" ? "Checked out (demo)." : "Checked in (demo).");
+                        }}
+                      >
+                        {r.occupancy_status === "occupied" ? "Check out" : "Check in"}
+                      </Button>
+                    )}
                     <Button
                       size="sm"
                       variant="ghost"
@@ -370,7 +461,8 @@ export function DemoRoomsPanel() {
                     </div>
                   )}
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </>
@@ -888,7 +980,6 @@ export function DemoStaffPanel() {
   const [dept, setDept] = useState(ALL_DEPTS);
   const [role, setRole] = useState("staff");
   const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const demoLiveUrl = `${getPublicBaseUrl()}/demo`;
 
   const add = (e: React.FormEvent) => {
     e.preventDefault();
@@ -909,57 +1000,6 @@ export function DemoStaffPanel() {
 
   return (
     <div className="space-y-5">
-      <div className="rounded-2xl border border-sky-200/70 bg-sky-50/50 p-4">
-        <div className="flex items-start gap-3">
-          <Link2 className="mt-0.5 h-5 w-5 shrink-0 text-sky-700" />
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-sky-950">Live campaign view</p>
-            <p className="mt-1 text-xs leading-relaxed text-sky-900/85">
-              Read-only link for prospects to watch the request queue update as guests message a room QR —
-              no login, no edits. On a live property this is created from Staff; in the demo, share the guest
-              + ops sandbox links instead.
-            </p>
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <Input readOnly value={demoLiveUrl} className="h-9 min-w-[200px] flex-1 bg-white/80" />
-              <Button
-                size="sm"
-                variant="outline"
-                className="bg-white"
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(demoLiveUrl);
-                    toast.success("Demo hub link copied");
-                  } catch {
-                    toast.error("Couldn't copy");
-                  }
-                }}
-              >
-                <Copy className="mr-1 h-3.5 w-3.5" /> Copy
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="bg-white"
-                onClick={() => toast.message("Revoke / rotate are available on live Staff.")}
-              >
-                Revoke
-              </Button>
-            </div>
-            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-sky-900/70">
-              <span>Expires with the demo session</span>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-7 text-xs text-sky-800"
-                onClick={() => toast.message("Rotate creates a new live link on a signed-in property.")}
-              >
-                Rotate to a new link
-              </Button>
-            </div>
-          </div>
-        </div>
-      </div>
-
       <form onSubmit={add} className="flex flex-wrap items-end gap-3 rounded-2xl border bg-card p-4 shadow-sm">
         <div className="min-w-[140px]">
           <label className="mb-1 block text-xs text-muted-foreground">Name</label>

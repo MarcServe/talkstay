@@ -392,6 +392,7 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
                 const isPublic = !!r.is_public;
                 const needsCode = roomRequiresCheckinCode(r, requireCode);
                 const previewHref = tokens[r.id] ? guestUrl(hotel, r, tokens[r.id]) : null;
+                const showCode = !isPublic && needsCode && occupied && !!r.checkin_code;
                 return (
                   <div
                     key={r.id}
@@ -399,13 +400,45 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
                       isPublic ? "bg-sky-50/40" : ""
                     }`}
                   >
-                    <div className="min-w-[120px] flex-1">
+                    <div className="min-w-[110px] flex-1">
                       <div className="font-semibold tracking-tight">{formatRoomLabel(r.room_number)}</div>
                       <div className="text-xs text-muted-foreground">
                         {r.floor ? r.floor : "No floor / area"}
-                        {needsCode && occupied && r.checkin_code ? ` · ${r.checkin_code}` : ""}
                       </div>
                     </div>
+
+                    {showCode ? (
+                      <button
+                        type="button"
+                        onClick={() => copyCode(r)}
+                        title="Copy check-in code"
+                        className="inline-flex items-center gap-1.5 rounded-lg border bg-muted/40 px-2 py-1 font-mono text-sm tracking-widest hover:border-violet-300 hover:bg-violet-50/60"
+                      >
+                        {r.checkin_code}
+                        <Copy className="h-3.5 w-3.5 text-muted-foreground" />
+                      </button>
+                    ) : (
+                      <span className="w-[88px] shrink-0 text-center text-[10px] text-muted-foreground">
+                        {isPublic ? "No code" : "—"}
+                      </span>
+                    )}
+
+                    <label className="flex cursor-pointer items-center gap-2 rounded-lg border px-2 py-1.5 text-xs">
+                      <span className={isPublic ? "font-medium text-sky-800" : "text-muted-foreground"}>
+                        Public QR
+                      </span>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={isPublic}
+                        aria-label={`Public QR for ${formatRoomLabel(r.room_number)}`}
+                        onClick={() => togglePublic(r)}
+                        className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${isPublic ? "bg-sky-600" : "bg-muted-foreground/30"}`}
+                      >
+                        <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all ${isPublic ? "left-[18px]" : "left-0.5"}`} />
+                      </button>
+                    </label>
+
                     {isPublic ? (
                       <Badge variant="outline" className="border-sky-300 bg-sky-50 text-sky-800">Public QR</Badge>
                     ) : (

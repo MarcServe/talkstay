@@ -52,6 +52,8 @@ export type DemoRoom = {
   occupancy_status: "occupied" | "vacant";
   checkin_code: string | null;
   token: string;
+  /** Lobby / bar / shared space — no check-in code required. */
+  is_public?: boolean;
 };
 
 export type DemoStaff = {
@@ -524,6 +526,7 @@ export function createInitialDemoState(): DemoState {
   ];
 
   const rooms: DemoRoom[] = [
+    { id: "demo-room-lobby", room_number: "Lobby", floor: "Ground", occupancy_status: "vacant", checkin_code: null, token: "demo-tok-lobby", is_public: true },
     { id: "demo-room-105", room_number: "105", floor: "1", occupancy_status: "occupied", checkin_code: "K7M2PQ", token: "demo-tok-105" },
     { id: "demo-room-218", room_number: "218", floor: "2", occupancy_status: "occupied", checkin_code: "H4N9XR", token: "demo-tok-218" },
     { id: "demo-room-306", room_number: "306", floor: "3", occupancy_status: "occupied", checkin_code: "R3K8NW", token: "demo-tok-306" },
@@ -764,13 +767,7 @@ export function ackDemoPulse(state: DemoState, pulseId: string): DemoState {
 
 export function updateDemoBranding(
   state: DemoState,
-  patch: {
-    primary_color?: string;
-    tagline?: string;
-    logo_url?: string | null;
-    guest_bg_wash?: number;
-    property?: NonNullable<Hotel["branding"]>["property"];
-  },
+  patch: NonNullable<Hotel["branding"]>,
 ): DemoState {
   const prev = state.hotel.branding ?? {};
   return {
@@ -780,7 +777,10 @@ export function updateDemoBranding(
       branding: {
         ...prev,
         ...patch,
-        property: patch.property ? { ...(prev.property ?? {}), ...patch.property } : prev.property,
+        property: patch.property
+          ? { ...(prev.property ?? {}), ...patch.property }
+          : prev.property,
+        poster: patch.poster !== undefined ? patch.poster : prev.poster,
       },
     },
     version: state.version + 1,
@@ -837,8 +837,26 @@ export function addDemoRoom(state: DemoState, room_number: string, floor: string
     occupancy_status: "vacant",
     checkin_code: null,
     token: `demo-tok-${room_number}-${Date.now()}`,
+    is_public: false,
   };
   return { ...state, rooms: [...state.rooms, room], version: state.version + 1 };
+}
+
+export function setDemoRoomPublic(state: DemoState, roomId: string, isPublic: boolean): DemoState {
+  return {
+    ...state,
+    rooms: state.rooms.map((r) => {
+      if (r.id !== roomId) return r;
+      return {
+        ...r,
+        is_public: isPublic,
+        // Public areas don't use check-in codes.
+        checkin_code: isPublic ? null : r.checkin_code,
+        occupancy_status: isPublic ? "vacant" : r.occupancy_status,
+      };
+    }),
+    version: state.version + 1,
+  };
 }
 
 export function removeDemoRoom(state: DemoState, roomId: string): DemoState {
@@ -919,6 +937,18 @@ export function removeDemoKnowledge(state: DemoState, id: string): DemoState {
   return {
     ...state,
     knowledge: state.knowledge.filter((k) => k.id !== id),
+    version: state.version + 1,
+  };
+}
+
+export function updateDemoKnowledge(
+  state: DemoState,
+  id: string,
+  patch: Partial<Pick<DemoKnowledge, "title" | "preview" | "scope" | "department_key" | "kind">>,
+): DemoState {
+  return {
+    ...state,
+    knowledge: state.knowledge.map((k) => (k.id === id ? { ...k, ...patch } : k)),
     version: state.version + 1,
   };
 }
@@ -1210,6 +1240,10 @@ export function loadPersistedDemoState(): DemoState | null {
       ...k,
       scope: k.scope ?? (k.kind === "Website" ? "site" : "general"),
       department_key: k.department_key ?? null,
+    }));
+    parsed.rooms = (parsed.rooms ?? []).map((r: any) => ({
+      ...r,
+      is_public: !!r.is_public,
     }));
     return parsed;
   } catch {

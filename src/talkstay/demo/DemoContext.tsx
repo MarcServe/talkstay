@@ -38,9 +38,11 @@ import {
   removeDemoStaff,
   replyDemoRequest,
   setDemoRequireCheckinCode,
+  setDemoRoomPublic,
   toggleDemoDepartment,
   toggleDemoRoomOccupancy,
   updateDemoBranding,
+  updateDemoKnowledge,
   type DemoState,
 } from "@/talkstay/demo/demoStore";
 
@@ -56,16 +58,11 @@ export type DemoApi = {
   escalate: (requestId: string) => void;
   reply: (requestId: string, body: string) => void;
   ackPulse: (pulseId: string) => void;
-  updateBranding: (patch: {
-    primary_color?: string;
-    tagline?: string;
-    logo_url?: string | null;
-    guest_bg_wash?: number;
-    property?: NonNullable<Hotel["branding"]>["property"];
-  }) => void;
+  updateBranding: (patch: NonNullable<Hotel["branding"]>) => void;
   addRoom: (room_number: string, floor: string | null) => void;
   removeRoom: (roomId: string) => void;
   toggleRoomOccupancy: (roomId: string) => void;
+  setRoomPublic: (roomId: string, isPublic: boolean) => void;
   setRequireCheckinCode: (require: boolean) => void;
   regenerateCheckinCode: (roomId: string) => string | null;
   addStaff: (row: { name: string; email: string; department_key: string | null; role: string }) => void;
@@ -82,6 +79,10 @@ export type DemoApi = {
     opts?: { scope?: "site" | "general" | "department" | "room"; department_key?: string | null; kind?: string },
   ) => void;
   removeKnowledge: (id: string) => void;
+  updateKnowledge: (
+    id: string,
+    patch: Partial<{ title: string; preview: string; scope: "site" | "general" | "department" | "room"; department_key: string | null; kind: string }>,
+  ) => void;
   /** Guest demo → ops queue. Returns the new request id. */
   addGuestRequest: (input: { summary: string; department?: string }) => string;
   guestConfirm: (requestId: string) => void;
@@ -185,13 +186,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
   const ackPulse = useCallback((pulseId: string) => {
     setState((s) => ackDemoPulse(s, pulseId));
   }, []);
-  const updateBranding = useCallback((patch: {
-    primary_color?: string;
-    tagline?: string;
-    logo_url?: string | null;
-    guest_bg_wash?: number;
-    property?: NonNullable<Hotel["branding"]>["property"];
-  }) => {
+  const updateBranding = useCallback((patch: NonNullable<Hotel["branding"]>) => {
     setState((s) => updateDemoBranding(s, patch));
   }, []);
   const addRoom = useCallback((room_number: string, floor: string | null) => {
@@ -202,6 +197,9 @@ export function DemoProvider({ children }: { children: ReactNode }) {
   }, []);
   const toggleRoomOccupancy = useCallback((roomId: string) => {
     setState((s) => toggleDemoRoomOccupancy(s, roomId));
+  }, []);
+  const setRoomPublic = useCallback((roomId: string, isPublic: boolean) => {
+    setState((s) => setDemoRoomPublic(s, roomId, isPublic));
   }, []);
   const setRequireCheckinCode = useCallback((require: boolean) => {
     setState((s) => setDemoRequireCheckinCode(s, require));
@@ -242,6 +240,12 @@ export function DemoProvider({ children }: { children: ReactNode }) {
   }, []);
   const removeKnowledge = useCallback((id: string) => {
     setState((s) => removeDemoKnowledge(s, id));
+  }, []);
+  const updateKnowledge = useCallback((
+    id: string,
+    patch: Partial<{ title: string; preview: string; scope: "site" | "general" | "department" | "room"; department_key: string | null; kind: string }>,
+  ) => {
+    setState((s) => updateDemoKnowledge(s, id, patch));
   }, []);
   const addGuestRequest = useCallback((input: { summary: string; department?: string }) => {
     let id = "";
@@ -295,6 +299,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     addRoom,
     removeRoom,
     toggleRoomOccupancy,
+    setRoomPublic,
     setRequireCheckinCode,
     regenerateCheckinCode,
     addStaff,
@@ -304,6 +309,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     patchDepartment,
     addKnowledge,
     removeKnowledge,
+    updateKnowledge,
     addGuestRequest,
     guestConfirm,
     guestReopen,
@@ -316,9 +322,9 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     reset,
   }), [
     state, advance, escalate, reply, ackPulse, updateBranding,
-    addRoom, removeRoom, toggleRoomOccupancy, setRequireCheckinCode, regenerateCheckinCode,
+    addRoom, removeRoom, toggleRoomOccupancy, setRoomPublic, setRequireCheckinCode, regenerateCheckinCode,
     addStaff, removeStaff, assignStaffDepartment, toggleDepartment, patchDepartment,
-    addKnowledge, removeKnowledge, addGuestRequest,
+    addKnowledge, removeKnowledge, updateKnowledge, addGuestRequest,
     guestConfirm, guestReopen, guestCancel, guestNudge, guestUpdate, guestRate, guestPulse,
     reset,
   ]);

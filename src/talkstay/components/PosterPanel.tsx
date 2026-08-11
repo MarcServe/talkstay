@@ -14,6 +14,16 @@ import {
 import { getPublicBaseUrl } from "@/config/environment";
 import { listRooms, getRoomToken, friendlyImageName, POSTER_DEFAULTS, type Hotel, type HotelBranding, type PosterConfig, type Room } from "@/talkstay/lib/hotels";
 import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
+import { useDemo } from "@/talkstay/demo/DemoContext";
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("Couldn't read file"));
+    reader.readAsDataURL(file);
+  });
+}
 
 const FEATURE_ICONS = [UtensilsCrossed, BedDouble, Wrench, Info];
 const BADGE_ICONS = [ShieldCheck, Zap, Globe];
@@ -137,6 +147,7 @@ function PosterView({ p, hotelName, logo, qrUrl, accent, wrapId }: {
 }
 
 export default function PosterPanel({ hotel, onSaved }: { hotel: Hotel; onSaved?: (b: HotelBranding) => void }) {
+  const demo = useDemo();
   // Seed business_name from the hotel's own name so it's a sensible starting
   // point in the field; an explicitly saved value (even "") overrides it.
   const merged = { ...POSTER_DEFAULTS, business_name: hotel.name, ...(hotel.branding?.poster ?? {}) } as Required<PosterConfig>;
@@ -164,11 +175,17 @@ export default function PosterPanel({ hotel, onSaved }: { hotel: Hotel; onSaved?
   };
 
   useEffect(() => {
+    if (demo) {
+      const rs = demo.state.rooms as unknown as Room[];
+      setRooms(rs);
+      if (rs.length) setRoomId((prev) => prev || rs[0].id);
+      return;
+    }
     listRooms(hotel.id).then((rs) => {
       setRooms(rs);
       if (rs.length) setRoomId(rs[0].id);
     }).catch(() => {});
-  }, [hotel.id]);
+  }, [hotel.id, demo, demo?.state.rooms, demo?.version]);
 
   // Keep poster CSS in <head> so print can hide #root without killing the stylesheet.
   useEffect(() => {
@@ -186,10 +203,14 @@ export default function PosterPanel({ hotel, onSaved }: { hotel: Hotel; onSaved?
   useEffect(() => {
     const room = rooms.find((r) => r.id === roomId);
     if (!room) return;
+    if (demo) {
+      setQrUrl(`${getPublicBaseUrl()}/demo/guest?room=${encodeURIComponent(room.room_number)}`);
+      return;
+    }
     getRoomToken(room.id).then((token) => {
       if (token) setQrUrl(`${getPublicBaseUrl()}/h/${hotel.slug}/r/${room.id}?token=${token}`);
     }).catch(() => {});
-  }, [roomId, rooms, hotel.slug]);
+  }, [roomId, rooms, hotel.slug, demo]);
 
   // When a bulk print batch is ready in the DOM, fire the print dialog once.
   useEffect(() => {
@@ -240,6 +261,14 @@ export default function PosterPanel({ hotel, onSaved }: { hotel: Hotel; onSaved?
     try {
       const batch: { id: string; label: string; qrUrl: string }[] = [];
       for (const room of picks) {
+        if (demo) {
+          batch.push({
+            id: room.id,
+            label: formatRoomLabel(room.room_number),
+            qrUrl: `${getPublicBaseUrl()}/demo/guest?room=${encodeURIComponent(room.room_number)}`,
+          });
+          continue;
+        }
         const token = await getRoomToken(room.id);
         if (!token) {
           toast.warning(`No QR token for ${formatRoomLabel(room.room_number)} — skipped.`);
@@ -269,6 +298,12 @@ export default function PosterPanel({ hotel, onSaved }: { hotel: Hotel; onSaved?
     if (!file) return;
     setUploading(true);
     try {
+      if (demo) {
+        const dataUrl = await readFileAsDataUrl(file);
+        set("bg_image_url", dataUrl);
+        toast.success("Background image uploaded (demo).");
+        return;
+      }
       const path = `talkstay/${hotel.id}/poster-${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.\-]/g, "_")}`;
       const { error } = await supabase.storage.from("logos").upload(path, file, { upsert: true });
       if (error) throw error;
@@ -285,6 +320,13 @@ export default function PosterPanel({ hotel, onSaved }: { hotel: Hotel; onSaved?
   const save = async () => {
     setSaving(true);
     const branding: HotelBranding = { ...(hotel.branding ?? {}), poster: cfg };
+    if (demo) {
+      demo.updateBranding(branding);
+      setSaving(false);
+      onSaved?.(branding);
+      toast.success("Poster saved (demo).");
+      return;
+    }
     const { error } = await supabase.from("ts_hotels").update({ branding }).eq("id", hotel.id);
     setSaving(false);
     if (error) { toast.error(error.message); return; }

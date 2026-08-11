@@ -8,10 +8,10 @@ import {
 import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
 import OperationsPanel from "@/talkstay/components/OperationsPanel";
 import InsightsPanel from "@/talkstay/components/InsightsPanel";
+import BrandingPanel from "@/talkstay/components/BrandingPanel";
+import KnowledgePanel from "@/talkstay/components/KnowledgePanel";
 import {
-  DemoBrandingPanel,
   DemoDepartmentsPanel,
-  DemoKnowledgePanel,
   DemoRoomsPanel,
   DemoStaffPanel,
 } from "@/talkstay/components/DemoSetupPanels";
@@ -208,9 +208,14 @@ function DemoDashboard() {
             )}
             {active === "insights" && isAdmin && <InsightsPanel hotel={demo.hotel} />}
             {active === "rooms" && isAdmin && <DemoRoomsPanel />}
-            {active === "branding" && isAdmin && <DemoBrandingPanel />}
+            {active === "branding" && isAdmin && (
+              <BrandingPanel
+                hotel={demo.hotel}
+                onSaved={(b) => demo.updateBranding(b)}
+              />
+            )}
             {active === "departments" && isAdmin && <DemoDepartmentsPanel />}
-            {active === "knowledge" && isAdmin && <DemoKnowledgePanel />}
+            {active === "knowledge" && isAdmin && <KnowledgePanel hotel={demo.hotel} />}
             {active === "staff" && isAdmin && <DemoStaffPanel />}
           </div>
         </main>
