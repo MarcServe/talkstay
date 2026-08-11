@@ -12,7 +12,7 @@ import {
   Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle,
 } from "@/components/ui/sheet";
 import { toast } from "sonner";
-import { ArrowRightLeft, Loader2, MessageCircle, Send, UserRound } from "lucide-react";
+import { ArrowRightLeft, Loader2, MessageCircle, Send, UserRound, StickyNote } from "lucide-react";
 import { DEPARTMENTS } from "@/talkstay/lib/hotels";
 import { talkstayKeys, type RequestDetailData } from "@/talkstay/lib/data";
 import { useRequestDetail } from "@/talkstay/hooks/useTalkStayQueries";
@@ -23,6 +23,21 @@ import { useDemo } from "@/talkstay/demo/DemoContext";
 const deptLabel = (k: string) => DEPARTMENTS.find((d) => d.key === k)?.display_name ?? k;
 const fmtWhen = (iso: string) =>
   new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+
+/** Prefer the edge function's JSON error over Supabase's generic non-2xx toast. */
+async function edgeError(res: unknown, err: unknown, fallback: string) {
+  const bodyErr = (res as { error?: string } | null)?.error;
+  if (bodyErr) return bodyErr;
+  const anyErr = err as { message?: string; context?: Response } | null;
+  try {
+    if (anyErr?.context && typeof anyErr.context.json === "function") {
+      const j = await anyErr.context.json() as { error?: string };
+      if (j?.error) return String(j.error);
+    }
+  } catch { /* ignore */ }
+  if (anyErr?.message && !anyErr.message.includes("non-2xx")) return anyErr.message;
+  return fallback;
+}
 
 type HandlerRow = {
   id: string;
@@ -62,6 +77,7 @@ export default function RequestDetailSheet({
   const [forwardDept, setForwardDept] = useState("");
   const [forwardNote, setForwardNote] = useState("");
   const [forwardBusy, setForwardBusy] = useState(false);
+  const [teamAction, setTeamAction] = useState<"message" | "handler" | "forward" | null>("message");
 
   const latestHandler = useMemo(
     () => [...events].reverse().find((e) => e.status === "assigned")?.note ?? null,
@@ -76,6 +92,7 @@ export default function RequestDetailSheet({
       setHandlerName("");
       setForwardDept("");
       setForwardNote("");
+      setTeamAction("message");
     }
   }, [open, requestId]);
 
@@ -155,9 +172,8 @@ export default function RequestDetailSheet({
       },
     });
     setNoteBusy(false);
-    const invokeErr = (res as { error?: string } | null)?.error;
-    if (err || invokeErr) {
-      toast.error(invokeErr ?? err?.message ?? "Couldn't add note");
+    if (err || (res as { error?: string } | null)?.error) {
+      toast.error(await edgeError(res, err, "Couldn't add note"));
       return;
     }
     setTeamNote("");
@@ -194,9 +210,8 @@ export default function RequestDetailSheet({
       },
     });
     setAssignBusy(false);
-    const invokeErr = (res as { error?: string } | null)?.error;
-    if (err || invokeErr) {
-      toast.error(invokeErr ?? err?.message ?? "Couldn't assign");
+    if (err || (res as { error?: string } | null)?.error) {
+      toast.error(await edgeError(res, err, "Couldn't assign handler"));
       return;
     }
     setHandlerPick("");
@@ -228,9 +243,8 @@ export default function RequestDetailSheet({
       },
     });
     setForwardBusy(false);
-    const invokeErr = (res as { error?: string } | null)?.error;
-    if (err || invokeErr) {
-      toast.error(invokeErr ?? err?.message ?? "Couldn't forward");
+    if (err || (res as { error?: string } | null)?.error) {
+      toast.error(await edgeError(res, err, "Couldn't forward ticket"));
       return;
     }
     const to = forwardDept;
@@ -346,102 +360,160 @@ export default function RequestDetailSheet({
             </div>
 
             {isOpen && (
-              <section className="space-y-4 rounded-2xl border border-violet-200/70 bg-violet-50/40 p-4">
+              <section className="space-y-3 rounded-2xl border bg-card p-4 shadow-sm">
                 <div>
-                  <h3 className="text-sm font-semibold text-violet-950">Team coordination</h3>
-                  <p className="mt-0.5 text-xs text-violet-900/75">
-                    Internal only — guests don’t see these. Use notes to chase another team, mark who’s
-                    handling, or forward the ticket to the right department.
+                  <h3 className="text-sm font-semibold">Talk to your team (not the guest)</h3>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Pick one action below. Guests never see these — use “Reply to the guest” further down
+                    if you want to message the guest.
                   </p>
                 </div>
 
-                <div className="space-y-2">
-                  <label className="text-xs font-medium text-violet-950">Team note</label>
-                  <Textarea
-                    value={teamNote}
-                    onChange={(e) => setTeamNote(e.target.value)}
-                    rows={2}
-                    placeholder="e.g. Room called — please hurry breakfast, or message the guest you’re almost done"
-                    className="bg-white/90"
-                  />
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    disabled={noteBusy || !teamNote.trim()}
-                    onClick={() => void postTeamNote()}
-                  >
-                    {noteBusy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
-                    Post note to team
-                  </Button>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  {(
+                    [
+                      { key: "message" as const, label: "1. Send a note", hint: "Chase / update staff", Icon: StickyNote },
+                      { key: "handler" as const, label: "2. Who’s on it", hint: "Assign a person", Icon: UserRound },
+                      { key: "forward" as const, label: "3. Wrong team?", hint: "Move the ticket", Icon: ArrowRightLeft },
+                    ] as const
+                  ).map(({ key, label, hint, Icon }) => {
+                    const on = teamAction === key;
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => setTeamAction(on ? null : key)}
+                        className={`rounded-xl border px-3 py-2.5 text-left transition-colors ${
+                          on
+                            ? "border-violet-400 bg-violet-50 ring-2 ring-violet-500/20"
+                            : "bg-background hover:bg-muted/40"
+                        }`}
+                      >
+                        <div className="flex items-center gap-1.5 text-sm font-medium">
+                          <Icon className="h-3.5 w-3.5 shrink-0 text-violet-700" />
+                          {label}
+                        </div>
+                        <p className="mt-0.5 text-[11px] text-muted-foreground">{hint}</p>
+                      </button>
+                    );
+                  })}
                 </div>
 
-                <div className="space-y-2 border-t border-violet-200/60 pt-3">
-                  <label className="text-xs font-medium text-violet-950">Who’s handling</label>
-                  <Select
-                    value={handlerPick || "__none__"}
-                    onValueChange={(v) => {
-                      setHandlerPick(v === "__none__" ? "" : v);
-                      if (v !== "__none__") setHandlerName("");
-                    }}
-                  >
-                    <SelectTrigger className="bg-white/90"><SelectValue placeholder="Pick a teammate" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">Type a name instead…</SelectItem>
-                      {handlers.map((h) => (
-                        <SelectItem key={h.id} value={h.id}>
-                          {h.name}{h.department_key ? ` · ${deptLabel(h.department_key)}` : ""}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {!handlerPick && (
-                    <Input
-                      value={handlerName}
-                      onChange={(e) => setHandlerName(e.target.value)}
-                      placeholder="Or type a name…"
-                      className="bg-white/90"
+                {teamAction === "message" && (
+                  <div className="space-y-2 rounded-xl border border-violet-200/70 bg-violet-50/50 p-3">
+                    <p className="text-sm font-medium text-violet-950">Send an internal note</p>
+                    <p className="text-xs text-violet-900/80">
+                      Use this when reception or a manager needs to tell {deptLabel(req.department_key)} something
+                      about this order — for example that the guest called again, or to hurry up.
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Example: “Room called — please hurry breakfast, or message them you’re almost done.”
+                    </p>
+                    <Textarea
+                      value={teamNote}
+                      onChange={(e) => setTeamNote(e.target.value)}
+                      rows={3}
+                      placeholder="Write your message to the team…"
+                      className="bg-white"
                     />
-                  )}
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="border-teal-300 text-teal-900 hover:bg-teal-50"
-                    disabled={assignBusy || (!handlerPick && !handlerName.trim())}
-                    onClick={() => void markHandler()}
-                  >
-                    {assignBusy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <UserRound className="mr-1.5 h-3.5 w-3.5" />}
-                    Mark as handling
-                  </Button>
-                </div>
+                    <Button
+                      size="sm"
+                      className="bg-violet-600 hover:bg-violet-700"
+                      disabled={noteBusy || !teamNote.trim()}
+                      onClick={() => void postTeamNote()}
+                    >
+                      {noteBusy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <StickyNote className="mr-1.5 h-3.5 w-3.5" />}
+                      Send note to {deptLabel(req.department_key)}
+                    </Button>
+                  </div>
+                )}
 
-                <div className="space-y-2 border-t border-violet-200/60 pt-3">
-                  <label className="flex items-center gap-1.5 text-xs font-medium text-violet-950">
-                    <ArrowRightLeft className="h-3.5 w-3.5" /> Forward to department
-                  </label>
-                  <Select value={forwardDept || undefined} onValueChange={setForwardDept}>
-                    <SelectTrigger className="bg-white/90"><SelectValue placeholder="Choose team…" /></SelectTrigger>
-                    <SelectContent>
-                      {DEPARTMENTS.filter((d) => d.key !== req.department_key).map((d) => (
-                        <SelectItem key={d.key} value={d.key}>{d.display_name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Input
-                    value={forwardNote}
-                    onChange={(e) => setForwardNote(e.target.value)}
-                    placeholder="Optional handoff note…"
-                    className="bg-white/90"
-                  />
-                  <Button
-                    size="sm"
-                    className="bg-indigo-600 hover:bg-indigo-700"
-                    disabled={forwardBusy || !forwardDept}
-                    onClick={() => void forwardToDept()}
-                  >
-                    {forwardBusy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <ArrowRightLeft className="mr-1.5 h-3.5 w-3.5" />}
-                    Forward ticket
-                  </Button>
-                </div>
+                {teamAction === "handler" && (
+                  <div className="space-y-2 rounded-xl border border-teal-200/70 bg-teal-50/40 p-3">
+                    <p className="text-sm font-medium text-teal-950">Say who’s handling this</p>
+                    <p className="text-xs text-teal-900/80">
+                      So everyone knows who owns it — pick a teammate from the list, or type a name.
+                    </p>
+                    {latestHandler && (
+                      <p className="rounded-lg border border-teal-200 bg-white/80 px-2.5 py-1.5 text-xs text-teal-900">
+                        Currently: {latestHandler}
+                      </p>
+                    )}
+                    <Select
+                      value={handlerPick || undefined}
+                      onValueChange={(v) => {
+                        setHandlerPick(v);
+                        setHandlerName("");
+                      }}
+                    >
+                      <SelectTrigger className="bg-white"><SelectValue placeholder="Pick a teammate (optional)" /></SelectTrigger>
+                      <SelectContent>
+                        {handlers.map((h) => (
+                          <SelectItem key={h.id} value={h.id}>
+                            {h.name}{h.department_key ? ` · ${deptLabel(h.department_key)}` : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <div className="relative">
+                      <span className="mb-1 block text-[11px] text-muted-foreground">Or type a name</span>
+                      <Input
+                        value={handlerName}
+                        onChange={(e) => {
+                          setHandlerName(e.target.value);
+                          if (e.target.value.trim()) setHandlerPick("");
+                        }}
+                        placeholder="e.g. Mark"
+                        className="bg-white"
+                      />
+                    </div>
+                    <Button
+                      size="sm"
+                      className="bg-teal-700 hover:bg-teal-800"
+                      disabled={assignBusy || (!handlerPick && !handlerName.trim())}
+                      onClick={() => void markHandler()}
+                    >
+                      {assignBusy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <UserRound className="mr-1.5 h-3.5 w-3.5" />}
+                      Save who’s handling
+                    </Button>
+                  </div>
+                )}
+
+                {teamAction === "forward" && (
+                  <div className="space-y-2 rounded-xl border border-indigo-200/70 bg-indigo-50/40 p-3">
+                    <p className="text-sm font-medium text-indigo-950">Send this ticket to another department</p>
+                    <p className="text-xs text-indigo-900/80">
+                      Only if this request is with the wrong team. It leaves {deptLabel(req.department_key)} and
+                      appears on the new department’s Operations board (they get notified).
+                    </p>
+                    <Select value={forwardDept || undefined} onValueChange={setForwardDept}>
+                      <SelectTrigger className="bg-white"><SelectValue placeholder="Which department should handle it?" /></SelectTrigger>
+                      <SelectContent>
+                        {DEPARTMENTS.filter((d) => d.key !== req.department_key).map((d) => (
+                          <SelectItem key={d.key} value={d.key}>{d.display_name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Textarea
+                      value={forwardNote}
+                      onChange={(e) => setForwardNote(e.target.value)}
+                      rows={2}
+                      placeholder="Optional: why you’re sending it / what they need to know…"
+                      className="bg-white"
+                    />
+                    <Button
+                      size="sm"
+                      className="bg-indigo-600 hover:bg-indigo-700"
+                      disabled={forwardBusy || !forwardDept}
+                      onClick={() => void forwardToDept()}
+                    >
+                      {forwardBusy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <ArrowRightLeft className="mr-1.5 h-3.5 w-3.5" />}
+                      {forwardDept
+                        ? `Send to ${deptLabel(forwardDept)}`
+                        : "Send to department"}
+                    </Button>
+                  </div>
+                )}
               </section>
             )}
 
@@ -480,10 +552,10 @@ export default function RequestDetailSheet({
 
             <section>
               <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Guest messages ({messages.length})
+                Message the guest ({messages.length})
               </h3>
               <p className="mb-2 text-[11px] text-muted-foreground">
-                These go to the guest — use Team note above for staff-only messages.
+                This goes to the guest’s phone/app — not to staff. For staff-only notes, use step 1 above.
               </p>
               {messages.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No guest replies yet.</p>

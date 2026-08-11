@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import {
   Loader2, AlertTriangle, RefreshCw, MessageCircle, Send, Search,
   UtensilsCrossed, BedDouble, Wrench, Wine, Shirt, ConciergeBell, KeyRound, ShieldAlert,
-  ArrowDownRight, ArrowUpRight, Clock3, Phone,
+  ArrowDownRight, ArrowUpRight, Clock3, Phone, Bot,
 } from "lucide-react";
 import { DEPARTMENTS, type Hotel } from "@/talkstay/lib/hotels";
 import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
@@ -30,8 +30,28 @@ function channelLabel(source?: string | null) {
   if (source === "front_desk") return "Front desk";
   if (source === "repeat") return "Ask again";
   if (source === "pulse") return "Stay feedback";
-  return null; // guest_chat — default, no badge clutter
+  return null; // guest_chat / guest_app / null — guest badge below
 }
+
+const STAFF_LOG_SOURCES = new Set(["phone", "walk_in", "front_desk"]);
+
+/** Staff-logged phone / walk-in / front-desk orders. */
+function isStaffLogged(source?: string | null) {
+  return !!source && STAFF_LOG_SOURCES.has(source);
+}
+
+/** Guest room-assistant / chat / pulse / follow-up (everything that isn’t a staff log). */
+function isGuestOrigin(source?: string | null) {
+  return !isStaffLogged(source);
+}
+
+type OriginFilter = "all" | "guest" | "logged";
+
+const ORIGIN_LABEL: Record<OriginFilter, string> = {
+  all: "All origins",
+  guest: "Guest assistant",
+  logged: "Staff logged",
+};
 
 type Req = OpsRequest;
 
@@ -146,6 +166,7 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
   const [dept, setDept] = useState<string>(lockedDepartment ?? "all");
   // BI card drill-down (today / active / completed today / accepted today).
   const [boardFocus, setBoardFocus] = useState<BoardFocus>(null);
+  const [origin, setOrigin] = useState<OriginFilter>("all");
 
   // Keep queue filter in sync when demo "View as" (or real staff lock) changes.
   useEffect(() => {
@@ -335,16 +356,23 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
     return num.includes(roomQ) || label.includes(roomQ) || summary.includes(roomQ);
   };
 
+  const matchesOrigin = (r: Req, o: OriginFilter) => {
+    if (o === "all") return true;
+    if (o === "logged") return isStaffLogged(r.source);
+    return isGuestOrigin(r.source);
+  };
+
   const filtered = useMemo(
     () => reqs.filter((r) =>
       inDept(r)
       && inTime(r)
       && matchesFilter(r, filter)
       && matchesBoardFocus(r, boardFocus)
+      && matchesOrigin(r, origin)
       && matchesRoomSearch(r),
     ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [reqs, filter, dept, escalations, timeRange, boardFocus, ack, roomQuery]
+    [reqs, filter, dept, escalations, timeRange, boardFocus, ack, roomQuery, origin]
   );
 
   /** Room lookup ignores status pills so staff can find any open/closed ticket fast. */
@@ -372,6 +400,7 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
   const clearBoardFilters = (nextFilter: Filter = "active") => {
     setBoardFocus(null);
     setFilter(nextFilter);
+    setOrigin("all");
     if (!lockedDepartment) setDept("all");
   };
 
@@ -402,7 +431,7 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
 
   // Counts shown on each pill reflect the current department + time scope.
   const counts = useMemo(() => {
-    const scoped = reqs.filter((r) => inDept(r) && inTime(r));
+    const scoped = reqs.filter((r) => inDept(r) && inTime(r) && matchesOrigin(r, origin));
     return {
       all: scoped.length,
       new: scoped.filter((r) => matchesFilter(r, "new")).length,
@@ -411,7 +440,17 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
       followup: scoped.filter((r) => matchesFilter(r, "followup")).length,
     } as Record<Filter, number>;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reqs, dept, escalations, timeRange]);
+  }, [reqs, dept, escalations, timeRange, origin]);
+
+  const originCounts = useMemo(() => {
+    const scoped = reqs.filter((r) => inDept(r) && inTime(r) && matchesFilter(r, filter) && matchesBoardFocus(r, boardFocus));
+    return {
+      all: scoped.length,
+      guest: scoped.filter((r) => isGuestOrigin(r.source)).length,
+      logged: scoped.filter((r) => isStaffLogged(r.source)).length,
+    } as Record<OriginFilter, number>;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reqs, dept, filter, boardFocus, escalations, timeRange, ack]);
 
   // Day-of BI for the ops board — scoped to the watched department.
   const bi = useMemo(() => {
@@ -497,6 +536,9 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
             Room: r.ts_rooms?.room_number ?? "—",
             Department: deptLabel(r.department_key),
             Request: r.summary_staff || r.summary,
+            Channel: isStaffLogged(r.source)
+              ? (channelLabel(r.source) ?? "Staff logged")
+              : (channelLabel(r.source) ?? "Guest app"),
             Status: statusLabel(r.status),
             Priority: r.priority,
             Complaint: r.is_complaint ? "yes" : "",
@@ -599,6 +641,16 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
                             {statusLabel(r.status)}
                           </Badge>
                           <span className="text-xs text-muted-foreground">{deptLabel(r.department_key)}</span>
+                          {isStaffLogged(r.source) ? (
+                            <Badge variant="outline" className="border-sky-200 bg-sky-50 text-sky-800">
+                              <Phone className="mr-1 h-3 w-3" />{channelLabel(r.source) ?? "Staff logged"}
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-800">
+                              <Bot className="mr-1 h-3 w-3" />
+                              {channelLabel(r.source) ?? "Guest app"}
+                            </Badge>
+                          )}
                         </div>
                         <p className="mt-0.5 truncate text-xs text-muted-foreground">
                           {r.summary_staff || r.summary}
@@ -816,7 +868,7 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
               </button>
             );
           })}
-          {(boardFocus || (dept !== "all" && !lockedDepartment) || (!!lockedDepartment && !!onClearDepartmentLock)) && (
+          {(boardFocus || origin !== "all" || (dept !== "all" && !lockedDepartment) || (!!lockedDepartment && !!onClearDepartmentLock)) && (
             <button
               type="button"
               onClick={() => {
@@ -848,6 +900,29 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
               </button>
             ))}
           </div>
+          <div
+            className="flex rounded-lg border bg-background p-0.5"
+            title="Guest room-assistant requests vs phone / walk-in / front-desk logs"
+          >
+            {(["all", "guest", "logged"] as OriginFilter[]).map((o) => {
+              const on = origin === o;
+              return (
+                <button
+                  key={o}
+                  type="button"
+                  onClick={() => { setOrigin(o); setBoardFocus(null); }}
+                  className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors ${
+                    on ? "bg-violet-600 text-white" : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {o === "guest" && <Bot className={`h-3 w-3 ${on ? "text-white/90" : ""}`} />}
+                  {o === "logged" && <Phone className={`h-3 w-3 ${on ? "text-white/90" : ""}`} />}
+                  {ORIGIN_LABEL[o]}
+                  <span className={on ? "text-white/70" : "text-muted-foreground/70"}>{originCounts[o]}</span>
+                </button>
+              );
+            })}
+          </div>
           {lockedDepartment ? (
             onClearDepartmentLock ? (
               <button
@@ -867,6 +942,8 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
               className="rounded-md border bg-background px-2 py-1.5 text-sm"
               value={dept}
               onChange={(e) => { setDept(e.target.value); setBoardFocus(null); }}
+              title="Filter by department — works with Guest assistant / Staff logged"
+              aria-label="Filter by department"
             >
               <option value="all">All departments</option>
               {DEPARTMENTS.map((d) => <option key={d.key} value={d.key}>{d.display_name}</option>)}
@@ -908,7 +985,9 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
         <p className="py-10 text-center text-sm text-muted-foreground">
           {roomQ
             ? "No matching tickets in the filtered queue — see room results above, or clear search."
-            : "Nothing here right now."}
+            : origin !== "all"
+              ? `No ${ORIGIN_LABEL[origin].toLowerCase()} tickets here — try All origins or another department.`
+              : "Nothing here right now."}
         </p>
       ) : (
         <div className="grid gap-3">
@@ -937,9 +1016,14 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-semibold">{formatRoomLabel(r.ts_rooms?.room_number)}</span>
                       <Badge variant="secondary">{deptLabel(r.department_key)}</Badge>
-                      {channelLabel(r.source) && (
+                      {isStaffLogged(r.source) ? (
                         <Badge variant="outline" className="border-sky-200 bg-sky-50 text-sky-800">
-                          <Phone className="mr-1 h-3 w-3" />{channelLabel(r.source)}
+                          <Phone className="mr-1 h-3 w-3" />{channelLabel(r.source) ?? "Staff logged"}
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-800">
+                          <Bot className="mr-1 h-3 w-3" />
+                          {channelLabel(r.source) ?? "Guest app"}
                         </Badge>
                       )}
                       {r.is_complaint && (

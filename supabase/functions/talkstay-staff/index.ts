@@ -518,22 +518,27 @@ serve(async (req) => {
     // ------- list_handlers: active staff for "who's handling" picker -------
     if (action === "list_handlers") {
       const { data: rows, error } = await admin.from("ts_staff")
-        .select("id, name, email, department_key, role, user_id")
+        .select("id, name, department_key, role, user_id")
         .eq("hotel_id", hotelId)
         .eq("status", "active")
         .order("name", { ascending: true });
       if (error) return json({ error: error.message }, 400);
-      return json({
-        ok: true,
-        staff: (rows ?? []).map((s: any) => ({
+      const staff = await Promise.all((rows ?? []).map(async (s: any) => {
+        let email: string | null = null;
+        try {
+          const { data: u } = await admin.auth.admin.getUserById(s.user_id);
+          email = u?.user?.email ?? null;
+        } catch { /* ignore */ }
+        return {
           id: s.id,
-          name: s.name || s.email || "Staff",
-          email: s.email,
+          name: s.name || email || "Staff",
+          email,
           department_key: s.department_key,
           role: s.role,
           user_id: s.user_id,
-        })),
-      });
+        };
+      }));
+      return json({ ok: true, staff });
     }
 
     // ------- add_note: internal staff note (not shown to the guest) -------
@@ -591,10 +596,17 @@ serve(async (req) => {
       let assignedUserId: string | null = null;
       if (staffRowId) {
         const { data: s } = await admin.from("ts_staff")
-          .select("id, name, email, user_id")
+          .select("id, name, user_id")
           .eq("id", staffRowId).eq("hotel_id", hotelId).eq("status", "active").maybeSingle();
         if (!s) return json({ error: "Staff member not found" }, 404);
-        label = s.name || s.email || handlerName || "Staff";
+        let email: string | null = null;
+        if (!s.name && s.user_id) {
+          try {
+            const { data: u } = await admin.auth.admin.getUserById(s.user_id);
+            email = u?.user?.email ?? null;
+          } catch { /* ignore */ }
+        }
+        label = s.name || email || handlerName || "Staff";
         assignedUserId = s.user_id ?? null;
       }
       if (!label) return json({ error: "Pick a teammate or type a name." }, 400);
