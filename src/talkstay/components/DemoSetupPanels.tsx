@@ -23,7 +23,7 @@ export function DemoRoomsPanel() {
   const rooms = demo.state.rooms;
   const qrRoom = rooms.find((r) => r.id === qrRoomId) ?? null;
   const qrUrl = qrRoom
-    ? `${getPublicBaseUrl()}/demo?room=${encodeURIComponent(qrRoom.room_number)}`
+    ? `${getPublicBaseUrl()}/demo/guest`
     : "";
 
   const add = () => {

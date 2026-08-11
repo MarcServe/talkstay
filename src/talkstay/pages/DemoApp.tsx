@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import {
-  ArrowRight, BarChart3, BookOpen, Building2, Inbox, LogOut,
+  ArrowLeft, ArrowRight, BarChart3, BookOpen, Building2, Inbox, LogOut,
   Menu, Palette, PlayCircle, QrCode, RotateCcw, Users, X,
 } from "lucide-react";
 import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
@@ -18,34 +18,50 @@ import {
 import {
   DemoProvider, clearDemoEntered, hasEnteredDemo, markDemoEntered, useDemo,
 } from "@/talkstay/demo/DemoContext";
+import { DEPARTMENTS } from "@/talkstay/lib/hotels";
 
 const NAV = [
-  { key: "operations", label: "Operations", icon: Inbox, desc: "Work the live request queue — accept, start, complete, reply." },
-  { key: "insights", label: "Insights", icon: BarChart3, desc: "See volumes, departments, ratings and guest pulse." },
-  { key: "rooms", label: "Rooms & QR", icon: QrCode, desc: "Add rooms and print the QR code guests scan to reach you." },
-  { key: "branding", label: "Branding", icon: Palette, desc: "Your logo, colour and the printable in-room poster." },
-  { key: "departments", label: "Departments", icon: Building2, desc: "Teams, routing rules and per-department notifications." },
-  { key: "knowledge", label: "Knowledge", icon: BookOpen, desc: "What the assistant knows — website, documents and property info." },
-  { key: "staff", label: "Staff", icon: Users, desc: "Invite your team and manage their roles and access." },
+  { key: "operations", label: "Operations", icon: Inbox, desc: "Work the live request queue — accept, start, complete, reply.", adminOnly: false },
+  { key: "insights", label: "Insights", icon: BarChart3, desc: "See volumes, departments, ratings and guest pulse.", adminOnly: true },
+  { key: "rooms", label: "Rooms & QR", icon: QrCode, desc: "Add rooms and print the QR code guests scan to reach you.", adminOnly: true },
+  { key: "branding", label: "Branding", icon: Palette, desc: "Your logo, colour and the printable in-room poster.", adminOnly: true },
+  { key: "departments", label: "Departments", icon: Building2, desc: "Teams, routing rules and per-department notifications.", adminOnly: true },
+  { key: "knowledge", label: "Knowledge", icon: BookOpen, desc: "What the assistant knows — website, documents and property info.", adminOnly: true },
+  { key: "staff", label: "Staff", icon: Users, desc: "Invite your team and manage their roles and access.", adminOnly: true },
 ] as const;
 
 type NavKey = (typeof NAV)[number]["key"];
 
+type DemoRole =
+  | { kind: "owner" }
+  | { kind: "manager" }
+  | { kind: "staff"; department: string };
+
+const ROLE_OPTIONS: { id: string; label: string; role: DemoRole }[] = [
+  { id: "owner", label: "Owner (all departments)", role: { kind: "owner" } },
+  { id: "manager", label: "Manager (all departments)", role: { kind: "manager" } },
+  ...DEPARTMENTS.filter((d) => d.key !== "duty_manager").map((d) => ({
+    id: `staff-${d.key}`,
+    label: `${d.display_name} staff`,
+    role: { kind: "staff" as const, department: d.key },
+  })),
+];
+
 const STEPS = [
   {
     n: "1",
-    title: "Run the operations queue",
-    body: "Accept → Start → Complete a New request. Reply to the guest from the card.",
+    title: "Work the Operations queue",
+    body: "Accept → Start → Complete a request from Room 306. Reply to the guest from the card.",
   },
   {
     n: "2",
-    title: "Explore Insights",
-    body: "See how managers track volume, teams, ratings and guest pulse.",
+    title: "Switch to a department role",
+    body: "Housekeeping staff only see housekeeping tickets. Managers and owners see every department plus Insights.",
   },
   {
     n: "3",
-    title: "Set up the property",
-    body: "Open Rooms & QR, Branding, Departments, Knowledge and Staff — everything is unlocked.",
+    title: "Explore Insights & setup",
+    body: "As owner/manager: Insights, Rooms & QR, Branding, Departments, Knowledge and Staff.",
   },
   {
     n: "4",
@@ -58,33 +74,41 @@ function DemoGate({ onEnter }: { onEnter: () => void }) {
   return (
     <div data-talkstay className="ts-atmosphere min-h-screen text-foreground">
       <header className="mx-auto flex max-w-3xl items-center justify-between px-6 py-5">
-        <Link to="/" className="flex items-center gap-2.5 transition-opacity hover:opacity-80">
+        <Link to="/demo" className="flex items-center gap-2.5 transition-opacity hover:opacity-80">
           <TalkStayLogo size={28} />
           <span className="text-lg font-semibold tracking-tight">TalkStay</span>
         </Link>
         <Button asChild variant="ghost" size="sm">
-          <Link to="/app">Property sign in</Link>
+          <Link to="/demo/guest">Guest demo</Link>
         </Button>
       </header>
 
       <main className="mx-auto max-w-3xl px-6 pb-16">
-        <div className="rounded-3xl border bg-gradient-to-b from-violet-50 to-white p-6 shadow-sm sm:p-10">
-          <p className="inline-flex items-center gap-1.5 rounded-full bg-violet-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-violet-700">
+        <div className="rounded-3xl border bg-gradient-to-b from-teal-50 to-white p-6 shadow-sm sm:p-10">
+          <p className="inline-flex items-center gap-1.5 rounded-full bg-teal-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-teal-800">
             <PlayCircle className="h-3.5 w-3.5" />
-            Interactive demo · no signup
+            Operations dashboard demo · no signup
           </p>
           <h1 className="mt-4 text-3xl font-bold tracking-tight sm:text-4xl">
-            Explore the full TalkStay dashboard.
+            See how hotel staff run TalkStay.
           </h1>
           <p className="mt-3 text-muted-foreground">
-            A sandbox of The Grand Hotel II — Operations, Insights, Rooms, Branding, Departments,
-            Knowledge and Staff. Changes stay on your device only.
+            Incoming requests, department routing, status changes, guest confirmation and Insights —
+            on a sandbox of The Grand Hotel II. Changes stay on your device only.
           </p>
+
+          <div className="mt-5 rounded-xl border border-teal-200/80 bg-white/80 px-4 py-3 text-sm text-muted-foreground">
+            <p className="font-medium text-foreground">Department dashboards by role</p>
+            <p className="mt-1">
+              Owners and managers allocate staff to a department. Each staff member then gets their
+              own queue — not a shared inbox. Try switching roles after you enter.
+            </p>
+          </div>
 
           <ol className="mt-8 space-y-4">
             {STEPS.map((s) => (
               <li key={s.n} className="flex gap-3">
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-violet-600 text-sm font-bold text-white">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-teal-700 text-sm font-bold text-white">
                   {s.n}
                 </span>
                 <div>
@@ -96,42 +120,55 @@ function DemoGate({ onEnter }: { onEnter: () => void }) {
           </ol>
 
           <div className="mt-8 flex flex-wrap gap-3">
-            <Button size="lg" className="bg-violet-600 hover:bg-violet-700" onClick={onEnter}>
-              Enter demo <ArrowRight className="ml-1.5 h-4 w-4" />
+            <Button size="lg" className="bg-teal-700 hover:bg-teal-800" onClick={onEnter}>
+              Enter operations demo <ArrowRight className="ml-1.5 h-4 w-4" />
             </Button>
             <Button asChild size="lg" variant="outline">
-              <Link to="/app">Create a real account</Link>
+              <Link to="/demo">All demos</Link>
             </Button>
           </div>
-
-          <p className="mt-5 text-xs text-muted-foreground">
-            Campaign tip: share <span className="font-medium text-foreground">/demo</span> —
-            no password, works on phone or desktop.
-          </p>
         </div>
       </main>
     </div>
   );
 }
 
+function roleLabel(role: DemoRole): string {
+  if (role.kind === "owner") return "Owner · all departments";
+  if (role.kind === "manager") return "Manager · all departments";
+  const dept = DEPARTMENTS.find((d) => d.key === role.department)?.display_name ?? role.department;
+  return `${dept} staff · department queue only`;
+}
+
 function DemoDashboard() {
   const demo = useDemo()!;
+  const navigate = useNavigate();
   const [active, setActive] = useState<NavKey>("operations");
   const [navOpen, setNavOpen] = useState(false);
   const [guideOpen, setGuideOpen] = useState(true);
+  const [roleId, setRoleId] = useState("owner");
 
-  const activeNav = NAV.find((n) => n.key === active)!;
+  const demoRole = ROLE_OPTIONS.find((r) => r.id === roleId)?.role ?? { kind: "owner" as const };
+  const isAdmin = demoRole.kind === "owner" || demoRole.kind === "manager";
+  const lockedDepartment = demoRole.kind === "staff" ? demoRole.department : null;
+  const visibleNav = NAV.filter((n) => isAdmin || !n.adminOnly);
+  const activeNav = visibleNav.find((n) => n.key === active) ?? visibleNav[0];
+
+  useEffect(() => {
+    if (!isAdmin && active !== "operations") setActive("operations");
+  }, [isAdmin, active]);
+
   const go = (k: NavKey) => { setActive(k); setNavOpen(false); };
 
   const exit = () => {
     clearDemoEntered();
-    window.location.href = "/";
+    navigate("/demo");
   };
 
   const SidebarBody = (
     <div className="flex h-full flex-col bg-[#15111f] text-white/70">
       <div className="flex items-center justify-between px-5 py-4">
-        <Link to="/" className="flex min-w-0 items-center gap-2.5 transition-opacity hover:opacity-80">
+        <Link to="/demo" className="flex min-w-0 items-center gap-2.5 transition-opacity hover:opacity-80">
           <TalkStayLogo size={30} />
           <div className="min-w-0 font-semibold tracking-tight text-white">TalkStay</div>
         </Link>
@@ -140,14 +177,26 @@ function DemoDashboard() {
         </button>
       </div>
 
-      <div className="mx-3 mb-2 rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-2.5">
+      <div className="mx-3 mb-2 space-y-2 rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-2.5">
         <div className="text-xs font-semibold uppercase tracking-wide text-amber-200">Demo mode</div>
-        <div className="mt-0.5 truncate text-sm font-medium text-white">{demo.hotel.name}</div>
-        <div className="text-xs text-white/50">Owner · changes not saved</div>
+        <div className="truncate text-sm font-medium text-white">{demo.hotel.name}</div>
+        <label className="block text-[11px] text-white/50">
+          View as
+          <select
+            className="mt-1 w-full rounded-md border border-white/15 bg-[#1c1628] px-2 py-1.5 text-xs text-white"
+            value={roleId}
+            onChange={(e) => setRoleId(e.target.value)}
+          >
+            {ROLE_OPTIONS.map((o) => (
+              <option key={o.id} value={o.id}>{o.label}</option>
+            ))}
+          </select>
+        </label>
+        <p className="text-[11px] leading-snug text-white/45">{roleLabel(demoRole)}</p>
       </div>
 
       <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3">
-        {NAV.map(({ key, label, icon: Icon }) => (
+        {visibleNav.map(({ key, label, icon: Icon }) => (
           <button
             key={key}
             onClick={() => go(key)}
@@ -168,6 +217,12 @@ function DemoDashboard() {
         >
           <RotateCcw className="h-4 w-4" /> Reset demo data
         </button>
+        <Link
+          to="/demo/guest"
+          className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-white/60 hover:bg-white/5 hover:text-white"
+        >
+          <ArrowLeft className="h-4 w-4" /> Guest experience
+        </Link>
         <div className="flex items-center gap-2.5 rounded-lg px-3 py-2">
           <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-violet-600/30 text-xs font-semibold text-violet-200">
             A
@@ -208,18 +263,19 @@ function DemoDashboard() {
         <main className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-8">
           <div className="mx-auto min-w-0 max-w-5xl">
             {guideOpen && (
-              <div className="mb-5 rounded-2xl border border-violet-200 bg-violet-50 px-4 py-3 sm:px-5">
+              <div className="mb-5 rounded-2xl border border-teal-200 bg-teal-50 px-4 py-3 sm:px-5">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className="text-sm font-semibold text-violet-900">How to explore</p>
-                    <p className="mt-1 text-sm text-violet-800/80">
-                      Every section is open. Try Operations first, then Rooms, Branding, Departments,
-                      Knowledge and Staff. Reset anytime from the sidebar.
+                    <p className="text-sm font-semibold text-teal-950">How staff dashboards work</p>
+                    <p className="mt-1 text-sm text-teal-900/80">
+                      Owners/managers invite people and assign a department. Staff only see their
+                      team's queue; managers see everything plus Insights. Use <strong>View as</strong> in
+                      the sidebar to try each role.
                     </p>
                   </div>
                   <button
                     type="button"
-                    className="shrink-0 rounded-lg p-1 text-violet-500 hover:bg-violet-100"
+                    className="shrink-0 rounded-lg p-1 text-teal-600 hover:bg-teal-100"
                     onClick={() => setGuideOpen(false)}
                     aria-label="Dismiss guide"
                   >
@@ -232,15 +288,22 @@ function DemoDashboard() {
             <div className="mb-6 min-w-0">
               <h1 className="text-2xl font-bold tracking-tight">{activeNav.label}</h1>
               <p className="mt-1 text-sm text-muted-foreground">{activeNav.desc}</p>
+              {!isAdmin && (
+                <p className="mt-2 text-xs text-amber-800">
+                  Viewing as department staff — Insights and setup tabs are hidden, matching a real invite.
+                </p>
+              )}
             </div>
 
-            {active === "operations" && <OperationsPanel hotel={demo.hotel} />}
-            {active === "insights" && <InsightsPanel hotel={demo.hotel} />}
-            {active === "rooms" && <DemoRoomsPanel />}
-            {active === "branding" && <DemoBrandingPanel />}
-            {active === "departments" && <DemoDepartmentsPanel />}
-            {active === "knowledge" && <DemoKnowledgePanel />}
-            {active === "staff" && <DemoStaffPanel />}
+            {active === "operations" && (
+              <OperationsPanel hotel={demo.hotel} lockedDepartment={lockedDepartment} />
+            )}
+            {active === "insights" && isAdmin && <InsightsPanel hotel={demo.hotel} />}
+            {active === "rooms" && isAdmin && <DemoRoomsPanel />}
+            {active === "branding" && isAdmin && <DemoBrandingPanel />}
+            {active === "departments" && isAdmin && <DemoDepartmentsPanel />}
+            {active === "knowledge" && isAdmin && <DemoKnowledgePanel />}
+            {active === "staff" && isAdmin && <DemoStaffPanel />}
           </div>
         </main>
       </div>
@@ -273,6 +336,7 @@ function DemoShell() {
   );
 }
 
+/** Staff operations sandbox — routed at /demo/operations */
 export default function DemoApp() {
   return <DemoShell />;
 }

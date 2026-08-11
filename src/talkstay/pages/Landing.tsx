@@ -221,7 +221,7 @@ function Hero({ signedIn }: { signedIn: boolean }) {
             </Button>
             {!signedIn && (
               <Button asChild size="lg" variant="outline">
-                <Link to="/demo">Try demo — no signup</Link>
+                <Link to="/demo">Experience TalkStay — no signup</Link>
               </Button>
             )}
             <Button asChild size="lg" variant="outline">
@@ -465,17 +465,38 @@ export default function Landing() {
           />
         </section>
 
-        {/* Product demo — plays only while this section is on screen. */}
+        {/* Product demo — video + interactive hub CTAs. */}
         <section id="demo" className="mx-auto mt-20 max-w-6xl px-6 sm:mt-28">
           <div className="text-center">
             <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">See TalkStay in action</h2>
             <p className="mx-auto mt-3 max-w-xl text-sm text-muted-foreground">
-              Scroll to watch. The video pauses when you leave this section — unmute anytime with the control.
+              Watch a short overview, then try the interactive demos — guest phone experience or the staff operations dashboard.
             </p>
           </div>
           <div className="mx-auto mt-10 max-w-4xl">
             <DemoVideo videoId={DEMO_VIDEO_ID} />
           </div>
+          <div className="mx-auto mt-8 grid max-w-2xl gap-3 sm:grid-cols-2">
+            <Link
+              to="/demo/guest"
+              className="rounded-2xl border border-violet-200 bg-violet-50/80 px-5 py-4 text-left transition hover:border-violet-400 hover:bg-violet-50"
+            >
+              <p className="text-sm font-semibold text-violet-950">Guest Experience</p>
+              <p className="mt-1 text-xs text-violet-900/75">Ask, request, track — like after scanning a room QR.</p>
+            </Link>
+            <Link
+              to="/demo/operations"
+              className="rounded-2xl border border-teal-200 bg-teal-50/80 px-5 py-4 text-left transition hover:border-teal-400 hover:bg-teal-50"
+            >
+              <p className="text-sm font-semibold text-teal-950">Operations Dashboard</p>
+              <p className="mt-1 text-xs text-teal-900/75">Routing, departments, status, Insights — by staff role.</p>
+            </Link>
+          </div>
+          <p className="mt-4 text-center text-sm">
+            <Link to="/demo" className="font-medium text-violet-700 underline-offset-2 hover:underline">
+              Or open the Experience TalkStay hub
+            </Link>
+          </p>
         </section>
 
         {/* Old way vs TalkStay — colour + icon, full explanations kept. */}

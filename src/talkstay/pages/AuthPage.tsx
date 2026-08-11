@@ -624,7 +624,7 @@ export default function AuthPage() {
           to="/demo"
           className="mt-1.5 inline-flex items-center gap-1 text-sm font-semibold text-violet-300 hover:text-violet-200"
         >
-          Try the interactive demo <span aria-hidden>→</span>
+          Try the Experience TalkStay demos <span aria-hidden>→</span>
         </Link>
       </div>
 

@@ -10,7 +10,9 @@ import Landing from "@/talkstay/pages/Landing";
 // Lazy-loaded surfaces (built out across phases)
 const GuestApp = lazy(() => import("@/talkstay/pages/GuestApp"));
 const HotelApp = lazy(() => import("@/talkstay/pages/HotelApp"));
+const DemoHub = lazy(() => import("@/talkstay/pages/DemoHub"));
 const DemoApp = lazy(() => import("@/talkstay/pages/DemoApp"));
+const DemoGuestApp = lazy(() => import("@/talkstay/pages/DemoGuestApp"));
 const LiveView = lazy(() => import("@/talkstay/pages/LiveView"));
 const TalkStayAdminApp = lazy(() => import("@/talkstay/admin/TalkStayAdminApp"));
 const NotFound = lazy(() => import("@/talkstay/pages/NotFound"));
@@ -51,9 +53,12 @@ const App = () => (
               {/* Hotel staff + admin (auth-gated inside) */}
               <Route path="/app/*" element={<HotelApp />} />
 
-              {/* Marketing sandbox — no auth, no Supabase writes */}
-              <Route path="/demo" element={<DemoApp />} />
-              <Route path="/demo/*" element={<DemoApp />} />
+              {/* Marketing demos — hub + guest + staff operations */}
+              <Route path="/demo" element={<DemoHub />} />
+              <Route path="/demo/guest" element={<DemoGuestApp />} />
+              <Route path="/demo/operations" element={<DemoApp />} />
+              {/* Back-compat aliases from older campaign links */}
+              <Route path="/demo/*" element={<DemoHub />} />
 
               {/* Read-only live ops share — token-gated, no signup */}
               <Route path="/live/:token" element={<LiveView />} />
