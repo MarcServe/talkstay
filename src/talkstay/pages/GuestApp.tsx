@@ -1418,7 +1418,7 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
           <Button variant="ghost" size="icon" onClick={onClose}><X className="h-5 w-5" /></Button>
         </div>
         <p className="mb-4 text-xs text-muted-foreground">
-          Track open and completed asks. You can remind, update, or cancel anything still in progress — cancelled requests are removed.
+          Track open and completed asks. You can remind, update, or cancel anything still in progress.
         </p>
         {reqs === null ? (
           <div className="flex items-center gap-2 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</div>

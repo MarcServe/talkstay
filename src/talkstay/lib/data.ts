@@ -89,14 +89,27 @@ export interface OpsRequest {
 export interface OpsQueueData {
   requests: OpsRequest[];
   ack: Record<string, { by: string; at: string }>;
-  escalations: Record<string, { note: string | null; at: string }>;
+  escalations: Record<string, { note: string | null; at: string; kind?: GuestSignalKind }>;
   /** Latest "who's handling" mark from assigned events. */
   handlers: Record<string, { by: string; at: string }>;
   /** Latest internal team note preview. */
   notes: Record<string, { note: string; at: string }>;
   /** Escalation events (for chime dedupe by event id). */
-  escalationEvents: { id: string; request_id: string; note: string | null }[];
+  escalationEvents: { id: string; request_id: string; note: string | null; kind?: GuestSignalKind }[];
   fetchedAt: number;
+}
+
+export type GuestSignalKind = "remind" | "update" | "cancel" | "followup";
+
+function guestSignalKind(status: string, note: string | null): GuestSignalKind {
+  if (status === "guest_updated" || status === "updated") return "update";
+  if (status === "guest_reminded") return "remind";
+  if (status === "guest_cancelled") return "cancel";
+  const n = (note ?? "").toLowerCase();
+  if (n.includes("updated")) return "update";
+  if (n.includes("remind") || n.includes("still waiting")) return "remind";
+  if (n.includes("cancel")) return "cancel";
+  return "followup";
 }
 
 const OPS_SELECT_FULL =
@@ -160,7 +173,10 @@ export async function fetchOpsQueue(hotelId: string, timeRange: OpsTimeRange): P
     "request_id",
     ids,
     { column: "created_at", ascending: false },
-    (q) => q.in("status", ["accepted", "escalated", "assigned", "staff_note", "forwarded"]),
+    (q) => q.in("status", [
+      "accepted", "escalated", "assigned", "staff_note", "forwarded",
+      "guest_updated", "guest_reminded", "guest_cancelled", "updated",
+    ]),
   );
 
   const ack: OpsQueueData["ack"] = {};
@@ -172,14 +188,20 @@ export async function fetchOpsQueue(hotelId: string, timeRange: OpsTimeRange): P
     if (e.status === "accepted" && !ack[e.request_id]) {
       ack[e.request_id] = { by: e.note || "staff", at: e.created_at };
     }
-    if (e.status === "escalated") {
-      escalationEvents.push({ id: e.id, request_id: e.request_id, note: e.note });
+    if (
+      e.status === "escalated"
+      || e.status === "guest_updated"
+      || e.status === "guest_reminded"
+      || e.status === "guest_cancelled"
+      || e.status === "updated"
+    ) {
+      const kind = guestSignalKind(e.status, e.note);
+      escalationEvents.push({ id: e.id, request_id: e.request_id, note: e.note, kind });
       if (!escalations[e.request_id]) {
-        escalations[e.request_id] = { note: e.note, at: e.created_at };
+        escalations[e.request_id] = { note: e.note, at: e.created_at, kind };
       }
     }
     if (e.status === "assigned" && !handlers[e.request_id]) {
-      // note like "Alex marked Sara as handling" — show full note on queue
       handlers[e.request_id] = { by: e.note || "staff", at: e.created_at };
     }
     if (e.status === "staff_note" && !notes[e.request_id]) {

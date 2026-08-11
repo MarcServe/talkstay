@@ -1033,7 +1033,23 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
                       {overdue && <Badge className="border border-rose-200 bg-rose-100 text-rose-800">Overdue</Badge>}
                       {r.needs_triage && <Badge className="border border-amber-200 bg-amber-100 text-amber-900">Check routing</Badge>}
                       {escalation && (
-                        <Badge className="border border-rose-200 bg-rose-100 text-rose-800"><MessageCircle className="mr-1 h-3 w-3" />Follow-up</Badge>
+                        <Badge className={`border ${
+                          escalation.kind === "update"
+                            ? "border-amber-200 bg-amber-100 text-amber-950"
+                            : escalation.kind === "cancel"
+                              ? "border-slate-300 bg-slate-100 text-slate-800"
+                              : "border-rose-200 bg-rose-100 text-rose-800"
+                        }`}
+                        >
+                          <MessageCircle className="mr-1 h-3 w-3" />
+                          {escalation.kind === "update"
+                            ? "Guest updated"
+                            : escalation.kind === "remind"
+                              ? "Guest reminded"
+                              : escalation.kind === "cancel"
+                                ? "Guest cancelled"
+                                : "Follow-up"}
+                        </Badge>
                       )}
                     </div>
                     <p className="mt-1 break-words text-sm">{r.summary_staff || r.summary}</p>
@@ -1066,10 +1082,25 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
                       setBoardFocus(null);
                       setSelectedId(r.id);
                     }}
-                    className="mt-2 block w-full break-words rounded-lg border border-rose-200 bg-rose-50/80 px-3 py-2 text-left text-xs font-medium text-rose-800 transition-colors hover:bg-rose-100"
+                    className={`mt-2 block w-full break-words rounded-lg border px-3 py-2 text-left text-xs font-medium transition-colors ${
+                      escalation.kind === "update"
+                        ? "border-amber-300 bg-amber-50 text-amber-950 hover:bg-amber-100"
+                        : escalation.kind === "cancel"
+                          ? "border-slate-300 bg-slate-50 text-slate-800 hover:bg-slate-100"
+                          : "border-rose-200 bg-rose-50/80 text-rose-800 hover:bg-rose-100"
+                    }`}
                   >
-                    ⚠ Guest followed up{escalation.note ? ` — "${escalation.note}"` : ""} · {timeAgo(escalation.at)}
-                    <span className="ml-1 font-semibold text-rose-700">· Open to respond</span>
+                    {escalation.kind === "update"
+                      ? "✏️ Guest updated their order"
+                      : escalation.kind === "remind"
+                        ? "⏰ Guest reminded you — still waiting"
+                        : escalation.kind === "cancel"
+                          ? "✕ Guest cancelled this order"
+                          : "⚠ Guest followed up"}
+                    {escalation.note ? ` — "${escalation.note}"` : ""}
+                    {" · "}
+                    {timeAgo(escalation.at)}
+                    <span className="ml-1 font-semibold opacity-90">· Open to respond</span>
                   </button>
                 )}
                 <div className="mt-3 flex flex-wrap items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>

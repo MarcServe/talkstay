@@ -67,7 +67,16 @@ export default function StaffAlertsHost({
       if (fresh.length) {
         const e0 = fresh[0];
         const r0 = list.find((r) => r.id === e0.request_id);
-        const title = `Guest followed up · ${formatRoomLabel(r0?.ts_rooms?.room_number)}`;
+        const kind = e0.kind
+          ?? (e0.note?.toLowerCase().includes("updated") ? "update"
+            : e0.note?.toLowerCase().includes("remind") || e0.note?.toLowerCase().includes("waiting") ? "remind"
+              : e0.note?.toLowerCase().includes("cancel") ? "cancel"
+                : "followup");
+        const title =
+          kind === "update" ? `Guest updated order · ${formatRoomLabel(r0?.ts_rooms?.room_number)}`
+          : kind === "remind" ? `Guest reminded you · ${formatRoomLabel(r0?.ts_rooms?.room_number)}`
+          : kind === "cancel" ? `Guest cancelled · ${formatRoomLabel(r0?.ts_rooms?.room_number)}`
+          : `Guest followed up · ${formatRoomLabel(r0?.ts_rooms?.room_number)}`;
         const body = e0.note || r0?.summary_staff || r0?.summary || "A guest needs attention.";
         void alertIncoming({
           title,

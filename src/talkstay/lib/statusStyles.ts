@@ -15,7 +15,10 @@ export type RequestStatus =
   | "cancelled"
   | "staff_note"
   | "forwarded"
-  | "assigned";
+  | "assigned"
+  | "guest_updated"
+  | "guest_reminded"
+  | "guest_cancelled";
 
 type StatusTone = {
   label: string;
@@ -122,6 +125,27 @@ export const REQUEST_STATUS: Record<RequestStatus, StatusTone> = {
     card: "border-teal-200/50 bg-teal-100/30 border-l-[3px] border-l-teal-500",
     dot: "bg-teal-500",
     accent: "bg-teal-500",
+  },
+  guest_updated: {
+    label: "Guest updated order",
+    badge: "border border-amber-200/70 bg-amber-100/70 text-amber-950 backdrop-blur-sm",
+    card: "border-amber-200/50 bg-amber-100/35 border-l-[3px] border-l-amber-500",
+    dot: "bg-amber-500",
+    accent: "bg-amber-500",
+  },
+  guest_reminded: {
+    label: "Guest reminded you",
+    badge: "border border-rose-200/70 bg-rose-100/70 text-rose-800 backdrop-blur-sm",
+    card: "border-rose-200/50 bg-rose-100/35 border-l-[3px] border-l-rose-500",
+    dot: "bg-rose-500",
+    accent: "bg-rose-500",
+  },
+  guest_cancelled: {
+    label: "Guest cancelled",
+    badge: "border border-slate-300/70 bg-slate-100/70 text-slate-700 backdrop-blur-sm",
+    card: "border-slate-300/50 bg-slate-100/40 border-l-[3px] border-l-slate-500",
+    dot: "bg-slate-500",
+    accent: "bg-slate-500",
   },
 };
 

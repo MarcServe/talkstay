@@ -84,6 +84,23 @@ export default function RequestDetailSheet({
     [events],
   );
 
+  const guestSignal = useMemo(() => {
+    const e = [...events].reverse().find((ev) =>
+      ["guest_updated", "guest_reminded", "guest_cancelled", "updated"].includes(ev.status)
+      || (ev.status === "escalated" && ev.actor_type === "guest")
+    );
+    if (!e) return null;
+    const kind =
+      e.status === "guest_updated" || e.status === "updated" || (e.note ?? "").toLowerCase().includes("updated")
+        ? "update"
+        : e.status === "guest_reminded" || (e.note ?? "").toLowerCase().includes("remind") || (e.note ?? "").toLowerCase().includes("waiting")
+          ? "remind"
+          : e.status === "guest_cancelled" || (e.note ?? "").toLowerCase().includes("cancel")
+            ? "cancel"
+            : "followup";
+    return { kind, note: e.note, at: e.created_at };
+  }, [events]);
+
   useEffect(() => {
     if (!open) {
       setReply("");
@@ -338,6 +355,27 @@ export default function RequestDetailSheet({
               )}
               {req.intent && <Badge variant="secondary">{req.intent}</Badge>}
             </div>
+
+            {guestSignal && (
+              <div
+                className={`rounded-xl border px-3 py-2.5 text-sm font-medium ${
+                  guestSignal.kind === "update"
+                    ? "border-amber-300 bg-amber-50 text-amber-950"
+                    : guestSignal.kind === "cancel"
+                      ? "border-slate-300 bg-slate-50 text-slate-800"
+                      : "border-rose-200 bg-rose-50 text-rose-900"
+                }`}
+              >
+                {guestSignal.kind === "update"
+                  ? "✏️ Guest updated their order"
+                  : guestSignal.kind === "remind"
+                    ? "⏰ Guest reminded you — still waiting"
+                    : guestSignal.kind === "cancel"
+                      ? "✕ Guest cancelled this order"
+                      : "⚠ Guest followed up"}
+                {guestSignal.note ? ` — "${guestSignal.note}"` : ""}
+              </div>
+            )}
 
             <div>
               <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Request</h3>

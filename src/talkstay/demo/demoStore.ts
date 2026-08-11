@@ -521,7 +521,7 @@ export function createInitialDemoState(): DemoState {
   }
 
   const escalations: OpsQueueData["escalations"] = {
-    "demo-req-2": { note: "Guest called twice — still warm in the room", at: ago(10) },
+    "demo-req-2": { note: "Guest called twice — still warm in the room", at: ago(10), kind: "followup" },
   };
   const handlers: OpsQueueData["handlers"] = {
     "demo-req-3": { by: "Alex Rivera marked Sara Campbell as handling", at: ago(12) },
@@ -530,7 +530,7 @@ export function createInitialDemoState(): DemoState {
     "demo-req-3": { note: "James Wright: Guest called — please hurry breakfast, they're heading out soon", at: ago(8) },
   };
   const escalationEvents = [
-    { id: "demo-esc-1", request_id: "demo-req-2", note: "Guest called twice — still warm in the room" },
+    { id: "demo-esc-1", request_id: "demo-req-2", note: "Guest called twice — still warm in the room", kind: "followup" as const },
   ];
 
   const rooms: DemoRoom[] = [
@@ -719,11 +719,11 @@ export function escalateDemoRequest(state: DemoState, requestId: string): DemoSt
     requests,
     escalations: {
       ...state.escalations,
-      [requestId]: { note, at },
+      [requestId]: { note, at, kind: "followup" },
     },
     escalationEvents: [
       ...state.escalationEvents,
-      { id: escId, request_id: requestId, note },
+      { id: escId, request_id: requestId, note, kind: "followup" },
     ],
     details,
     version: state.version + 1,
@@ -1273,29 +1273,28 @@ export function guestReopenDemoRequest(state: DemoState, requestId: string): Dem
   return advanceDemoRequest(state, requestId, "reopened", { note: "Guest: not received yet" });
 }
 
-/** Guest cancels an open request. */
+/** Guest cancels an open request — keep on board with a clear cancel signal. */
 export function guestCancelDemoRequest(state: DemoState, requestId: string, reason?: string): DemoState {
-  return advanceDemoRequest(state, requestId, "cancelled", {
-    cancelReason: reason?.trim() || "Cancelled by guest",
-  });
-}
-
-/** Guest nudges waiting staff (surfaces as follow-up / escalation). */
-export function guestNudgeDemoRequest(state: DemoState, requestId: string): DemoState {
   const req = state.requests.find((r) => r.id === requestId);
-  if (!req) return state;
+  if (!req || req.status === "cancelled") return state;
   const at = new Date().toISOString();
-  const note = "Guest reminded the team they are still waiting";
+  const note = reason?.trim()
+    ? `Guest cancelled — ${reason.trim()}`
+    : "Guest cancelled this order";
+  const requests = state.requests.map((r) =>
+    r.id === requestId ? { ...r, status: "cancelled" } : r,
+  );
   const details = { ...state.details };
   const prev = details[requestId] ?? seedDetail(req);
   details[requestId] = {
     ...prev,
+    request: { ...prev.request, status: "cancelled", updated_at: at },
     events: [
       ...prev.events,
       {
-        id: `${requestId}-nudge-${Date.now()}`,
+        id: `${requestId}-ev-guest-cancel-${Date.now()}`,
         request_id: requestId,
-        status: "escalated",
+        status: "guest_cancelled",
         note,
         actor_type: "guest",
         created_at: at,
@@ -1304,57 +1303,123 @@ export function guestNudgeDemoRequest(state: DemoState, requestId: string): Demo
   };
   return {
     ...state,
+    requests,
     details,
-    escalations: { ...state.escalations, [requestId]: { note, at } },
+    escalations: { ...state.escalations, [requestId]: { note, at, kind: "cancel" } },
     escalationEvents: [
       ...state.escalationEvents,
-      { id: `${requestId}-esc-nudge-${Date.now()}`, request_id: requestId, note },
+      { id: `${requestId}-esc-cancel-${Date.now()}`, request_id: requestId, note, kind: "cancel" },
+    ],
+    insights: {
+      ...state.insights,
+      requests: state.insights.requests.map((r) =>
+        r.id === requestId ? { ...r, status: "cancelled", updated_at: at } : r,
+      ),
+      events: [
+        ...state.insights.events,
+        { request_id: requestId, status: "guest_cancelled", note, created_at: at },
+      ],
+    },
+    version: state.version + 1,
+  };
+}
+
+/** Guest nudges waiting staff (clear Remind signal on Operations). */
+export function guestNudgeDemoRequest(state: DemoState, requestId: string): DemoState {
+  const req = state.requests.find((r) => r.id === requestId);
+  if (!req) return state;
+  const at = new Date().toISOString();
+  const note = "Guest reminded the team — still waiting";
+  const details = { ...state.details };
+  const prev = details[requestId] ?? seedDetail(req);
+  details[requestId] = {
+    ...prev,
+    request: { ...prev.request, priority: "urgent", updated_at: at },
+    events: [
+      ...prev.events,
+      {
+        id: `${requestId}-nudge-${Date.now()}`,
+        request_id: requestId,
+        status: "guest_reminded",
+        note,
+        actor_type: "guest",
+        created_at: at,
+      },
+    ],
+  };
+  const requests = state.requests.map((r) =>
+    r.id === requestId ? { ...r, priority: "urgent" } : r,
+  );
+  return {
+    ...state,
+    requests,
+    details,
+    escalations: { ...state.escalations, [requestId]: { note, at, kind: "remind" } },
+    escalationEvents: [
+      ...state.escalationEvents,
+      { id: `${requestId}-esc-nudge-${Date.now()}`, request_id: requestId, note, kind: "remind" },
     ],
     version: state.version + 1,
   };
 }
 
-/** Guest edits an open request and alerts staff. */
+/** Guest edits an open request and alerts staff with an Update signal. */
 export function guestUpdateDemoRequest(state: DemoState, requestId: string, note: string): DemoState {
   const text = note.trim().slice(0, 160);
   if (!text) return state;
   const req = state.requests.find((r) => r.id === requestId);
   if (!req) return state;
   const at = new Date().toISOString();
+  const eventNote = `Guest updated their order: ${text}`.slice(0, 280);
+  const staffSummary = `Guest demo · Room 306 · ${text}`;
   const requests = state.requests.map((r) =>
     r.id === requestId
-      ? { ...r, summary: text, summary_staff: `Guest demo · Room 306 · ${text}` }
+      ? { ...r, summary: text, summary_staff: staffSummary, priority: "urgent" }
       : r,
   );
   const details = { ...state.details };
   const prev = details[requestId] ?? seedDetail(req);
   details[requestId] = {
     ...prev,
-    request: { ...prev.request, summary: text, summary_staff: `Guest demo · Room 306 · ${text}`, updated_at: at },
+    request: {
+      ...prev.request,
+      summary: text,
+      summary_staff: staffSummary,
+      priority: "urgent",
+      updated_at: at,
+    },
     events: [
       ...prev.events,
       {
         id: `${requestId}-upd-${Date.now()}`,
         request_id: requestId,
-        status: "updated",
-        note: `Guest updated: ${text}`,
+        status: "guest_updated",
+        note: eventNote,
         actor_type: "guest",
         created_at: at,
       },
     ],
   };
-  const nudged = guestNudgeDemoRequest(
-    { ...state, requests, details, version: state.version },
-    requestId,
-  );
   return {
-    ...nudged,
+    ...state,
+    requests,
+    details,
+    escalations: { ...state.escalations, [requestId]: { note: eventNote, at, kind: "update" } },
+    escalationEvents: [
+      ...state.escalationEvents,
+      { id: `${requestId}-esc-upd-${Date.now()}`, request_id: requestId, note: eventNote, kind: "update" },
+    ],
     insights: {
-      ...nudged.insights,
-      requests: nudged.insights.requests.map((r) =>
+      ...state.insights,
+      requests: state.insights.requests.map((r) =>
         r.id === requestId ? { ...r, summary: text, updated_at: at } : r,
       ),
+      events: [
+        ...state.insights.events,
+        { request_id: requestId, status: "guest_updated", note: eventNote, created_at: at },
+      ],
     },
+    version: state.version + 1,
   };
 }
 
