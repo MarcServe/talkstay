@@ -248,8 +248,12 @@ function Hero({ signedIn }: { signedIn: boolean }) {
         Every{" "}
         <span className="bg-gradient-to-r from-violet-600 to-indigo-500 bg-clip-text italic text-transparent">
           repetitive
+        </span>
+        {" "}or{" "}
+        <span className="bg-gradient-to-r from-violet-600 to-indigo-500 bg-clip-text italic text-transparent">
+          unnecessary
         </span>{" "}
-        call to reception is a workflow your property should already have automated.
+        call to reception / host is a workflow your property should already have automated.
       </p>
 
       <ul className="grid grid-cols-2 gap-4 sm:grid-cols-4 sm:gap-6">
