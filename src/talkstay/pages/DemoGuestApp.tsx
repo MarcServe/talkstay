@@ -515,9 +515,10 @@ function DemoGuestInner() {
         } else if (r.status === "completed") {
           setMsgs((p) => [...p, {
             role: "notice",
-            content: `Marked complete — open Requests to confirm: ${r.summary}`,
+            content: `Marked complete — please confirm you received everything: ${r.summary}`,
           }]);
-          toast.message("Staff marked a request complete — confirm in Requests.");
+          toast.message("Staff marked a request complete — confirm & rate in Requests.");
+          setSheetOpen(true);
         } else if (r.status === "cancelled") {
           setMsgs((p) => [...p, { role: "notice", content: `Cancelled: ${r.summary}` }]);
         }
@@ -527,24 +528,54 @@ function DemoGuestInner() {
     statusBootstrapped.current = true;
   }, [demo.version, ready, reqs, demo]);
 
-  // Pulse after a calm pause — same idea as the real guest app.
+  // Pulse after a calm pause — mirror GuestApp eligibility (don't reset on every notice).
+  const pulseEligible = useMemo(() => {
+    if (pulseHidden || !ready) return false;
+    if (busy || notifyOpen || sheetOpen) return false;
+    if (voiceState === "connecting" || isListening || isSpeaking) return false;
+    if (input.trim()) return false;
+
+    const userTurns = msgs.filter((m) => m.role === "user");
+    if (userTurns.length < 1) return false;
+
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const m = msgs[i];
+      if (m.role === "notice" || m.role === "staff") continue;
+      if (m.role === "request") return false;
+      if (m.role === "user") return false;
+      if (m.role === "assistant") break;
+    }
+
+    const tail = msgs.slice(-3);
+    if (tail.some((m) => m.role === "request")) return false;
+    return true;
+  }, [pulseHidden, ready, busy, notifyOpen, sheetOpen, voiceState, isListening, isSpeaking, input, msgs]);
+
   useEffect(() => {
-    if (pulseHidden || !ready || busy || voiceState === "connecting" || isListening || isSpeaking) {
+    if (!pulseEligible) {
       setPulseReady(false);
       return;
     }
     const userTurns = msgs.filter((m) => m.role === "user").length;
-    if (userTurns < 1) {
-      setPulseReady(false);
-      return;
-    }
-    const t = window.setTimeout(() => setPulseReady(true), 12_000);
-    return () => clearTimeout(t);
-  }, [msgs, pulseHidden, ready, busy, voiceState, isListening, isSpeaking]);
+    const waitMs = userTurns >= 3 ? 8_000 : 12_000;
+    const t = window.setTimeout(() => setPulseReady(true), waitMs);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-arm when eligibility flips
+  }, [pulseEligible]);
+
+  useEffect(() => {
+    if (!pulseEligible || !pulseReady) return;
+    const t = window.setTimeout(() => {
+      scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: "smooth" });
+    }, 50);
+    return () => window.clearTimeout(t);
+  }, [pulseEligible, pulseReady]);
 
   useEffect(() => {
     scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: "smooth" });
-  }, [msgs, busy, isSpeaking, pulseReady]);
+  }, [msgs, busy, isSpeaking]);
+
+  const showPulse = pulseReady && pulseEligible && !msgs.some((m) => m.role === "pulse");
 
   const append = (m: Msg) => setMsgs((prev) => [...prev, m]);
 
@@ -680,8 +711,6 @@ function DemoGuestInner() {
     : isSpeaking ? "Speaking…"
     : voiceState === "connected" ? (isListening ? "Listening…" : "I'm listening — just talk")
     : "Tap to Talk";
-
-  const showPulse = pulseReady && !pulseHidden && !msgs.some((m) => m.role === "pulse");
 
   if (!ready) {
     return (
