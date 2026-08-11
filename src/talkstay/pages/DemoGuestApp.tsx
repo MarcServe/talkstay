@@ -22,6 +22,9 @@ const BRAND = "#4c2bb8";
 const ROOM = "306";
 const DEMO_SID_KEY = "talkstay:demo-guest-sid";
 const PULSE_DONE_KEY = "talkstay:demo-guest-pulse";
+/** Same image-layer treatment as a branded live guest stay. */
+const DEMO_BG_PHOTO = "/marketing/guest-square.jpg";
+const DEMO_BG_WASH = 0.78;
 
 const GUEST_REQ_CARD: Record<string, string> = {
   new: "border-sky-300/80 bg-sky-100/90 border-l-4 border-l-sky-500",
@@ -712,6 +715,14 @@ function DemoGuestInner() {
     : voiceState === "connected" ? (isListening ? "Listening…" : "I'm listening — just talk")
     : "Tap to Talk";
 
+<<<<<<< HEAD
+=======
+  const showPulse = pulseReady && !pulseHidden && !msgs.some((m) => m.role === "pulse");
+
+  const washTop = Math.min(0.97, DEMO_BG_WASH + 0.04);
+  const washBot = Math.min(0.97, DEMO_BG_WASH + 0.06);
+
+>>>>>>> ad07bc1 (Give the guest demo a washed photo chat background like a live stay.)
   if (!ready) {
     return (
       <div className="flex min-h-[100dvh] items-center justify-center text-muted-foreground">
@@ -725,11 +736,12 @@ function DemoGuestInner() {
       data-talkstay
       className="ts-atmosphere relative mx-auto flex h-[100dvh] max-w-md flex-col bg-cover bg-center"
       style={{
-        backgroundImage:
-          "linear-gradient(hsla(38,26%,97%,.82), hsla(210,20%,94%,.88)), radial-gradient(ellipse at top, rgba(76,43,184,0.08), transparent 55%)",
+        backgroundImage: `linear-gradient(hsla(38,26%,97%,${washTop}), hsla(210,20%,94%,${washBot})), url(${DEMO_BG_PHOTO})`,
+        backgroundSize: "cover",
+        backgroundPosition: "center",
       }}
     >
-      <header className="flex shrink-0 items-center gap-2 border-b bg-background/80 px-3 py-2 backdrop-blur">
+      <header className="flex shrink-0 items-center gap-2 border-b border-white/40 bg-background/70 px-3 py-2 backdrop-blur-md">
         <Button asChild variant="ghost" size="icon" className="h-8 w-8 shrink-0" title="Back to demos">
           <Link to="/demo"><ArrowLeft className="h-4 w-4" /></Link>
         </Button>
@@ -744,7 +756,7 @@ function DemoGuestInner() {
           type="button"
           size="sm"
           variant="outline"
-          className="h-8 shrink-0 gap-1.5 px-2.5 text-xs"
+          className="h-8 shrink-0 gap-1.5 border-white/50 bg-white/60 px-2.5 text-xs backdrop-blur-sm"
           onClick={() => setSheetOpen(true)}
         >
           <ClipboardList className="h-3.5 w-3.5" />
@@ -757,7 +769,7 @@ function DemoGuestInner() {
         </Button>
       </header>
 
-      <div className="shrink-0 border-b bg-amber-50/90 px-3 py-1.5 text-center text-[11px] text-amber-950">
+      <div className="shrink-0 border-b border-amber-200/50 bg-amber-50/75 px-3 py-1.5 text-center text-[11px] text-amber-950 backdrop-blur-sm">
         Full stay loop — voice, staff reply, confirm &amp; rate, stay review. Open{" "}
         <Link to="/demo/operations" className="font-semibold underline underline-offset-2">
           Operations
@@ -765,7 +777,7 @@ function DemoGuestInner() {
         {" "}in another tab.
       </div>
 
-      <div className="shrink-0 border-b bg-background/90 px-3 py-2.5 backdrop-blur">
+      <div className="shrink-0 border-b border-white/40 bg-background/65 px-3 py-2.5 backdrop-blur-md">
         <div className="flex flex-col items-center gap-1.5 text-center">
           <button
             type="button"
@@ -844,8 +856,8 @@ function DemoGuestInner() {
               return (
                 <div key={i} className="flex justify-start">
                   <div
-                    className="max-w-[85%] rounded-2xl border px-4 py-2 text-sm"
-                    style={{ borderColor: `${BRAND}66`, background: `${BRAND}12` }}
+                    className="max-w-[85%] rounded-2xl border border-white/50 px-4 py-2 text-sm shadow-sm backdrop-blur-md"
+                    style={{ borderColor: `${BRAND}66`, background: `${BRAND}18` }}
                   >
                     <div className="mb-0.5 flex items-center gap-1 text-xs font-semibold" style={{ color: BRAND }}>
                       <MessageCircle className="h-3.5 w-3.5" /> {m.label ?? "The team"}
@@ -859,8 +871,8 @@ function DemoGuestInner() {
             return (
               <div key={i} className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
                 <div
-                  className={`max-w-[85%] rounded-2xl px-4 py-2 text-sm ${
-                    m.role === "user" ? "text-white" : "bg-muted"
+                  className={`max-w-[85%] rounded-2xl px-4 py-2 text-sm shadow-sm ${
+                    m.role === "user" ? "text-white" : "border border-white/50 bg-white/85 backdrop-blur-md"
                   }`}
                   style={m.role === "user" ? { backgroundColor: BRAND } : undefined}
                 >
@@ -899,7 +911,7 @@ function DemoGuestInner() {
         </div>
       </div>
 
-      <div className="shrink-0 space-y-2 border-t bg-background/95 px-3 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur">
+      <div className="shrink-0 space-y-2 border-t border-white/40 bg-background/75 px-3 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur-md">
         <form
           className="flex gap-2"
           onSubmit={(e) => {

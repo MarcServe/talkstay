@@ -28,6 +28,10 @@ export const DEMO_HOTEL: Hotel = {
   branding: {
     primary_color: "#4c2bb8",
     tagline: "Rest easy. We're here for you.",
+    guest_bg_wash: 0.78,
+    poster: {
+      bg_image_url: "/marketing/guest-square.jpg",
+    },
     property: {
       type: "hotel",
       address: "18 Pier Parade",
