@@ -503,7 +503,7 @@ export default function Landing() {
         <section id="why" className="mx-auto mt-20 max-w-6xl px-6 sm:mt-28">
           <div className="text-center">
             <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">The old way vs TalkStay</h2>
-            <p className="mx-auto mt-3 max-w-xl text-sm text-muted-foreground">
+            <p className="mx-auto mt-3 max-w-xl text-sm font-bold text-foreground">
               Every unnecessary call to reception is a workflow your property should have automated already.
             </p>
           </div>
