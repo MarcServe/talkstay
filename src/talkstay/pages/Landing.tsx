@@ -5,7 +5,7 @@ import {
   PlayCircle, ArrowRight, Volume2, VolumeX,
   Building2, KeyRound, Mic, Route, CheckCircle2, Languages,
   Bath, Wifi, Wrench, Star, MessageCircleOff, BarChart3,
-  ConciergeBell, DoorOpen, QrCode, MessageCircleQuestion,
+  ConciergeBell, DoorOpen, QrCode,
   type LucideIcon,
 } from "lucide-react";
 import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
@@ -209,10 +209,13 @@ function Hero({ signedIn }: { signedIn: boolean }) {
               beautifully.
             </span>
           </h1>
-          <p className="mt-3 text-lg font-medium tracking-tight text-foreground sm:text-xl lg:text-[1.35rem]">
+          <p className="mt-2 text-center font-serif text-xs italic tracking-wide text-violet-600/80 lg:text-left">
+            from anywhere
+          </p>
+          <p className="mt-4 text-base font-medium tracking-tight text-foreground sm:text-lg">
             Information, services and support — all at your fingertips
           </p>
-          <p className="mx-auto mt-4 max-w-xl text-base leading-relaxed text-muted-foreground sm:text-lg lg:mx-0">
+          <p className="mx-auto mt-3 max-w-xl text-base leading-relaxed text-muted-foreground lg:mx-0">
             Ask for property info and get an instant answer — or request service and
             TalkStay routes it to the right team, tracks it, and closes the loop.
           </p>
@@ -245,6 +248,7 @@ function Hero({ signedIn }: { signedIn: boolean }) {
         />
       </div>
 
+      {/* Value line + compact Ask/Request journey — one composition */}
       <div className="relative mx-auto max-w-3xl">
         <div
           aria-hidden
@@ -262,50 +266,30 @@ function Hero({ signedIn }: { signedIn: boolean }) {
             </span>{" "}
             call to reception / host is a workflow your property should already have automated.
           </p>
-        </div>
-      </div>
-
-      {/* Ask / Request journey — replaces the old feature pills */}
-      <div className="overflow-hidden rounded-2xl border border-violet-200/80 bg-white/90 shadow-sm ring-1 ring-violet-500/5">
-        <div className="grid gap-0 sm:grid-cols-2">
-          <div className="border-b border-violet-100 px-5 py-4 sm:border-b-0 sm:border-r sm:px-6 sm:py-5">
-            <div className="flex items-center gap-2">
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-100 text-violet-700">
-                <MessageCircleQuestion className="h-4 w-4" />
+          <div className="mx-auto mt-4 flex max-w-2xl flex-col items-center gap-2 border-t border-violet-200/60 pt-3.5 sm:mt-5 sm:pt-4">
+            <p className="text-center text-[13px] leading-relaxed text-foreground/80 sm:text-sm">
+              <span className="font-semibold text-violet-700">Ask</span>
+              <span className="text-violet-400/90"> → </span>
+              Scan → Speak → Instant answer
+              <span className="mx-2 hidden text-violet-300 sm:inline" aria-hidden>
+                ·
               </span>
-              <p className="text-xs font-bold uppercase tracking-wide text-violet-700">Ask</p>
-            </div>
-            <p className="mt-3 text-base font-semibold tracking-tight text-foreground sm:text-[1.05rem]">
-              <span className="text-violet-700">Ask</span>
-              {" → Scan → Speak → Instant answer"}
+              <br className="sm:hidden" />
+              <span className="font-semibold text-teal-700">Request</span>
+              <span className="text-teal-500/80"> → </span>
+              Right team → Track → Complete
+            </p>
+            <p className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+              <span className="inline-flex items-center gap-1">
+                <QrCode className="h-3 w-3 text-violet-500" />
+                No app, no login
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <Languages className="h-3 w-3 text-violet-500" />
+                Every language
+              </span>
             </p>
           </div>
-          <div className="px-5 py-4 sm:px-6 sm:py-5">
-            <div className="flex items-center gap-2">
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-teal-100 text-teal-800">
-                <Route className="h-4 w-4" />
-              </span>
-              <p className="text-xs font-bold uppercase tracking-wide text-teal-700">Request</p>
-            </div>
-            <p className="mt-3 text-base font-semibold tracking-tight text-foreground sm:text-[1.05rem]">
-              <span className="text-teal-700">Request</span>
-              {" → Right team → Track → Complete"}
-            </p>
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 border-t border-violet-100 bg-violet-50/60 px-5 py-3 text-xs text-muted-foreground sm:justify-start sm:px-6">
-          <span className="inline-flex items-center gap-1.5">
-            <QrCode className="h-3.5 w-3.5 text-violet-600" />
-            No app, no login — scan to start
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <Languages className="h-3.5 w-3.5 text-violet-600" />
-            Every language supported
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <CheckCircle2 className="h-3.5 w-3.5 text-violet-600" />
-            Tracked to done
-          </span>
         </div>
       </div>
 
