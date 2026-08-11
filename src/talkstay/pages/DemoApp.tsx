@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 import {
   ArrowLeft, BarChart3, BookOpen, Building2, Inbox, LogOut,
   Menu, Palette, QrCode, RotateCcw, Users, X,
@@ -179,13 +180,31 @@ function DemoDashboard() {
               <p className="mt-1 text-sm text-muted-foreground">{activeNav.desc}</p>
               {!isAdmin && (
                 <p className="mt-2 text-xs text-amber-800">
-                  Viewing as department staff — Insights and setup tabs are hidden, matching a real invite.
+                  Viewing as department staff — Insights and setup tabs are hidden, matching a real invite.{" "}
+                  <button
+                    type="button"
+                    className="font-semibold underline underline-offset-2 hover:text-amber-950"
+                    onClick={() => setRoleId("owner")}
+                  >
+                    Back to all departments
+                  </button>
                 </p>
               )}
             </div>
 
             {active === "operations" && (
-              <OperationsPanel hotel={demo.hotel} lockedDepartment={lockedDepartment} />
+              <OperationsPanel
+                hotel={demo.hotel}
+                lockedDepartment={lockedDepartment}
+                onClearDepartmentLock={
+                  lockedDepartment
+                    ? () => {
+                        setRoleId("owner");
+                        toast.message("Back to Owner — all departments");
+                      }
+                    : undefined
+                }
+              />
             )}
             {active === "insights" && isAdmin && <InsightsPanel hotel={demo.hotel} />}
             {active === "rooms" && isAdmin && <DemoRoomsPanel />}

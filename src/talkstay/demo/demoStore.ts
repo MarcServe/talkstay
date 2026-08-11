@@ -717,9 +717,12 @@ export function escalateDemoRequest(state: DemoState, requestId: string): DemoSt
 
 export function replyDemoRequest(state: DemoState, requestId: string, body: string): DemoState {
   const at = new Date().toISOString();
+  const text = body.trim();
+  if (!text) return state;
+  const req = state.requests.find((r) => r.id === requestId);
+  if (!req) return state;
   const details = { ...state.details };
-  const prev = details[requestId];
-  if (!prev) return state;
+  const prev = details[requestId] ?? seedDetail(req);
   details[requestId] = {
     ...prev,
     messages: [
@@ -728,8 +731,8 @@ export function replyDemoRequest(state: DemoState, requestId: string, body: stri
         id: `${requestId}-msg-${Date.now()}`,
         sender: "staff",
         staff_label: DEMO_ACTOR,
-        body,
-        body_guest: body,
+        body: text,
+        body_guest: text,
         created_at: at,
       },
     ],
@@ -737,7 +740,7 @@ export function replyDemoRequest(state: DemoState, requestId: string, body: stri
       ...prev.chat,
       {
         role: "assistant",
-        content: body,
+        content: text,
         at,
       },
     ],
@@ -1187,12 +1190,13 @@ export function listDemoStaffMessagesForGuest(state: DemoState): Array<{
   return out.sort((a, b) => a.created_at.localeCompare(b.created_at));
 }
 
-/** Persist demo sandbox across /demo/guest ↔ /demo/operations in the same browser. */
+/** Persist demo sandbox across /demo/guest ↔ /demo/operations (shared across tabs). */
 export const DEMO_STATE_KEY = "talkstay:demo-state-v3";
 
 export function loadPersistedDemoState(): DemoState | null {
   try {
-    const raw = sessionStorage.getItem(DEMO_STATE_KEY);
+    // localStorage syncs across tabs (sessionStorage does not — that broke staff replies).
+    const raw = localStorage.getItem(DEMO_STATE_KEY) ?? sessionStorage.getItem(DEMO_STATE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as DemoState;
     if (!parsed?.hotel?.id || !Array.isArray(parsed.requests)) return null;
@@ -1215,12 +1219,16 @@ export function loadPersistedDemoState(): DemoState | null {
 
 export function persistDemoState(state: DemoState) {
   try {
-    sessionStorage.setItem(DEMO_STATE_KEY, JSON.stringify(state));
+    const raw = JSON.stringify(state);
+    localStorage.setItem(DEMO_STATE_KEY, raw);
+    // Clear legacy key so an old tab doesn't resurrect stale session-only state.
+    sessionStorage.removeItem(DEMO_STATE_KEY);
   } catch { /* private browsing / quota */ }
 }
 
 export function clearPersistedDemoState() {
   try {
+    localStorage.removeItem(DEMO_STATE_KEY);
     sessionStorage.removeItem(DEMO_STATE_KEY);
   } catch { /* ignore */ }
 }

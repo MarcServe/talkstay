@@ -8,6 +8,7 @@ import type { Hotel } from "@/talkstay/lib/hotels";
 import {
   DEMO_ACTOR,
   DEMO_SESSION_KEY,
+  DEMO_STATE_KEY,
   ackDemoPulse,
   addDemoGuestPulse,
   addDemoGuestRequest,
@@ -131,18 +132,46 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     persistDemoState(state);
   }, [state]);
 
-  // Another demo tab (guest ↔ ops) wrote to sessionStorage — pick it up.
+  // Other demo tabs (guest ↔ ops) wrote to localStorage — pick it up.
   useEffect(() => {
-    const onStorage = (e: StorageEvent) => {
-      if (e.key !== "talkstay:demo-state-v3" || !e.newValue) return;
+    const applyRemote = (raw: string | null) => {
+      if (!raw) return;
       try {
-        const parsed = JSON.parse(e.newValue) as DemoState;
-        if (parsed?.hotel?.id) setState(parsed);
+        const parsed = JSON.parse(raw) as DemoState;
+        if (!parsed?.hotel?.id) return;
+        setState((prev) => (parsed.version > prev.version ? parsed : prev));
       } catch { /* ignore */ }
     };
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== DEMO_STATE_KEY) return;
+      applyRemote(e.newValue);
+    };
     window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
+
+    // Faster same-browser sync than waiting on storage alone.
+    let bc: BroadcastChannel | null = null;
+    try {
+      bc = new BroadcastChannel("talkstay-demo-sync");
+      bc.onmessage = (ev) => {
+        const parsed = ev.data as DemoState | null;
+        if (!parsed?.hotel?.id || typeof parsed.version !== "number") return;
+        setState((prev) => (parsed.version > prev.version ? parsed : prev));
+      };
+    } catch { /* unsupported */ }
+
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      try { bc?.close(); } catch { /* */ }
+    };
   }, []);
+
+  useEffect(() => {
+    try {
+      const bc = new BroadcastChannel("talkstay-demo-sync");
+      bc.postMessage(state);
+      bc.close();
+    } catch { /* unsupported */ }
+  }, [state]);
 
   const advance = useCallback((requestId: string, to: string, opts?: { cancelReason?: string }) => {
     setState((s) => advanceDemoRequest(s, requestId, to, opts));

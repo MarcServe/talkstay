@@ -443,6 +443,8 @@ function DemoGuestInner() {
   const seenStaff = useRef<Set<string>>(new Set());
   const statusSeen = useRef<Record<string, string>>({});
   const statusBootstrapped = useRef(false);
+  /** Ignore seed/history messages older than this mount (still show live replies). */
+  const mountedAt = useRef(Date.now());
   const endRef = useRef<HTMLDivElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
 
@@ -480,28 +482,29 @@ function DemoGuestInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Staff replies + status notices from Operations (same browser / sessionStorage).
+  // Staff replies + status notices from Operations (localStorage + BroadcastChannel).
   useEffect(() => {
     if (!ready) return;
     const staffMsgs = demo.listStaffMessagesForGuest();
     const fresh = staffMsgs.filter((m) => !seenStaff.current.has(m.id));
-    if (fresh.length) {
-      fresh.forEach((m) => seenStaff.current.add(m.id));
-      // Skip seeded historical staff messages on first paint.
-      if (statusBootstrapped.current) {
-        setMsgs((prev) => [
-          ...prev,
-          ...fresh.map((m) => ({
-            role: "staff" as const,
-            content: m.content,
-            label: m.staff_label ?? undefined,
-          })),
-        ]);
-        const last = fresh[fresh.length - 1];
-        toast.message(last.staff_label ?? "Message from the team", { description: last.content });
-      } else {
-        fresh.forEach((m) => seenStaff.current.add(m.id));
-      }
+    const cutoff = mountedAt.current - 120_000; // seeded history is hours old
+    const toShow = fresh.filter((m) => {
+      const t = Date.parse(m.created_at);
+      return Number.isFinite(t) && t >= cutoff;
+    });
+    fresh.forEach((m) => seenStaff.current.add(m.id));
+
+    if (toShow.length) {
+      setMsgs((prev) => [
+        ...prev,
+        ...toShow.map((m) => ({
+          role: "staff" as const,
+          content: m.content,
+          label: m.staff_label ?? undefined,
+        })),
+      ]);
+      const last = toShow[toShow.length - 1];
+      toast.message(last.staff_label ?? "Message from the team", { description: last.content });
     }
 
     for (const r of reqs) {
@@ -765,11 +768,11 @@ function DemoGuestInner() {
       </header>
 
       <div className="shrink-0 border-b border-amber-200/50 bg-amber-50/75 px-3 py-1.5 text-center text-[11px] text-amber-950 backdrop-blur-sm">
-        Full stay loop — voice, staff reply, confirm &amp; rate, stay review. Open{" "}
+        Keep Operations open in another tab — staff replies appear here live.{" "}
         <Link to="/demo/operations" className="font-semibold underline underline-offset-2">
           Operations
         </Link>
-        {" "}in another tab.
+        .
       </div>
 
       <div className="shrink-0 border-b border-white/40 bg-background/65 px-3 py-2.5 backdrop-blur-md">

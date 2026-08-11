@@ -129,8 +129,11 @@ const TIME_RANGES: { id: TimeRange; short: string; ms: number | null }[] = [
 const OVERDUE_MIN = 5; // a 'new' request older than this is flagged overdue
 const minsSince = (iso: string) => (Date.now() - new Date(iso).getTime()) / 60000;
 
-export default function OperationsPanel({ hotel, lockedDepartment = null }: {
-  hotel: Hotel; lockedDepartment?: string | null;
+export default function OperationsPanel({ hotel, lockedDepartment = null, onClearDepartmentLock }: {
+  hotel: Hotel;
+  lockedDepartment?: string | null;
+  /** Demo-only: leave a staff "View as" lock and return to all departments. */
+  onClearDepartmentLock?: () => void;
 }) {
   const qc = useQueryClient();
   const demo = useDemo();
@@ -539,18 +542,27 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
             <div className="min-w-0">
               <h3 className="text-sm font-medium">Requests by department today</h3>
               <p className="mt-0.5 text-[11px] text-muted-foreground">
-                {dept !== "all" && !lockedDepartment
-                  ? `Showing ${deptLabel(dept)} — tap again or All teams to go back`
-                  : "Click a team to open their queue"}
+                {lockedDepartment && onClearDepartmentLock
+                  ? `Viewing as ${deptLabel(lockedDepartment)} staff — back to all teams anytime`
+                  : dept !== "all" && !lockedDepartment
+                    ? `Showing ${deptLabel(dept)} — tap again or All teams to go back`
+                    : "Click a team to open their queue"}
               </p>
             </div>
-            {dept !== "all" && !lockedDepartment && (
+            {((dept !== "all" && !lockedDepartment) || (!!lockedDepartment && !!onClearDepartmentLock)) && (
               <button
                 type="button"
-                onClick={() => { clearBoardFilters("all"); revealQueue("All departments"); }}
+                onClick={() => {
+                  if (lockedDepartment && onClearDepartmentLock) {
+                    onClearDepartmentLock();
+                    return;
+                  }
+                  clearBoardFilters("all");
+                  revealQueue("All departments");
+                }}
                 className="shrink-0 rounded-lg border border-violet-200 bg-violet-50 px-2 py-1 text-[11px] font-medium text-violet-700 hover:bg-violet-100"
               >
-                ← All teams
+                ← All departments
               </button>
             )}
           </div>
@@ -676,13 +688,20 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
               </button>
             );
           })}
-          {(boardFocus || (dept !== "all" && !lockedDepartment)) && (
+          {(boardFocus || (dept !== "all" && !lockedDepartment) || (!!lockedDepartment && !!onClearDepartmentLock)) && (
             <button
               type="button"
-              onClick={() => { clearBoardFilters("active"); revealQueue("Full queue"); }}
+              onClick={() => {
+                if (lockedDepartment && onClearDepartmentLock) {
+                  onClearDepartmentLock();
+                  return;
+                }
+                clearBoardFilters("active");
+                revealQueue("Full queue");
+              }}
               className="rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-1.5 text-xs font-medium text-violet-700 hover:bg-violet-100"
             >
-              ← Clear filters
+              {lockedDepartment && onClearDepartmentLock ? "← All departments" : "← Clear filters"}
             </button>
           )}
         </div>
@@ -702,7 +721,19 @@ export default function OperationsPanel({ hotel, lockedDepartment = null }: {
             ))}
           </div>
           {lockedDepartment ? (
-            <Badge variant="secondary" className="px-2 py-1">{deptLabel(lockedDepartment)}</Badge>
+            onClearDepartmentLock ? (
+              <button
+                type="button"
+                onClick={onClearDepartmentLock}
+                className="inline-flex items-center gap-1.5 rounded-md border border-violet-200 bg-violet-50 px-2 py-1 text-sm font-medium text-violet-800 hover:bg-violet-100"
+                title="Return to owner view — all departments"
+              >
+                {deptLabel(lockedDepartment)}
+                <span className="text-[11px] font-normal text-violet-600">· All departments</span>
+              </button>
+            ) : (
+              <Badge variant="secondary" className="px-2 py-1">{deptLabel(lockedDepartment)}</Badge>
+            )
           ) : (
             <select
               className="rounded-md border bg-background px-2 py-1.5 text-sm"
