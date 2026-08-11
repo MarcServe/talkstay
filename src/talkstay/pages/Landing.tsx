@@ -98,11 +98,11 @@ function DemoVideo({ videoId }: { videoId: string }) {
 const IMG = {
   hero: "/marketing/hero.jpg",
   heroWebp: "/marketing/hero.webp",
-  heroWebpSrcSet: "/marketing/hero-720.webp 720w, /marketing/hero.webp 1388w",
+  heroWebpSrcSet: "/marketing/hero-720.webp 720w, /marketing/hero.webp 1215w",
   heroSizes: "(min-width: 1024px) 45vw, min(100vw, 40rem)",
   // Tiny blurred stand-in so the hero frame never looks empty while bytes arrive.
   heroLqip:
-    "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDABQODxIPDRQSEBIXFRQYHjIhHhwcHj0sLiQySUBMS0dARkVQWnNiUFVtVkVGZIhlbXd7gYKBTmCNl4x9lnN+gXz/2wBDARUXFx4aHjshITt8U0ZTfHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHz/wAARCAAUABgDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwC/o0iPbEGKLMbYJYAls81BfxRtLPBHuNxK6shUfKgJ6Gl0a+lFylp5SLGC+G7kir32KO3umvIlZJpWO9uWGD7dOuKmUbrU0i7M5rXNOkhtFMjKxQ8bCTx/SithUMlxLPMC8e3YisMcAnkj8aKzUlHQtx5jHinlivjLHIysCxGO2etb9reTXNkJJCCSeg6UUUTbuNJWK8ztsjXsVyaKKKie5Udj/9k=",
+    "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDABQODxIPDRQSEBIXFRQYHjIhHhwcHj0sLiQySUBMS0dARkVQWnNiUFVtVkVGZIhlbXd7gYKBTmCNl4x9lnN+gXz/2wBDARUXFx4aHjshITt8U0ZTfHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHx8fHz/wAARCAAaABgDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwDnYZvIQvb580ttXODxit+2MzxJvcKNwDSeWNq579KZp+kwXyiWWYp5ZG1Af1q7Gv2a4a1iO8BsySHoR2H8qi12adCGLR4ra6SVLsSnzPueWR1GOtFS6hc3xcrbGN4yASAQHB9OtFbxaSMpJtkehOqI4lYoCBjAzmrd9IigushZQuWJGMYrO0//AFYq3cAfZ5Bjgqawu9jZLqY7TxNeh+hMgIbtjFFZFsTucZ4HaihvoCP/2Q==",
   howItWorks: "/marketing/how-it-works.jpg",
   howItWorksWebp: "/marketing/how-it-works.webp",
   howItWorksWebpSrcSet:
@@ -245,11 +245,11 @@ function Hero({ signedIn }: { signedIn: boolean }) {
           webpSrcSet={IMG.heroWebpSrcSet}
           sizes={IMG.heroSizes}
           lqip={IMG.heroLqip}
-          width={1388}
-          height={1133}
-          alt="Guest in a hotel room using TalkStay voice on their phone — QR bedside stand and live request chat with housekeeping"
+          width={1215}
+          height={1295}
+          alt="Guest in bed using TalkStay on their phone — QR bedside stand and live request chat with housekeeping"
           eager
-          className="aspect-[1388/1133] w-full rounded-3xl shadow-xl ring-1 ring-black/5"
+          className="aspect-[1215/1295] w-full rounded-3xl shadow-xl ring-1 ring-black/5"
         />
       </div>
 
