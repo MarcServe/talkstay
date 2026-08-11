@@ -51,34 +51,31 @@ export default function DemoHub() {
         </div>
 
         <div className="mt-10 grid gap-5 lg:grid-cols-2">
-          {/* Guest — violet identity + guest phone photo */}
+          {/* Guest — full promo art, labels below the image */}
           <Link
             to="/demo/guest"
             className="group flex flex-col overflow-hidden rounded-3xl border border-violet-300/70 bg-white shadow-sm ring-1 ring-violet-500/10 transition hover:-translate-y-0.5 hover:border-violet-500 hover:shadow-lg"
           >
-            <div className="relative aspect-[16/10] overflow-hidden bg-violet-950">
+            <div className="aspect-[3/2] overflow-hidden bg-violet-50">
               <picture>
                 <source type="image/webp" srcSet={GUEST_IMG.srcSet} sizes="(min-width: 1024px) 28rem, 100vw" />
                 <img
                   src={GUEST_IMG.jpg}
                   alt="Your Stay. Just Speak. — guest requesting service with TalkStay"
-                  className="h-full w-full object-cover object-[center_30%] transition duration-500 group-hover:scale-[1.03]"
+                  className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.02]"
                   loading="eager"
                   width={1536}
                   height={1024}
                 />
               </picture>
-              <div className="absolute inset-0 bg-gradient-to-t from-violet-950/70 via-transparent to-transparent" />
-              <span className="absolute left-4 top-4 rounded-full bg-violet-600 px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-white shadow-sm">
-                Guest
-              </span>
-              <div className="absolute bottom-4 left-4 right-4">
-                <p className="text-lg font-semibold tracking-tight text-white sm:text-xl">I'm a Guest</p>
-                <p className="mt-0.5 text-sm text-violet-100/90">After the room QR scan</p>
-              </div>
             </div>
             <div className="flex flex-1 flex-col border-t border-violet-100 bg-gradient-to-b from-violet-50/90 to-white p-5 sm:p-6">
-              <p className="text-sm leading-relaxed text-slate-600">
+              <p className="text-[11px] font-bold uppercase tracking-wide text-violet-700">Guest</p>
+              <p className="mt-1 text-lg font-semibold tracking-tight text-violet-950 sm:text-xl">
+                I'm a Guest
+              </p>
+              <p className="mt-0.5 text-sm text-violet-800/75">After the room QR scan</p>
+              <p className="mt-3 text-sm leading-relaxed text-slate-600">
                 Real Tap-to-Talk voice, staff replies in chat, confirm &amp; rate requests,
                 and mid-stay review — the full loop buyers care about.
               </p>
@@ -92,34 +89,31 @@ export default function DemoHub() {
             </div>
           </Link>
 
-          {/* Staff — teal identity + hospitality ops photo */}
+          {/* Staff — full promo art, labels below the image */}
           <Link
             to="/demo/operations"
             className="group flex flex-col overflow-hidden rounded-3xl border border-teal-300/70 bg-white shadow-sm ring-1 ring-teal-600/10 transition hover:-translate-y-0.5 hover:border-teal-600 hover:shadow-lg"
           >
-            <div className="relative aspect-[16/10] overflow-hidden bg-teal-950">
+            <div className="aspect-[3/2] overflow-hidden bg-teal-50">
               <picture>
                 <source type="image/webp" srcSet={STAFF_IMG.srcSet} sizes="(min-width: 1024px) 28rem, 100vw" />
                 <img
                   src={STAFF_IMG.jpg}
                   alt="Manage Requests. Deliver Excellence. — host operations dashboard"
-                  className="h-full w-full object-cover object-[center_30%] transition duration-500 group-hover:scale-[1.03]"
+                  className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.02]"
                   loading="eager"
                   width={1536}
                   height={1024}
                 />
               </picture>
-              <div className="absolute inset-0 bg-gradient-to-t from-teal-950/70 via-transparent to-transparent" />
-              <span className="absolute left-4 top-4 rounded-full bg-teal-600 px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-white shadow-sm">
-                Hotel staff
-              </span>
-              <div className="absolute bottom-4 left-4 right-4">
-                <p className="text-lg font-semibold tracking-tight text-white sm:text-xl">I'm Hotel Staff</p>
-                <p className="mt-0.5 text-sm text-teal-100/90">Live queue &amp; departments</p>
-              </div>
             </div>
             <div className="flex flex-1 flex-col border-t border-teal-100 bg-gradient-to-b from-teal-50/90 to-white p-5 sm:p-6">
-              <p className="text-sm leading-relaxed text-slate-600">
+              <p className="text-[11px] font-bold uppercase tracking-wide text-teal-700">Hotel staff</p>
+              <p className="mt-1 text-lg font-semibold tracking-tight text-teal-950 sm:text-xl">
+                I'm Hotel Staff
+              </p>
+              <p className="mt-0.5 text-sm text-teal-800/75">Live queue &amp; departments</p>
+              <p className="mt-3 text-sm leading-relaxed text-slate-600">
                 See incoming requests, auto-routing by department, accept → complete,
                 guest confirmation, reviews, and Insights — then switch roles to feel each queue.
               </p>
@@ -127,9 +121,9 @@ export default function DemoHub() {
                 Operations Dashboard Demo
                 <ArrowRight className="ml-1.5 h-4 w-4 transition-transform group-hover:translate-x-1" />
               </span>
-            <p className="mt-3 text-[11px] text-teal-900/60">
-              Owner view · switch to a department role anytime · linked with Guest demo
-            </p>
+              <p className="mt-3 text-[11px] text-teal-900/60">
+                Owner view · switch to a department role anytime · linked with Guest demo
+              </p>
             </div>
           </Link>
         </div>
