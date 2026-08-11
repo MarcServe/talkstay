@@ -244,17 +244,25 @@ function Hero({ signedIn }: { signedIn: boolean }) {
         />
       </div>
 
-      <p className="mx-auto max-w-3xl text-center font-serif text-xl leading-snug tracking-tight text-foreground sm:text-2xl lg:text-[1.65rem]">
-        Every{" "}
-        <span className="bg-gradient-to-r from-violet-600 to-indigo-500 bg-clip-text italic text-transparent">
-          repetitive
-        </span>
-        {" "}or{" "}
-        <span className="bg-gradient-to-r from-violet-600 to-indigo-500 bg-clip-text italic text-transparent">
-          unnecessary
-        </span>{" "}
-        call to reception / host is a workflow your property should already have automated.
-      </p>
+      <div className="relative mx-auto max-w-3xl">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -inset-x-2 -inset-y-1 rounded-[1.75rem] bg-gradient-to-r from-violet-400/25 via-indigo-400/20 to-violet-500/25 blur-xl"
+        />
+        <div className="relative rounded-2xl border border-violet-200/70 bg-gradient-to-br from-violet-50/95 via-white to-indigo-50/80 px-5 py-4 shadow-[0_12px_40px_-18px_rgba(124,58,237,0.45)] ring-1 ring-violet-500/10 sm:px-8 sm:py-5">
+          <p className="text-center font-serif text-xl leading-[1.45] tracking-tight text-foreground sm:text-2xl lg:text-[1.65rem] lg:leading-[1.4]">
+            Every{" "}
+            <span className="inline-block bg-gradient-to-r from-violet-600 to-indigo-500 bg-clip-text px-0.5 py-0.5 italic text-transparent">
+              repetitive
+            </span>
+            {" "}or{" "}
+            <span className="inline-block bg-gradient-to-r from-violet-600 to-indigo-500 bg-clip-text px-0.5 py-0.5 italic text-transparent">
+              unnecessary
+            </span>{" "}
+            call to reception / host is a workflow your property should already have automated.
+          </p>
+        </div>
+      </div>
 
       <ul className="grid grid-cols-2 gap-4 sm:grid-cols-4 sm:gap-6">
         {HERO_PILLS.map(({ label, sub, Icon }) => (
