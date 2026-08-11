@@ -72,9 +72,11 @@ export default function DemoHub() {
             <div className="flex flex-1 flex-col border-t border-violet-100 bg-gradient-to-b from-violet-50/90 to-white p-5 sm:p-6">
               <p className="text-[11px] font-bold uppercase tracking-wide text-violet-700">Guest</p>
               <p className="mt-1 text-lg font-semibold tracking-tight text-violet-950 sm:text-xl">
-                I'm a Guest
+                Guest Experience
               </p>
-              <p className="mt-0.5 text-sm text-violet-800/75">After the room QR scan</p>
+              <p className="mt-0.5 text-sm text-violet-800/75">
+                Ask, request, track — like after scanning a room QR or link from email.
+              </p>
               <p className="mt-3 text-sm leading-relaxed text-slate-600">
                 Real Tap-to-Talk voice, staff replies in chat, confirm &amp; rate requests,
                 and mid-stay review — the full loop buyers care about.
