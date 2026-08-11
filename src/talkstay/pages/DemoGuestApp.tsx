@@ -715,14 +715,9 @@ function DemoGuestInner() {
     : voiceState === "connected" ? (isListening ? "Listening…" : "I'm listening — just talk")
     : "Tap to Talk";
 
-<<<<<<< HEAD
-=======
-  const showPulse = pulseReady && !pulseHidden && !msgs.some((m) => m.role === "pulse");
-
   const washTop = Math.min(0.97, DEMO_BG_WASH + 0.04);
   const washBot = Math.min(0.97, DEMO_BG_WASH + 0.06);
 
->>>>>>> ad07bc1 (Give the guest demo a washed photo chat background like a live stay.)
   if (!ready) {
     return (
       <div className="flex min-h-[100dvh] items-center justify-center text-muted-foreground">
