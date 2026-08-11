@@ -35,9 +35,9 @@ export default defineConfig(async ({ mode }) => {
       filename: 'sw.js',
       registerType: 'autoUpdate',
       injectRegister: 'auto',
-      includeAssets: ['icons/*.png', 'favicon.ico', 'favicon-32.png', 'lovable-uploads/*.png', 'lovable-uploads/*.jpg'],
+      includeAssets: ['icons/*.png', 'favicon.ico', 'favicon-32.png', 'favicon-48.png', 'lovable-uploads/*.png', 'lovable-uploads/*.jpg'],
       injectManifest: {
-        globPatterns: ['**/*.{js,css,html,woff2}', 'icons/*.png', 'favicon.ico', 'favicon-32.png'],
+        globPatterns: ['**/*.{js,css,html,woff2}', 'icons/*.png', 'favicon.ico', 'favicon-32.png', 'favicon-48.png'],
         // Don't precache inherited TalkWeb marketing imagery — keeps install lean.
         globIgnores: ['**/lovable-uploads/**', '**/assets/*.{png,jpg,jpeg}'],
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024, // 3 MB
