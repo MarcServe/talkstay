@@ -31,13 +31,13 @@ function PersonaArt({
   alt,
 }: {
   primaryJpg: string;
-  primaryWebp: string;
+  primaryWebp?: string;
   fallbackJpg: string;
   alt: string;
 }) {
   return (
     <picture>
-      <source type="image/webp" srcSet={primaryWebp} />
+      {primaryWebp ? <source type="image/webp" srcSet={primaryWebp} /> : null}
       <img
         src={primaryJpg}
         alt={alt}
@@ -47,7 +47,9 @@ function PersonaArt({
           const img = e.currentTarget;
           if (img.dataset.fallback === "1") return;
           img.dataset.fallback = "1";
-          img.removeAttribute("srcset");
+          // Drop a missing WebP <source> so the fallback JPG is what loads.
+          const picture = img.parentElement;
+          picture?.querySelectorAll("source").forEach((s) => s.remove());
           img.src = fallbackJpg;
         }}
       />
