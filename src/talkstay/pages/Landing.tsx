@@ -191,12 +191,26 @@ function Photo({ src, alt, className = "", eager = false, fit = "cover",
   );
 }
 
-/** Split hero: design copy on the left, lifestyle/product photo on the right. */
+/** Split hero: photo leads on mobile; copy left / photo right on desktop. */
 function Hero({ signedIn }: { signedIn: boolean }) {
   return (
     <div className="space-y-8">
       <div className="grid items-center gap-8 sm:gap-10 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] lg:gap-12">
-        <div className="order-2 text-center lg:order-1 lg:text-left">
+        {/* First in DOM so mobile stacks image on top; desktop places it in column 2. */}
+        <Photo
+          src={IMG.hero}
+          webp={IMG.heroWebp}
+          webpSrcSet={IMG.heroWebpSrcSet}
+          sizes={IMG.heroSizes}
+          lqip={IMG.heroLqip}
+          width={1215}
+          height={1295}
+          alt="Guest in bed using TalkStay on their phone — QR bedside stand and live request chat with housekeeping"
+          eager
+          className="aspect-[1215/1295] w-full rounded-3xl shadow-xl ring-1 ring-black/5 lg:col-start-2 lg:row-start-1"
+        />
+
+        <div className="text-center lg:col-start-1 lg:row-start-1 lg:text-left">
           <span className="inline-flex items-center gap-1.5 rounded-full bg-violet-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-violet-700">
             <Mic className="h-3.5 w-3.5" />
             Voice-first guest service
@@ -235,19 +249,6 @@ function Hero({ signedIn }: { signedIn: boolean }) {
             </Button>
           </div>
         </div>
-
-        <Photo
-          src={IMG.hero}
-          webp={IMG.heroWebp}
-          webpSrcSet={IMG.heroWebpSrcSet}
-          sizes={IMG.heroSizes}
-          lqip={IMG.heroLqip}
-          width={1215}
-          height={1295}
-          alt="Guest in bed using TalkStay on their phone — QR bedside stand and live request chat with housekeeping"
-          eager
-          className="order-1 aspect-[1215/1295] w-full rounded-3xl shadow-xl ring-1 ring-black/5 lg:order-2"
-        />
       </div>
 
       {/* Value line + compact Ask/Request journey — one composition */}
@@ -439,7 +440,7 @@ export default function Landing() {
 
       <main>
         {/* Hero — design copy (left) + product photo (right), matching the TalkStay board. */}
-        <section className="mx-auto max-w-6xl px-6 pt-6 sm:pt-10">
+        <section className="mx-auto max-w-6xl px-6 pt-3 sm:pt-10">
           <Hero signedIn={!!user} />
         </section>
 
