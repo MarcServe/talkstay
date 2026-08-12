@@ -205,7 +205,7 @@ function Hero({ signedIn }: { signedIn: boolean }) {
             Guest requests.
             <br />
             Handled{" "}
-            <span className="bg-gradient-to-r from-violet-600 to-indigo-500 bg-clip-text font-serif italic text-transparent">
+            <span className="inline-block bg-gradient-to-r from-violet-600 to-indigo-500 bg-clip-text px-0.5 py-0.5 pr-1.5 font-serif italic text-transparent">
               beautifully.
             </span>
           </h1>
