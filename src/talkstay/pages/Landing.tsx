@@ -195,8 +195,8 @@ function Photo({ src, alt, className = "", eager = false, fit = "cover",
 function Hero({ signedIn }: { signedIn: boolean }) {
   return (
     <div className="space-y-8">
-      <div className="grid items-center gap-10 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] lg:gap-12">
-        <div className="text-center lg:text-left">
+      <div className="grid items-center gap-8 sm:gap-10 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] lg:gap-12">
+        <div className="order-2 text-center lg:order-1 lg:text-left">
           <span className="inline-flex items-center gap-1.5 rounded-full bg-violet-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-violet-700">
             <Mic className="h-3.5 w-3.5" />
             Voice-first guest service
@@ -246,7 +246,7 @@ function Hero({ signedIn }: { signedIn: boolean }) {
           height={1295}
           alt="Guest in bed using TalkStay on their phone — QR bedside stand and live request chat with housekeeping"
           eager
-          className="aspect-[1215/1295] w-full rounded-3xl shadow-xl ring-1 ring-black/5"
+          className="order-1 aspect-[1215/1295] w-full rounded-3xl shadow-xl ring-1 ring-black/5 lg:order-2"
         />
       </div>
 
