@@ -755,7 +755,11 @@ serve(async (req) => {
         status: "new",
         priority,
         is_complaint: false,
-        is_chargeable: false,
+        is_chargeable: !!body?.isChargeable,
+        price: body?.isChargeable && body?.price != null && Number(body.price) >= 0
+          ? Number(body.price)
+          : null,
+        payment_status: body?.isChargeable ? "unpaid" : null,
         guest_language: (hotel as any).default_language || "English",
         session_id: null,
         classification_method: source,
@@ -770,9 +774,17 @@ serve(async (req) => {
           .select("id, department_key, summary, status, created_at").single();
         reqRow = first.data;
         insErr = first.error;
+        if (insErr?.message?.includes("payment_status")) {
+          const { payment_status: _ps, ...withoutPay } = baseRow as any;
+          const retry = await admin.from("ts_service_requests").insert({ ...withoutPay, source })
+            .select("id, department_key, summary, status, created_at").single();
+          reqRow = retry.data;
+          insErr = retry.error;
+        }
         // Pre-migration: `source` column may not exist yet — retry without it.
         if (insErr?.message?.includes("source")) {
-          const second = await admin.from("ts_service_requests").insert(baseRow)
+          const { payment_status: _ps, ...withoutPay } = baseRow as any;
+          const second = await admin.from("ts_service_requests").insert(withoutPay)
             .select("id, department_key, summary, status, created_at").single();
           reqRow = second.data;
           insErr = second.error;

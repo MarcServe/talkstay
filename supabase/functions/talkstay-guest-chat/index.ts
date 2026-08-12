@@ -1388,6 +1388,7 @@ what you just said. Vary your phrasing so it doesn't sound like a scripted closi
         intent: message.slice(0, 200), summary: enSummary, summary_staff: summaryStaff,
         priority: isComplaint ? "urgent" : (o.priority || "normal"),
         is_complaint: isComplaint, is_chargeable: !!o.isChargeable,
+        payment_status: o.isChargeable ? "unpaid" : null,
         guest_language: ctx.language, session_id: sessionId || null,
         classification_method: o.method, needs_triage: !!o.needsTriage,
         conversation: [...history.slice(-6), { role: "user", content: message }],
@@ -1398,8 +1399,18 @@ what you just said. Vary your phrasing so it doesn't sound like a scripted closi
           .insert({ ...baseInsert, source: guestSource })
           .select("id, department_key, summary, summary_staff, status, is_complaint").single();
         reqRow = first.data;
-        if (first.error?.message?.includes("source")) {
-          const second = await admin.from("ts_service_requests").insert(baseInsert)
+        let insErr = first.error;
+        if (insErr?.message?.includes("payment_status")) {
+          const { payment_status: _ps, ...withoutPay } = baseInsert as any;
+          const retry = await admin.from("ts_service_requests")
+            .insert({ ...withoutPay, source: guestSource })
+            .select("id, department_key, summary, summary_staff, status, is_complaint").single();
+          reqRow = retry.data;
+          insErr = retry.error;
+        }
+        if (insErr?.message?.includes("source")) {
+          const { payment_status: _ps, ...withoutPay } = baseInsert as any;
+          const second = await admin.from("ts_service_requests").insert(withoutPay)
             .select("id, department_key, summary, summary_staff, status, is_complaint").single();
           reqRow = second.data;
         }

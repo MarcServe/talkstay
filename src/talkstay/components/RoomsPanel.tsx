@@ -17,8 +17,9 @@ import {
   roomRequiresCheckinCode, type Hotel, type Room,
 } from "@/talkstay/lib/hotels";
 import { getPublicBaseUrl } from "@/config/environment";
-import { OCCUPANCY_STYLE } from "@/talkstay/lib/statusStyles";
+import { OCCUPANCY_STYLE, formatMoney } from "@/talkstay/lib/statusStyles";
 import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
+import { supabase } from "@/integrations/supabase/client";
 
 type RoomStatusFilter = "all" | "occupied" | "vacant" | "public";
 type RoomsView = "card" | "list";
@@ -192,7 +193,29 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
 
   const toggleOccupancy = async (room: Room) => {
     const next = room.occupancy_status === "vacant" ? "occupied" : "vacant";
-    if (next === "vacant" && !confirm(`Check out ${formatRoomLabel(room.room_number)}? Any link the guest saved will stop working immediately.`)) return;
+    if (next === "vacant") {
+      let unpaidNote = "";
+      try {
+        const { data } = await supabase
+          .from("ts_service_requests")
+          .select("id, summary, price, currency, payment_status")
+          .eq("room_id", room.id)
+          .eq("is_chargeable", true)
+          .eq("payment_status", "unpaid");
+        const unpaid = data ?? [];
+        if (unpaid.length) {
+          const priced = unpaid.filter((r) => typeof r.price === "number" && Number(r.price) > 0);
+          const total = priced.reduce((sum, r) => sum + Number(r.price), 0);
+          const currency = unpaid.find((r) => r.currency)?.currency ?? "GBP";
+          unpaidNote = priced.length
+            ? `\n\n⚠ ${unpaid.length} unpaid chargeable item(s) · ${formatMoney(total, currency)} still owed.`
+            : `\n\n⚠ ${unpaid.length} unpaid chargeable item(s) — open Operations to settle before checkout.`;
+        }
+      } catch { /* billing columns may not exist yet */ }
+      if (!confirm(
+        `Check out ${formatRoomLabel(room.room_number)}? Any link the guest saved will stop working immediately.${unpaidNote}`,
+      )) return;
+    }
     try {
       await setRoomOccupancy(room.id, next);
       await refresh();

@@ -195,6 +195,33 @@ export const OCCUPANCY_STYLE: Record<string, string> = {
   occupied: "border border-emerald-200 bg-emerald-100 text-emerald-800",
 };
 
+/** Chargeable order settlement chips. */
+export const PAYMENT_STYLE: Record<string, string> = {
+  unpaid: "border border-amber-300 bg-amber-100 text-amber-950",
+  paid: "border border-emerald-200 bg-emerald-100 text-emerald-800",
+  waived: "border border-slate-300 bg-slate-100 text-slate-700",
+};
+
+export function paymentLabel(status: string | null | undefined): string {
+  if (status === "paid") return "Paid";
+  if (status === "waived") return "Waived";
+  if (status === "unpaid") return "Unpaid";
+  return "—";
+}
+
+export function formatMoney(
+  amount: number | null | undefined,
+  currency: string | null | undefined = "GBP",
+): string {
+  if (amount == null || Number.isNaN(Number(amount))) return "—";
+  const cur = (currency || "GBP").toUpperCase();
+  try {
+    return new Intl.NumberFormat(undefined, { style: "currency", currency: cur }).format(Number(amount));
+  } catch {
+    return `${Number(amount).toFixed(2)} ${cur}`;
+  }
+}
+
 /** Conversation intent chips (insights). */
 export const INTENT_STYLE: Record<string, string> = {
   question: "border border-sky-200 bg-sky-100 text-sky-800",

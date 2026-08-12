@@ -300,8 +300,19 @@ export function DemoRoomsPanel() {
                           variant="outline"
                           className="h-8"
                           onClick={() => {
-                            if (r.occupancy_status === "occupied"
-                              && !confirm(`Check out ${formatRoomLabel(r.room_number)}?`)) return;
+                            if (r.occupancy_status === "occupied") {
+                              const unpaid = demo.state.requests.filter(
+                                (req) => req.room_id === r.id && req.is_chargeable && (req.payment_status ?? "unpaid") === "unpaid",
+                              );
+                              const priced = unpaid.filter((req) => typeof req.price === "number" && Number(req.price) > 0);
+                              const total = priced.reduce((sum, req) => sum + Number(req.price), 0);
+                              const note = unpaid.length
+                                ? priced.length
+                                  ? `\n\n⚠ ${unpaid.length} unpaid chargeable item(s) · £${total.toFixed(2)} still owed.`
+                                  : `\n\n⚠ ${unpaid.length} unpaid chargeable item(s) — settle in Operations first.`
+                                : "";
+                              if (!confirm(`Check out ${formatRoomLabel(r.room_number)}?${note}`)) return;
+                            }
                             demo.toggleRoomOccupancy(r.id);
                           }}
                         >
@@ -411,8 +422,19 @@ export function DemoRoomsPanel() {
                         size="sm"
                         variant="outline"
                         onClick={() => {
-                          if (r.occupancy_status === "occupied"
-                            && !confirm(`Check out ${formatRoomLabel(r.room_number)}?`)) return;
+                          if (r.occupancy_status === "occupied") {
+                            const unpaid = demo.state.requests.filter(
+                              (req) => req.room_id === r.id && req.is_chargeable && (req.payment_status ?? "unpaid") === "unpaid",
+                            );
+                            const priced = unpaid.filter((req) => typeof req.price === "number" && Number(req.price) > 0);
+                            const total = priced.reduce((sum, req) => sum + Number(req.price), 0);
+                            const note = unpaid.length
+                              ? priced.length
+                                ? `\n\n⚠ ${unpaid.length} unpaid chargeable item(s) · £${total.toFixed(2)} still owed.`
+                                : `\n\n⚠ ${unpaid.length} unpaid chargeable item(s) — settle in Operations first.`
+                              : "";
+                            if (!confirm(`Check out ${formatRoomLabel(r.room_number)}?${note}`)) return;
+                          }
                           demo.toggleRoomOccupancy(r.id);
                           toast.message(r.occupancy_status === "occupied" ? "Checked out (demo)." : "Checked in (demo).");
                         }}

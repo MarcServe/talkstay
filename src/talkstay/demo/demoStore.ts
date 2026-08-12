@@ -144,6 +144,10 @@ function seedRequests(): OpsRequest[] {
       is_complaint: false,
       needs_triage: false,
       guest_language: "en",
+      is_chargeable: true,
+      price: 24,
+      currency: "GBP",
+      payment_status: "unpaid",
       created_at: ago(22),
       ts_rooms: { room_number: "507" },
     },
@@ -200,6 +204,10 @@ function seedRequests(): OpsRequest[] {
       is_complaint: false,
       needs_triage: false,
       guest_language: "en",
+      is_chargeable: true,
+      price: 28,
+      currency: "GBP",
+      payment_status: "unpaid",
       created_at: ago(8),
       ts_rooms: { room_number: "306" },
     },
@@ -214,6 +222,10 @@ function seedRequests(): OpsRequest[] {
       is_complaint: false,
       needs_triage: false,
       guest_language: "en",
+      is_chargeable: true,
+      price: 35,
+      currency: "GBP",
+      payment_status: "unpaid",
       created_at: ago(45),
       ts_rooms: { room_number: "412" },
     },
@@ -427,8 +439,10 @@ function seedInsights(requests: OpsRequest[]): InsightsData {
     summary: r.summary,
     status: r.status,
     is_complaint: r.is_complaint,
-    is_chargeable: ["kitchen", "bar", "laundry"].includes(r.department_key),
-    price: ["kitchen", "bar", "laundry"].includes(r.department_key) ? 18 + (r.id.length % 40) : null,
+    is_chargeable: r.is_chargeable ?? ["kitchen", "bar", "laundry"].includes(r.department_key),
+    price: r.price ?? (["kitchen", "bar", "laundry"].includes(r.department_key) ? 18 + (r.id.length % 40) : null),
+    payment_status: r.payment_status
+      ?? ((r.is_chargeable ?? ["kitchen", "bar", "laundry"].includes(r.department_key)) ? "unpaid" as const : null),
     classification_method: "voice",
     session_id: `demo-session-${r.id}`,
     created_at: r.created_at,
@@ -449,6 +463,7 @@ function seedInsights(requests: OpsRequest[]): InsightsData {
       is_complaint: i % 7 === 0,
       is_chargeable: paid,
       price: paid ? 22 + i * 3 : null,
+      payment_status: paid ? (i % 3 === 0 ? "paid" as const : "unpaid" as const) : null,
       classification_method: "voice",
       session_id: `demo-hist-sess-${i}`,
       created_at: new Date(now - (i + 1) * 8 * 3_600_000).toISOString(),
@@ -1138,6 +1153,10 @@ export function addDemoGuestRequest(
     is_complaint: /complaint|broken|not working|noise/i.test(summary),
     needs_triage: false,
     guest_language: "en",
+    is_chargeable: ["kitchen", "bar", "laundry"].includes(department_key),
+    price: null,
+    currency: "GBP",
+    payment_status: ["kitchen", "bar", "laundry"].includes(department_key) ? "unpaid" : null,
     created_at: new Date().toISOString(),
     source: "guest_app",
     ts_rooms: { room_number: GUEST_DEMO_ROOM.room_number },
@@ -1159,6 +1178,7 @@ export function addDemoGuestRequest(
           is_complaint: req.is_complaint,
           is_chargeable: ["kitchen", "bar", "laundry"].includes(req.department_key),
           price: null,
+          payment_status: ["kitchen", "bar", "laundry"].includes(req.department_key) ? "unpaid" : null,
           classification_method: "demo_guest",
           session_id: `demo-session-${id}`,
           created_at: req.created_at,
@@ -1200,6 +1220,8 @@ export function addDemoStaffOrder(
     source: string;
     priority?: string;
     force?: boolean;
+    isChargeable?: boolean;
+    price?: number | null;
   },
 ): { state: DemoState; requestId?: string; duplicate?: boolean; open?: ReturnType<typeof listDemoOpenForRoom>; roomNumber?: string } {
   const room = state.rooms.find((r) => r.id === input.roomId);
@@ -1224,6 +1246,10 @@ export function addDemoStaffOrder(
     is_complaint: false,
     needs_triage: false,
     guest_language: "en",
+    is_chargeable: !!input.isChargeable || ["kitchen", "bar", "laundry"].includes(input.departmentKey),
+    price: input.price ?? null,
+    currency: "GBP",
+    payment_status: (input.isChargeable || ["kitchen", "bar", "laundry"].includes(input.departmentKey)) ? "unpaid" : null,
     created_at: new Date().toISOString(),
     source: input.source,
     ts_rooms: { room_number: room.room_number },
@@ -1245,6 +1271,7 @@ export function addDemoStaffOrder(
           is_complaint: false,
           is_chargeable: ["kitchen", "bar", "laundry"].includes(req.department_key),
           price: null,
+          payment_status: ["kitchen", "bar", "laundry"].includes(req.department_key) ? "unpaid" : null,
           classification_method: "demo_staff_log",
           session_id: `demo-session-${id}`,
           created_at: req.created_at,
@@ -1261,6 +1288,82 @@ export function addDemoStaffOrder(
 
 function formatRoomLabelSafe(roomNumber: string) {
   return /^\d+$/.test(roomNumber) ? `Room ${roomNumber}` : roomNumber;
+}
+
+/** Front-desk billing: chargeable flag, amount, and paid/unpaid/waived. */
+export function setDemoBilling(
+  state: DemoState,
+  requestId: string,
+  patch: {
+    is_chargeable: boolean;
+    payment_status: "unpaid" | "paid" | "waived" | null;
+    price: number | null;
+  },
+): DemoState {
+  const req = state.requests.find((r) => r.id === requestId);
+  if (!req) return state;
+  const at = new Date().toISOString();
+  const nextReq: OpsRequest = {
+    ...req,
+    is_chargeable: patch.is_chargeable,
+    payment_status: patch.is_chargeable ? patch.payment_status : null,
+    price: patch.is_chargeable ? patch.price : null,
+    currency: req.currency ?? "GBP",
+  };
+  const label = !patch.is_chargeable
+    ? "Marked not chargeable"
+    : patch.payment_status === "paid"
+      ? "Marked paid"
+      : patch.payment_status === "waived"
+        ? "Marked waived"
+        : patch.payment_status === "unpaid"
+          ? "Marked unpaid"
+          : "Updated billing";
+  const details = { ...state.details };
+  const prev = details[requestId] ?? seedDetail(req);
+  details[requestId] = {
+    ...prev,
+    request: {
+      ...prev.request,
+      ...nextReq,
+      hotel_id: prev.request.hotel_id,
+      intent: prev.request.intent,
+      session_id: prev.request.session_id,
+      conversation: prev.request.conversation,
+      updated_at: at,
+    },
+    events: [
+      ...prev.events,
+      {
+        id: `${requestId}-ev-billing-${Date.now()}`,
+        request_id: requestId,
+        status: "staff_note",
+        note: `${DEMO_ACTOR} — ${label}`,
+        actor_type: "staff",
+        created_at: at,
+      },
+    ],
+  };
+  return {
+    ...state,
+    requests: state.requests.map((r) => (r.id === requestId ? nextReq : r)),
+    details,
+    insights: {
+      ...state.insights,
+      requests: state.insights.requests.map((r) =>
+        r.id === requestId
+          ? {
+              ...r,
+              is_chargeable: nextReq.is_chargeable,
+              price: nextReq.price,
+              payment_status: nextReq.payment_status,
+              updated_at: at,
+            }
+          : r,
+      ),
+    },
+    version: state.version + 1,
+  };
 }
 
 /** Guest confirms staff marked a request complete. */

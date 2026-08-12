@@ -21,7 +21,7 @@ import RequestDetailSheet from "@/talkstay/components/RequestDetailSheet";
 import ExportReportButton from "@/talkstay/components/ExportReportButton";
 import LogOrderDialog from "@/talkstay/components/LogOrderDialog";
 import { exportFilenameBase, type TalkStayExportPayload } from "@/talkstay/lib/exportReport";
-import { statusBadge, statusCard, statusLabel } from "@/talkstay/lib/statusStyles";
+import { statusBadge, statusCard, statusLabel, formatMoney, PAYMENT_STYLE, paymentLabel } from "@/talkstay/lib/statusStyles";
 import { useDemo } from "@/talkstay/demo/DemoContext";
 
 function channelLabel(source?: string | null) {
@@ -599,7 +599,7 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
         </Button>
       </div>
 
-      {roomQ && (
+          {roomQ && (
         <div className="rounded-2xl border bg-card p-4 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
@@ -623,6 +623,26 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
               )}
             </div>
           </div>
+          {(() => {
+            const unpaid = roomHits.filter((r) => r.is_chargeable && (r.payment_status ?? "unpaid") === "unpaid");
+            if (!unpaid.length) return null;
+            const priced = unpaid.filter((r) => typeof r.price === "number" && r.price > 0);
+            const total = priced.reduce((sum, r) => sum + Number(r.price), 0);
+            const currency = unpaid.find((r) => r.currency)?.currency ?? "GBP";
+            return (
+              <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2.5 text-sm text-amber-950">
+                <p className="font-semibold">
+                  {unpaid.length} unpaid chargeable item{unpaid.length === 1 ? "" : "s"}
+                  {priced.length
+                    ? ` · ${formatMoney(total, currency)}`
+                    : " · add amounts on each ticket"}
+                </p>
+                <p className="mt-0.5 text-xs text-amber-900/80">
+                  Collect before checkout. Open a ticket to mark paid or waive.
+                </p>
+              </div>
+            );
+          })()}
           {roomHits.length > 0 && (
             <ul className="mt-3 divide-y rounded-xl border">
               {roomHits.slice(0, 12).map((r) => {
@@ -649,6 +669,12 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
                             <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-800">
                               <Bot className="mr-1 h-3 w-3" />
                               {channelLabel(r.source) ?? "Guest app"}
+                            </Badge>
+                          )}
+                          {r.is_chargeable && (
+                            <Badge className={PAYMENT_STYLE[r.payment_status ?? "unpaid"] ?? PAYMENT_STYLE.unpaid}>
+                              {paymentLabel(r.payment_status ?? "unpaid")}
+                              {r.price != null ? ` · ${formatMoney(r.price, r.currency)}` : ""}
                             </Badge>
                           )}
                         </div>

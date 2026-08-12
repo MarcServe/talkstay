@@ -45,6 +45,7 @@ export interface BiInputRow {
   is_complaint: boolean;
   is_chargeable?: boolean | null;
   price?: number | null;
+  payment_status?: string | null;
   isDone: boolean;
   toAcceptMin: number | null;
   toCompleteMin: number | null;
@@ -203,7 +204,14 @@ export function buildBusinessIntelligence(input: {
   const completed = rows.filter((r) => r.isDone).length;
   const chargeable = rows.filter((r) => r.is_chargeable).length;
   const complaints = rows.filter((r) => r.is_complaint).length;
-  const prices = rows.map((r) => r.price).filter((n): n is number => typeof n === "number" && n > 0);
+  // Prefer actually paid amounts when payment_status is present; else fall back to priced chargeables.
+  const pricedPaid = rows.filter((r) =>
+    r.is_chargeable
+    && typeof r.price === "number"
+    && r.price > 0
+    && (r.payment_status === "paid" || r.payment_status == null),
+  );
+  const prices = pricedPaid.map((r) => r.price).filter((n): n is number => typeof n === "number" && n > 0);
   const revenueProxy = prices.length ? prices.reduce((a, b) => a + b, 0) : null;
   const accept = rows.map((r) => r.toAcceptMin).filter((n): n is number => n != null && n >= 0);
   const complete = rows.filter((r) => r.isDone).map((r) => r.toCompleteMin).filter((n): n is number => n != null && n >= 0);
@@ -278,8 +286,8 @@ export function buildBusinessIntelligence(input: {
     if (chargeable > 0) {
       highlights.push(
         revenueProxy != null
-          ? `${chargeable} chargeable orders logged (≈ ${revenueProxy.toLocaleString(undefined, { maximumFractionDigits: 0 })} on priced lines).`
-          : `${chargeable} chargeable orders logged — treat that as your TalkStay sales pulse.`,
+          ? `${chargeable} chargeable orders logged (≈ ${revenueProxy.toLocaleString(undefined, { maximumFractionDigits: 0 })} on paid/priced lines).`
+          : `${chargeable} chargeable orders logged — mark paid at checkout to tighten this pulse.`,
       );
     }
     if (completionPct >= 80) highlights.push(`Completion is healthy at ${completionPct}%.`);

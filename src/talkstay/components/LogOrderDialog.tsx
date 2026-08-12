@@ -79,6 +79,8 @@ export default function LogOrderDialog({
   const [source, setSource] = useState<OrderSource>("phone");
   const [summary, setSummary] = useState("");
   const [priority, setPriority] = useState("normal");
+  const [chargeable, setChargeable] = useState(false);
+  const [price, setPrice] = useState("");
   const [busy, setBusy] = useState(false);
   const [openRows, setOpenRows] = useState<OpenRow[]>([]);
   const [dupBlock, setDupBlock] = useState<OpenRow[] | null>(null);
@@ -148,6 +150,8 @@ export default function LogOrderDialog({
           source,
           priority,
           force,
+          isChargeable: chargeable,
+          price: chargeable && price.trim() !== "" ? Number(price) : null,
         });
         if ((out as any)?.duplicate) {
           setDupBlock(((out as any).open as OpenRow[]) ?? []);
@@ -171,6 +175,8 @@ export default function LogOrderDialog({
           source,
           priority,
           force,
+          isChargeable: chargeable,
+          price: chargeable && price.trim() !== "" ? Number(price) : null,
         },
       });
       const bodyErr = (data as any)?.error as string | undefined;
@@ -360,6 +366,33 @@ export default function LogOrderDialog({
               <SelectItem value="urgent">Urgent</SelectItem>
             </SelectContent>
           </Select>
+        </div>
+
+        <div className="rounded-xl border border-emerald-200/80 bg-emerald-50/40 p-3 space-y-2">
+          <label className="flex items-center gap-2 text-sm font-medium text-emerald-950">
+            <input
+              type="checkbox"
+              checked={chargeable}
+              onChange={(e) => setChargeable(e.target.checked)}
+              className="h-4 w-4 rounded border-emerald-300"
+            />
+            Chargeable (bill to room / collect at checkout)
+          </label>
+          {chargeable && (
+            <div className="space-y-1.5">
+              <Label>Amount</Label>
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                inputMode="decimal"
+                value={price}
+                onChange={(e) => setPrice(e.target.value)}
+                placeholder="0.00"
+                className="max-w-[10rem] bg-white"
+              />
+            </div>
+          )}
         </div>
 
         {openRows.length > 0 && (
