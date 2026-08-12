@@ -460,7 +460,7 @@ export default function Landing() {
                 <p className="text-xs font-semibold uppercase tracking-wide text-violet-200">Guest</p>
                 <p className="mt-2 text-base font-semibold tracking-tight">Ask once. Done.</p>
                 <p className="mt-1.5 text-sm leading-relaxed text-white/70">
-                  Scan the room QR, speak or type the request, and get progress without chasing the front desk.
+                  Scan the room QR / click a link, speak or type the request, and get progress without chasing the front desk.
                 </p>
               </div>
               <div>
