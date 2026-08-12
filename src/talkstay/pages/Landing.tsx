@@ -237,10 +237,11 @@ function Hero({ signedIn }: { signedIn: boolean }) {
             Information, services and support — all at your fingertips
           </p>
           <p className="mx-auto mt-3 max-w-xl text-base leading-relaxed text-muted-foreground lg:mx-0">
-            TalkStay lets guests speak naturally to request room service, housekeeping,
-            maintenance, extra towels, food and drinks and more, or get instant answers about
-            the property. Every request is routed to the right team, tracked, and the guest is
-            kept updated until it's done.
+            TalkStay is a voice-first guest service assistant that lets guests speak naturally
+            to get instant property information or request room service, housekeeping,
+            maintenance, extra towels, food, drinks and more. Every request is automatically
+            routed to the right team, tracked from start to finish, and the guest is kept
+            updated until it's done.
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3 lg:justify-start">
             <Button asChild size="lg" className="bg-violet-600 hover:bg-violet-700">
