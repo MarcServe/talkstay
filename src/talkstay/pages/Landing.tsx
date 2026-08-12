@@ -216,8 +216,10 @@ function Hero({ signedIn }: { signedIn: boolean }) {
             Information, services and support — all at your fingertips
           </p>
           <p className="mx-auto mt-3 max-w-xl text-base leading-relaxed text-muted-foreground lg:mx-0">
-            Ask for property info and get an instant answer — or request service and
-            TalkStay routes it to the right team, tracks it, and closes the loop.
+            TalkStay lets guests speak naturally to request room service, housekeeping,
+            maintenance, extra towels, food and drinks and more, or get instant answers about
+            the property. Every request is routed to the right team, tracked, and the guest is
+            kept updated until it's done.
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3 lg:justify-start">
             <Button asChild size="lg" className="bg-violet-600 hover:bg-violet-700">
