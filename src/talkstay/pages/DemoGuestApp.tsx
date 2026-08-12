@@ -726,7 +726,7 @@ function DemoGuestInner() {
 
   if (!ready) {
     return (
-      <div className="flex min-h-[100dvh] items-center justify-center text-muted-foreground">
+      <div className="flex h-[100dvh] items-center justify-center overflow-hidden text-muted-foreground">
         <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Connecting…
       </div>
     );
