@@ -735,7 +735,7 @@ function DemoGuestInner() {
   return (
     <div
       data-talkstay
-      className="ts-atmosphere relative mx-auto flex h-[100dvh] max-w-md flex-col overflow-hidden bg-cover bg-center"
+      className="ts-atmosphere relative mx-auto flex h-[100dvh] max-h-[100dvh] max-w-md flex-col overflow-hidden overscroll-none bg-cover bg-center"
       style={{
         backgroundImage: `linear-gradient(hsla(38,26%,97%,${washTop}), hsla(210,20%,94%,${washBot})), url(${DEMO_BG_PHOTO})`,
         backgroundSize: "cover",
