@@ -18,6 +18,7 @@ export type RequestStatus =
   | "assigned"
   | "guest_updated"
   | "guest_reminded"
+  | "payment_requested"
   | "guest_cancelled";
 
 type StatusTone = {
@@ -139,6 +140,13 @@ export const REQUEST_STATUS: Record<RequestStatus, StatusTone> = {
     card: "border-rose-200/50 bg-rose-100/35 border-l-[3px] border-l-rose-500",
     dot: "bg-rose-500",
     accent: "bg-rose-500",
+  },
+  payment_requested: {
+    label: "Guest wants to pay now",
+    badge: "border border-amber-300/70 bg-amber-100/70 text-amber-950 backdrop-blur-sm",
+    card: "border-amber-300/50 bg-amber-100/40 border-l-[3px] border-l-amber-600",
+    dot: "bg-amber-600",
+    accent: "bg-amber-600",
   },
   guest_cancelled: {
     label: "Guest cancelled",

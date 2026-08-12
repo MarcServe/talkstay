@@ -106,13 +106,15 @@ export interface OpsQueueData {
   fetchedAt: number;
 }
 
-export type GuestSignalKind = "remind" | "update" | "cancel" | "followup";
+export type GuestSignalKind = "remind" | "update" | "cancel" | "followup" | "payment";
 
 function guestSignalKind(status: string, note: string | null): GuestSignalKind {
+  if (status === "payment_requested") return "payment";
   if (status === "guest_updated" || status === "updated") return "update";
   if (status === "guest_reminded") return "remind";
   if (status === "guest_cancelled") return "cancel";
   const n = (note ?? "").toLowerCase();
+  if (n.includes("pay now") || n.includes("collect payment")) return "payment";
   if (n.includes("updated")) return "update";
   if (n.includes("remind") || n.includes("still waiting")) return "remind";
   if (n.includes("cancel")) return "cancel";
@@ -192,6 +194,7 @@ export async function fetchOpsQueue(hotelId: string, timeRange: OpsTimeRange): P
     (q) => q.in("status", [
       "accepted", "escalated", "assigned", "staff_note", "forwarded",
       "guest_updated", "guest_reminded", "guest_cancelled", "updated",
+      "payment_requested",
     ]),
   );
 
@@ -210,6 +213,7 @@ export async function fetchOpsQueue(hotelId: string, timeRange: OpsTimeRange): P
       || e.status === "guest_reminded"
       || e.status === "guest_cancelled"
       || e.status === "updated"
+      || e.status === "payment_requested"
     ) {
       const kind = guestSignalKind(e.status, e.note);
       escalationEvents.push({ id: e.id, request_id: e.request_id, note: e.note, kind });

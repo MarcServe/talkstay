@@ -8,6 +8,24 @@ export interface GuestRequest {
   status: string;
   is_complaint: boolean;
   created_at?: string;
+  is_chargeable?: boolean | null;
+  price?: number | null;
+  currency?: string | null;
+  payment_status?: "unpaid" | "paid" | "waived" | null;
+}
+
+export type GuestPaymentTiming = "pay_now" | "at_checkout";
+
+export interface GuestBalance {
+  unpaidCount: number;
+  owedTotal: number | null;
+  currency: string;
+}
+
+export interface MyRequestsPayload {
+  requests: GuestRequest[];
+  paymentTiming: GuestPaymentTiming | null;
+  balance: GuestBalance;
 }
 
 /** Organised guest-facing content (menus, guides) — rendered as cards, not markdown. */
@@ -173,10 +191,41 @@ export async function fetchStaffMessages(args: {
   return ((data as any)?.messages ?? []) as StaffMessage[];
 }
 
-export async function fetchMyRequests(hotelSlug: string, roomId: string, token: string, sessionId: string) {
+export async function fetchMyRequests(hotelSlug: string, roomId: string, token: string, sessionId: string): Promise<MyRequestsPayload> {
   const { data, error } = await fn({ action: "my_requests", hotelSlug, roomId, token, sessionId });
   if (error) throw error;
-  return ((data as any)?.requests ?? []) as GuestRequest[];
+  const payload = data as any;
+  return {
+    requests: (payload?.requests ?? []) as GuestRequest[],
+    paymentTiming: (payload?.paymentTiming ?? null) as GuestPaymentTiming | null,
+    balance: {
+      unpaidCount: Number(payload?.balance?.unpaidCount ?? 0),
+      owedTotal: payload?.balance?.owedTotal ?? null,
+      currency: String(payload?.balance?.currency ?? "GBP"),
+    },
+  };
+}
+
+/** Guest chooses to settle at checkout (no staff visit yet). */
+export async function setPaymentTiming(args: {
+  hotelSlug: string; roomId: string; token: string; sessionId: string;
+  timing: GuestPaymentTiming;
+}) {
+  const { data, error } = await fn({ action: "set_payment_timing", ...args });
+  if (error) throw await realError(error);
+  if ((data as any)?.error) throw new Error((data as any).error);
+  return data as { ok: true; timing: GuestPaymentTiming };
+}
+
+/** Guest asks staff to come collect payment now (cash/POS — no card kit). */
+export async function requestPaymentNow(args: {
+  hotelSlug: string; roomId: string; token: string; sessionId: string;
+  requestId?: string;
+}) {
+  const { data, error } = await fn({ action: "request_payment", ...args });
+  if (error) throw await realError(error);
+  if ((data as any)?.error) throw new Error((data as any).error);
+  return data as { ok: true; unpaidCount: number; owedTotal: number | null; currency: string };
 }
 
 /** Store where this guest device wants email updates for their stay. */

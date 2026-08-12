@@ -31,6 +31,8 @@ import {
   guestNudgeDemoRequest,
   guestRateDemoRequest,
   guestReopenDemoRequest,
+  guestRequestPaymentDemo,
+  guestSetPaymentTimingDemo,
   guestUpdateDemoRequest,
   listDemoOpenForRoom,
   listDemoStaffMessagesForGuest,
@@ -114,6 +116,8 @@ export type DemoApi = {
   guestReopen: (requestId: string) => void;
   guestCancel: (requestId: string, reason?: string) => void;
   guestNudge: (requestId: string) => void;
+  guestRequestPayment: (requestId?: string) => void;
+  guestSetPaymentTiming: (timing: "pay_now" | "at_checkout") => void;
   guestUpdate: (requestId: string, note: string) => void;
   guestRate: (requestId: string, rating: number, comment?: string) => void;
   guestPulse: (input: { rating: number; text?: string }) => void;
@@ -331,6 +335,12 @@ export function DemoProvider({ children }: { children: ReactNode }) {
   const guestNudge = useCallback((requestId: string) => {
     setState((s) => guestNudgeDemoRequest(s, requestId));
   }, []);
+  const guestRequestPayment = useCallback((requestId?: string) => {
+    setState((s) => guestRequestPaymentDemo(s, requestId));
+  }, []);
+  const guestSetPaymentTiming = useCallback((timing: "pay_now" | "at_checkout") => {
+    setState((s) => guestSetPaymentTimingDemo(s, timing));
+  }, []);
   const guestUpdate = useCallback((requestId: string, note: string) => {
     setState((s) => guestUpdateDemoRequest(s, requestId, note));
   }, []);
@@ -384,6 +394,8 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     guestReopen,
     guestCancel,
     guestNudge,
+    guestRequestPayment,
+    guestSetPaymentTiming,
     guestUpdate,
     guestRate,
     guestPulse,
@@ -394,7 +406,8 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     addRoom, removeRoom, toggleRoomOccupancy, setRoomPublic, setRequireCheckinCode, regenerateCheckinCode,
     addStaff, removeStaff, assignStaffDepartment, toggleDepartment, patchDepartment,
     addKnowledge, removeKnowledge, updateKnowledge, addGuestRequest, logStaffOrder, listOpenForRoom,
-    guestConfirm, guestReopen, guestCancel, guestNudge, guestUpdate, guestRate, guestPulse,
+    guestConfirm, guestReopen, guestCancel, guestNudge, guestRequestPayment, guestSetPaymentTiming,
+    guestUpdate, guestRate, guestPulse,
     reset,
   ]);
 

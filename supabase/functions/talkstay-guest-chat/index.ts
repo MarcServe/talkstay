@@ -763,14 +763,145 @@ serve(async (req) => {
 
     // ---- my_requests: this device/session's requests ----
     // Cancelled tickets are removed (no guest-facing record).
+    // Includes billing fields so the guest can see what they currently owe.
     if (action === "my_requests") {
-      const { data } = await admin
-        .from("ts_service_requests")
-        .select("id, department_key, summary, status, is_complaint, created_at")
-        .eq("hotel_id", ctx.hotelId).eq("session_id", sessionId || "")
-        .neq("status", "cancelled")
-        .order("created_at", { ascending: false }).limit(50);
-      return json({ requests: data ?? [] });
+      let data: any[] | null = null;
+      let error: { message?: string } | null = null;
+      {
+        const full = await admin
+          .from("ts_service_requests")
+          .select("id, department_key, summary, status, is_complaint, created_at, is_chargeable, price, currency, payment_status")
+          .eq("hotel_id", ctx.hotelId).eq("session_id", sessionId || "")
+          .neq("status", "cancelled")
+          .order("created_at", { ascending: false }).limit(50);
+        data = full.data as any[] | null;
+        error = full.error;
+      }
+      if (error?.message?.includes("payment_status") || error?.message?.includes("is_chargeable") || error?.message?.includes("price")) {
+        const legacy = await admin
+          .from("ts_service_requests")
+          .select("id, department_key, summary, status, is_complaint, created_at")
+          .eq("hotel_id", ctx.hotelId).eq("session_id", sessionId || "")
+          .neq("status", "cancelled")
+          .order("created_at", { ascending: false }).limit(50);
+        data = legacy.data as any[] | null;
+        error = legacy.error;
+      }
+      if (error) return json({ error: error.message }, 400);
+
+      let paymentTiming: string | null = null;
+      if (sessionId) {
+        const sessFull = await admin.from("ts_guest_sessions")
+          .select("payment_timing")
+          .eq("hotel_id", ctx.hotelId).eq("session_id", sessionId).maybeSingle();
+        if (!sessFull.error) paymentTiming = (sessFull.data as any)?.payment_timing ?? null;
+      }
+
+      const requests = data ?? [];
+      const unpaid = requests.filter((r: any) =>
+        r.is_chargeable && (r.payment_status ?? "unpaid") === "unpaid");
+      const priced = unpaid.filter((r: any) => typeof r.price === "number" && Number(r.price) > 0);
+      const owedTotal = priced.length
+        ? priced.reduce((sum: number, r: any) => sum + Number(r.price), 0)
+        : null;
+      const currency = unpaid.find((r: any) => r.currency)?.currency ?? "GBP";
+
+      return json({
+        requests,
+        paymentTiming,
+        balance: {
+          unpaidCount: unpaid.length,
+          owedTotal,
+          currency,
+        },
+      });
+    }
+
+    // ---- set_payment_timing: guest chooses pay now vs at checkout ----
+    if (action === "set_payment_timing") {
+      const timing = String(body.timing ?? "");
+      if (!sessionId) return json({ error: "sessionId required" }, 400);
+      if (timing !== "pay_now" && timing !== "at_checkout") {
+        return json({ error: "timing must be pay_now or at_checkout" }, 400);
+      }
+      const { error } = await admin.from("ts_guest_sessions").upsert({
+        hotel_id: ctx.hotelId, room_id: ctx.roomId, session_id: sessionId,
+        language: ctx.language, payment_timing: timing,
+      }, { onConflict: "hotel_id,session_id" });
+      if (error?.message?.includes("payment_timing")) {
+        // Column not migrated yet — still OK to proceed with event-only flows.
+        return json({ ok: true, timing, deferred: true });
+      }
+      if (error) return json({ error: error.message }, 400);
+      return json({ ok: true, timing });
+    }
+
+    // ---- request_payment: guest wants staff to collect payment now ----
+    // Notifies staff (same path as remind). Does NOT charge a card — cash/POS
+    // collection in person; staff mark paid on the ticket afterward.
+    if (action === "request_payment") {
+      if (!sessionId) return json({ error: "sessionId required" }, 400);
+      const requestId = typeof body.requestId === "string" ? body.requestId : null;
+
+      await admin.from("ts_guest_sessions").upsert({
+        hotel_id: ctx.hotelId, room_id: ctx.roomId, session_id: sessionId,
+        language: ctx.language, payment_timing: "pay_now",
+      }, { onConflict: "hotel_id,session_id" }).then(() => {}, () => {});
+
+      let q = admin.from("ts_service_requests")
+        .select("id, session_id, summary, is_chargeable, price, currency, payment_status")
+        .eq("hotel_id", ctx.hotelId)
+        .eq("session_id", sessionId)
+        .eq("is_chargeable", true)
+        .neq("status", "cancelled");
+      if (requestId) q = q.eq("id", requestId);
+      let { data: rows, error: listErr } = await q;
+      if (listErr?.message?.includes("payment_status") || listErr?.message?.includes("is_chargeable")) {
+        return json({ error: "billing_unavailable" }, 409);
+      }
+      if (listErr) return json({ error: listErr.message }, 400);
+
+      const unpaid = (rows ?? []).filter((r: any) => (r.payment_status ?? "unpaid") === "unpaid");
+      if (!unpaid.length) return json({ error: "nothing_owed" }, 409);
+
+      // Soft rate-limit across any unpaid ticket for this session.
+      const sinceIso = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+      const { data: recent } = await admin.from("ts_request_events")
+        .select("id").in("request_id", unpaid.map((r: any) => r.id))
+        .eq("status", "payment_requested")
+        .eq("actor_type", "guest").gte("created_at", sinceIso).limit(1);
+      if (recent?.length) return json({ error: "too_soon", retryAfterMin: 5 }, 429);
+
+      const priced = unpaid.filter((r: any) => typeof r.price === "number" && Number(r.price) > 0);
+      const total = priced.reduce((sum: number, r: any) => sum + Number(r.price), 0);
+      const currency = unpaid.find((r: any) => r.currency)?.currency ?? "GBP";
+      const amountBit = priced.length
+        ? ` · about ${Number(total).toFixed(2)} ${String(currency).toUpperCase()}`
+        : "";
+      const note = `Guest asked to pay now — please collect payment in the room${amountBit}`
+        + (unpaid.length > 1 ? ` (${unpaid.length} unpaid items)` : "");
+
+      // Stamp the primary ticket (or each) so ops + detail sheet surface the ask.
+      const targets = requestId ? unpaid.slice(0, 1) : unpaid.slice(0, 8);
+      for (const r of targets) {
+        await admin.from("ts_request_events").insert({
+          request_id: r.id,
+          status: "payment_requested",
+          actor_type: "guest",
+          note: note.slice(0, 280),
+        });
+        await admin.from("ts_service_requests").update({ priority: "urgent" }).eq("id", r.id);
+        admin.functions.invoke("talkstay-notify", {
+          body: { requestId: r.id, event: "payment_requested", note },
+        }).then(() => {}, () => {});
+      }
+
+      return json({
+        ok: true,
+        unpaidCount: unpaid.length,
+        owedTotal: priced.length ? total : null,
+        currency,
+      });
     }
 
     // ---- staff_messages: human replies from staff for this session's requests ----
@@ -1285,6 +1416,7 @@ Only call create_service_request for something genuinely new that isn't already 
 DEPARTMENTS available (use exactly these keys): ${activeDepts.join(", ")}.
 Routing guide: towels/cleaning/bedding→housekeeping; laundry→laundry; food/breakfast/room service→kitchen; drinks/wine/cocktails→bar; TV/heating/AC/broken things→maintenance; taxi/recommendations/luggage→concierge; late checkout/billing/room access→front_desk; complaint/safety→duty_manager.
 Mark is_chargeable true for room service food, drinks, laundry, minibar, late checkout, spa. Towels, cleaning, maintenance, wifi help and complaints are free.
+When is_chargeable is true and you know the price from hotel knowledge/menus (e.g. "Club sandwich £14"), set the numeric price field. Never invent or guess a price — leave price unset if unsure.
 Keep replies to 1–3 short sentences.
 
 CONVERSATION STYLE: don't just answer and stop — that reads as cold. Close each reply by keeping things
@@ -1317,6 +1449,7 @@ what you just said. Vary your phrasing so it doesn't sound like a scripted closi
               priority: { type: "string", enum: ["low", "normal", "high", "urgent"] },
               is_complaint: { type: "boolean" },
               is_chargeable: { type: "boolean" },
+              price: { type: "number", description: "Amount in hotel currency when known from the menu/knowledge — never invent." },
             },
             required: ["department", "summary"],
           },
@@ -1375,7 +1508,7 @@ what you just said. Vary your phrasing so it doesn't sound like a scripted closi
     // fallback), records HOW it was classified for observability + triage.
     const createRequest = async (
       dept0: string, summary: string,
-      o: { isComplaint?: boolean; isChargeable?: boolean; priority?: string; method: string; needsTriage?: boolean }
+      o: { isComplaint?: boolean; isChargeable?: boolean; priority?: string; method: string; needsTriage?: boolean; price?: number | null }
     ) => {
       const dept = ctx.departments.includes(dept0) ? dept0 : (DEPARTMENTS.includes(dept0) ? dept0 : "front_desk");
       const isComplaint = o.isComplaint ?? (dept === "duty_manager");
@@ -1383,28 +1516,36 @@ what you just said. Vary your phrasing so it doesn't sound like a scripted closi
       // B4: give staff the request in the hotel's language (falls back to English).
       const summaryStaff = await translateForStaff(OPENAI_API_KEY, enSummary, ctx.language);
       const guestSource = o.method === "guest_repeat" ? "repeat" : "guest_chat";
-      const baseInsert = {
+      const chargeable = !!o.isChargeable;
+      const priceNum = chargeable && typeof o.price === "number" && Number.isFinite(o.price) && o.price > 0
+        ? Math.round(Number(o.price) * 100) / 100
+        : null;
+      const baseInsert: Record<string, unknown> = {
         hotel_id: ctx.hotelId, room_id: ctx.roomId, department_key: dept,
         intent: message.slice(0, 200), summary: enSummary, summary_staff: summaryStaff,
         priority: isComplaint ? "urgent" : (o.priority || "normal"),
-        is_complaint: isComplaint, is_chargeable: !!o.isChargeable,
-        payment_status: o.isChargeable ? "unpaid" : null,
+        is_complaint: isComplaint, is_chargeable: chargeable,
+        payment_status: chargeable ? "unpaid" : null,
         guest_language: ctx.language, session_id: sessionId || null,
         classification_method: o.method, needs_triage: !!o.needsTriage,
         conversation: [...history.slice(-6), { role: "user", content: message }],
       };
+      if (priceNum != null) {
+        baseInsert.price = priceNum;
+        baseInsert.currency = "GBP";
+      }
       let reqRow: any = null;
       {
         const first = await admin.from("ts_service_requests")
           .insert({ ...baseInsert, source: guestSource })
-          .select("id, department_key, summary, summary_staff, status, is_complaint").single();
+          .select("id, department_key, summary, summary_staff, status, is_complaint, is_chargeable, price, currency, payment_status").single();
         reqRow = first.data;
         let insErr = first.error;
         if (insErr?.message?.includes("payment_status")) {
           const { payment_status: _ps, ...withoutPay } = baseInsert as any;
           const retry = await admin.from("ts_service_requests")
             .insert({ ...withoutPay, source: guestSource })
-            .select("id, department_key, summary, summary_staff, status, is_complaint").single();
+            .select("id, department_key, summary, summary_staff, status, is_complaint, is_chargeable, price, currency").single();
           reqRow = retry.data;
           insErr = retry.error;
         }
@@ -1503,11 +1644,21 @@ what you just said. Vary your phrasing so it doesn't sound like a scripted closi
 
             const isComplaint = !!args.is_complaint || dept === "duty_manager";
             guestIntent = isComplaint ? "complaint" : "request";
+            const priceArg = typeof args.price === "number" ? args.price : null;
             const reqRow = await createRequest(dept, String(args.summary || message),
-              { isComplaint, isChargeable: !!args.is_chargeable, priority: args.priority, method, needsTriage });
+              { isComplaint, isChargeable: !!args.is_chargeable, priority: args.priority, method, needsTriage, price: priceArg });
             messages.push({
               role: "tool", tool_call_id: tc.id,
-              content: JSON.stringify(reqRow ? { ok: true, department: dept, eta: ETA[dept] || "shortly", is_complaint: isComplaint } : { ok: false }),
+              content: JSON.stringify(reqRow
+                ? {
+                    ok: true,
+                    department: dept,
+                    eta: ETA[dept] || "shortly",
+                    is_complaint: isComplaint,
+                    is_chargeable: !!args.is_chargeable,
+                    price: reqRow.price ?? null,
+                  }
+                : { ok: false }),
             });
           } else if (tc.function.name === "escalate_request") {
             // Follow-up on something already open — bump it to urgent and alert

@@ -48,6 +48,7 @@ serve(async (req) => {
       guest_cancelled: "The guest cancelled this request.",
       guest_updated: "The guest updated what they asked for — please re-check the order.",
       guest_reminded: "The guest reminded you they are still waiting.",
+      payment_requested: "The guest wants to pay now — please collect payment in the room.",
       staff_note: "Team note — please read and action if needed.",
       forwarded: "This request was forwarded to your team.",
       assigned: "Someone has been marked as handling this request.",
@@ -61,13 +62,14 @@ serve(async (req) => {
       guest_cancelled: "Guest cancelled",
       guest_updated: "Guest updated order",
       guest_reminded: "Guest reminded you",
+      payment_requested: "Guest wants to pay now",
       staff_note: "Team note",
       forwarded: "Forwarded to you",
       assigned: "Handler set",
     };
     const banner = event ? (EVENT_BANNER[event] ?? null) : null;
     const isCloseEvent = ["completed", "cancelled", "guest_confirmed", "guest_cancelled"].includes(event);
-    const urgentGuest = ["guest_updated", "guest_reminded", "escalated", "reopened"].includes(event);
+    const urgentGuest = ["guest_updated", "guest_reminded", "payment_requested", "escalated", "reopened"].includes(event);
 
     const { data: r } = await admin
       .from("ts_service_requests")

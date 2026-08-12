@@ -88,18 +88,20 @@ export default function RequestDetailSheet({
 
   const guestSignal = useMemo(() => {
     const e = [...events].reverse().find((ev) =>
-      ["guest_updated", "guest_reminded", "guest_cancelled", "updated"].includes(ev.status)
+      ["guest_updated", "guest_reminded", "guest_cancelled", "updated", "payment_requested"].includes(ev.status)
       || (ev.status === "escalated" && ev.actor_type === "guest")
     );
     if (!e) return null;
     const kind =
-      e.status === "guest_updated" || e.status === "updated" || (e.note ?? "").toLowerCase().includes("updated")
-        ? "update"
-        : e.status === "guest_reminded" || (e.note ?? "").toLowerCase().includes("remind") || (e.note ?? "").toLowerCase().includes("waiting")
-          ? "remind"
-          : e.status === "guest_cancelled" || (e.note ?? "").toLowerCase().includes("cancel")
-            ? "cancel"
-            : "followup";
+      e.status === "payment_requested" || (e.note ?? "").toLowerCase().includes("pay now") || (e.note ?? "").toLowerCase().includes("collect payment")
+        ? "payment"
+        : e.status === "guest_updated" || e.status === "updated" || (e.note ?? "").toLowerCase().includes("updated")
+          ? "update"
+          : e.status === "guest_reminded" || (e.note ?? "").toLowerCase().includes("remind") || (e.note ?? "").toLowerCase().includes("waiting")
+            ? "remind"
+            : e.status === "guest_cancelled" || (e.note ?? "").toLowerCase().includes("cancel")
+              ? "cancel"
+              : "followup";
     return { kind, note: e.note, at: e.created_at };
   }, [events]);
 
@@ -455,7 +457,9 @@ export default function RequestDetailSheet({
                     ? "border-amber-300 bg-amber-50 text-amber-950"
                     : guestSignal.kind === "cancel"
                       ? "border-slate-300 bg-slate-50 text-slate-800"
-                      : "border-rose-200 bg-rose-50 text-rose-900"
+                      : guestSignal.kind === "payment"
+                        ? "border-amber-400 bg-amber-50 text-amber-950"
+                        : "border-rose-200 bg-rose-50 text-rose-900"
                 }`}
               >
                 {guestSignal.kind === "update"
@@ -464,7 +468,9 @@ export default function RequestDetailSheet({
                     ? "⏰ Guest reminded you — still waiting"
                     : guestSignal.kind === "cancel"
                       ? "✕ Guest cancelled this order"
-                      : "⚠ Guest followed up"}
+                      : guestSignal.kind === "payment"
+                        ? "💷 Guest wants to pay now — collect in the room"
+                        : "⚠ Guest followed up"}
                 {guestSignal.note ? ` — "${guestSignal.note}"` : ""}
               </div>
             )}
@@ -498,6 +504,7 @@ export default function RequestDetailSheet({
                   </h3>
                   <p className="mt-1 text-xs text-emerald-900/75">
                     Mark chargeable orders paid before the guest checks out. Fulfillment status stays separate.
+                    Upload menus in Knowledge so the guest assistant can attach prices when it knows them.
                   </p>
                 </div>
                 {req.is_chargeable ? (

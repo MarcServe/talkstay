@@ -10,7 +10,7 @@ import {
 import { RealtimeChat } from "@/utils/RealtimeChat";
 import { conversationMemory } from "@/utils/ConversationMemory";
 import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
-import { statusBadge, statusDot, statusLabel } from "@/talkstay/lib/statusStyles";
+import { formatMoney, PAYMENT_STYLE, paymentLabel, statusBadge, statusDot, statusLabel } from "@/talkstay/lib/statusStyles";
 import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
 import NoIndexMeta from "@/talkstay/components/NoIndexMeta";
 import { DemoProvider, useDemo, type DemoApi } from "@/talkstay/demo/DemoContext";
@@ -188,6 +188,10 @@ function DemoRequestsSheet({
     department_key: string;
     summary: string;
     status: string;
+    is_chargeable?: boolean | null;
+    price?: number | null;
+    currency?: string | null;
+    payment_status?: "unpaid" | "paid" | "waived" | null;
   }>;
   onClose: () => void;
 }) {
@@ -200,6 +204,15 @@ function DemoRequestsSheet({
   const [cancelReason, setCancelReason] = useState("");
 
   const visible = reqs.filter((r) => r.status !== "cancelled");
+  const unpaid = visible.filter(
+    (r) => r.is_chargeable && (r.payment_status ?? "unpaid") === "unpaid",
+  );
+  const pricedUnpaid = unpaid.filter((r) => typeof r.price === "number" && Number(r.price) > 0);
+  const owedTotal = pricedUnpaid.length
+    ? pricedUnpaid.reduce((sum, r) => sum + Number(r.price), 0)
+    : null;
+  const currency = unpaid.find((r) => r.currency)?.currency ?? "GBP";
+  const paymentTiming = demo.state.paymentTiming;
 
   return (
     <div
@@ -220,6 +233,47 @@ function DemoRequestsSheet({
           Same close-out loop as a real stay — confirm, remind, update, cancel, and rate.
           Staff replies and status changes sync from the Operations demo.
         </p>
+        {unpaid.length > 0 && (
+          <div className="mb-4 rounded-2xl border border-amber-300 bg-amber-50 px-3.5 py-3 text-amber-950">
+            <p className="text-sm font-semibold tracking-tight">
+              {owedTotal != null
+                ? `You currently owe ${formatMoney(owedTotal, currency)}`
+                : `${unpaid.length} unpaid item${unpaid.length === 1 ? "" : "s"}`}
+            </p>
+            <p className="mt-0.5 text-[11px] leading-snug text-amber-900/80">
+              {paymentTiming === "pay_now"
+                ? "We've asked the team to collect payment in your room."
+                : paymentTiming === "at_checkout"
+                  ? "You'll settle this at checkout — no card needed in chat."
+                  : "Pay now (someone collects in your room) or settle at checkout."}
+            </p>
+            <div className="mt-2.5 grid grid-cols-2 gap-1.5">
+              <Button
+                size="sm"
+                className="h-9 bg-amber-700 text-white hover:bg-amber-800"
+                disabled={paymentTiming === "pay_now"}
+                onClick={() => {
+                  demo.guestRequestPayment();
+                  toast.success("We've asked the team to come collect payment.");
+                }}
+              >
+                {paymentTiming === "pay_now" ? "Team notified" : "Pay now"}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-9 border-amber-300 bg-white"
+                disabled={paymentTiming === "at_checkout"}
+                onClick={() => {
+                  demo.guestSetPaymentTiming("at_checkout");
+                  toast.success("We'll settle this at checkout.");
+                }}
+              >
+                {paymentTiming === "at_checkout" ? "At checkout" : "Pay at checkout"}
+              </Button>
+            </div>
+          </div>
+        )}
         {visible.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             No requests yet — ask for towels or report a problem.
@@ -242,6 +296,12 @@ function DemoRequestsSheet({
                       {statusLabel(r.status)}
                     </span>
                     <span className="text-[11px] text-muted-foreground">{deptLabel(r.department_key)}</span>
+                    {r.is_chargeable && (
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${PAYMENT_STYLE[r.payment_status ?? "unpaid"] ?? PAYMENT_STYLE.unpaid}`}>
+                        {paymentLabel(r.payment_status ?? "unpaid")}
+                        {r.price != null ? ` · ${formatMoney(r.price, r.currency)}` : ""}
+                      </span>
+                    )}
                   </div>
 
                   {awaitingConfirm && (
