@@ -193,29 +193,36 @@ function Photo({ src, alt, className = "", eager = false, fit = "cover",
 
 /** Split hero: photo leads on mobile; copy left / photo right on desktop. */
 function Hero({ signedIn }: { signedIn: boolean }) {
+  const voiceBadge = (
+    <span className="inline-flex items-center gap-1.5 rounded-full bg-violet-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-violet-700">
+      <Mic className="h-3.5 w-3.5" />
+      Voice-first guest service
+    </span>
+  );
+
   return (
     <div className="space-y-8">
       <div className="grid items-center gap-8 sm:gap-10 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] lg:gap-12">
-        {/* First in DOM so mobile stacks image on top; desktop places it in column 2. */}
-        <Photo
-          src={IMG.hero}
-          webp={IMG.heroWebp}
-          webpSrcSet={IMG.heroWebpSrcSet}
-          sizes={IMG.heroSizes}
-          lqip={IMG.heroLqip}
-          width={1215}
-          height={1295}
-          alt="Guest in bed using TalkStay on their phone — QR bedside stand and live request chat with housekeeping"
-          eager
-          className="aspect-[1215/1295] w-full rounded-3xl shadow-xl ring-1 ring-black/5 lg:col-start-2 lg:row-start-1"
-        />
+        {/* Mobile: badge above image. Desktop: image in column 2. */}
+        <div className="flex flex-col items-center gap-4 lg:col-start-2 lg:row-start-1 lg:contents">
+          <div className="lg:hidden">{voiceBadge}</div>
+          <Photo
+            src={IMG.hero}
+            webp={IMG.heroWebp}
+            webpSrcSet={IMG.heroWebpSrcSet}
+            sizes={IMG.heroSizes}
+            lqip={IMG.heroLqip}
+            width={1215}
+            height={1295}
+            alt="Guest in bed using TalkStay on their phone — QR bedside stand and live request chat with housekeeping"
+            eager
+            className="aspect-[1215/1295] w-full rounded-3xl shadow-xl ring-1 ring-black/5 lg:col-start-2 lg:row-start-1"
+          />
+        </div>
 
         <div className="text-center lg:col-start-1 lg:row-start-1 lg:text-left">
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-violet-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-violet-700">
-            <Mic className="h-3.5 w-3.5" />
-            Voice-first guest service
-          </span>
-          <h1 className="mt-5 text-4xl font-bold tracking-tight text-foreground sm:text-5xl lg:text-[3.25rem] lg:leading-[1.1]">
+          <div className="hidden lg:block">{voiceBadge}</div>
+          <h1 className="mt-0 text-4xl font-bold tracking-tight text-foreground sm:text-5xl lg:mt-5 lg:text-[3.25rem] lg:leading-[1.1]">
             Guest requests.
             <br />
             Handled{" "}
