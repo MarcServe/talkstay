@@ -726,7 +726,7 @@ function DemoGuestInner() {
 
   if (!ready) {
     return (
-      <div className="flex min-h-[100dvh] items-center justify-center text-muted-foreground">
+      <div className="flex h-[100dvh] items-center justify-center overflow-hidden text-muted-foreground">
         <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Connecting…
       </div>
     );
@@ -735,7 +735,7 @@ function DemoGuestInner() {
   return (
     <div
       data-talkstay
-      className="ts-atmosphere relative mx-auto flex h-[100dvh] max-w-md flex-col bg-cover bg-center"
+      className="ts-atmosphere relative mx-auto flex h-[100dvh] max-h-[100dvh] max-w-md flex-col overflow-hidden overscroll-none bg-cover bg-center"
       style={{
         backgroundImage: `linear-gradient(hsla(38,26%,97%,${washTop}), hsla(210,20%,94%,${washBot})), url(${DEMO_BG_PHOTO})`,
         backgroundSize: "cover",
