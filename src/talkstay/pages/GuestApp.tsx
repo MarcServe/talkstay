@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useSearchParams } from "react-router-dom";
+import { useParams, useSearchParams, Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Loader2, Send, ClipboardList, Star, X, Mic, MicOff, Square, Globe, Check, MessageCircle, Smile, Meh, Frown, BellRing, Bell, Pencil, ExternalLink, RotateCcw, Banknote } from "lucide-react";
+import { Loader2, Send, ClipboardList, Star, X, Mic, MicOff, Square, Globe, Check, MessageCircle, Smile, Meh, Frown, BellRing, Bell, Pencil, ExternalLink, RotateCcw, Banknote, LogOut } from "lucide-react";
 import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
 import { toast } from "sonner";
 import { RealtimeChat } from "@/utils/RealtimeChat";
@@ -22,6 +22,8 @@ import {
   type ChatMsg, type GuestCard, type GuestRequest, type GuestBranding, type GuestPaymentTiming,
 } from "@/talkstay/lib/guest";
 import { formatMoney, PAYMENT_STYLE, paymentLabel, statusBadge, statusDot, statusLabel } from "@/talkstay/lib/statusStyles";
+import { GuestFolio } from "@/talkstay/components/GuestFolio";
+import { guestStayPath } from "@/talkstay/lib/guestUrls";
 
 /** Guest My-requests card washes — kept in this file so Tailwind always emits them. */
 const GUEST_REQ_CARD: Record<string, string> = {
@@ -698,6 +700,11 @@ function GuestAppInner({ hotelSlug, roomId, token }: { hotelSlug: string; roomId
         <Button variant="outline" size="sm" className="h-8 shrink-0 px-2.5 text-xs" onClick={() => setRequestsOpen(true)}>
           <ClipboardList className="mr-1 h-3.5 w-3.5" /> Requests
         </Button>
+        <Button variant="outline" size="sm" className="h-8 shrink-0 px-2.5 text-xs" asChild>
+          <Link to={`${guestStayPath(hotelSlug, roomId, "checkout")}?token=${encodeURIComponent(token)}`}>
+            <LogOut className="mr-1 h-3.5 w-3.5" /> Checkout
+          </Link>
+        </Button>
       </header>
 
       {/* Voice-first strip — centred under the header. */}
@@ -1277,15 +1284,6 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
     reload();
   }, [hotelSlug, roomId, token, sid]);
 
-  const unpaid = (reqs ?? []).filter(
-    (r) => r.is_chargeable && (r.payment_status ?? "unpaid") === "unpaid",
-  );
-  const pricedUnpaid = unpaid.filter((r) => typeof r.price === "number" && Number(r.price) > 0);
-  const owedTotal = pricedUnpaid.length
-    ? pricedUnpaid.reduce((sum, r) => sum + Number(r.price), 0)
-    : null;
-  const currency = unpaid.find((r) => r.currency)?.currency ?? "GBP";
-
   const payNow = async () => {
     setPayBusy(true);
     try {
@@ -1470,45 +1468,21 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
         <p className="mb-4 text-xs text-muted-foreground">
           Track open and completed asks. You can remind, update, or cancel anything still in progress.
         </p>
-        {unpaid.length > 0 && (
-          <div className="mb-4 rounded-2xl border border-amber-300/80 bg-amber-50/90 px-3.5 py-3 text-amber-950">
-            <div className="flex items-start gap-2">
-              <Banknote className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold tracking-tight">
-                  {owedTotal != null
-                    ? `You currently owe ${formatMoney(owedTotal, currency)}`
-                    : `${unpaid.length} unpaid item${unpaid.length === 1 ? "" : "s"}`}
-                </p>
-                <p className="mt-0.5 text-[11px] leading-snug text-amber-900/80">
-                  {paymentTiming === "pay_now"
-                    ? "We've asked the team to collect payment in your room."
-                    : paymentTiming === "at_checkout"
-                      ? "You'll settle this at checkout — no card needed in chat."
-                      : "Pay now (someone collects in your room) or settle at checkout. No online card payment yet."}
-                </p>
-                <div className="mt-2.5 grid grid-cols-2 gap-1.5">
-                  <Button
-                    size="sm"
-                    className="h-9 bg-amber-700 text-white hover:bg-amber-800"
-                    disabled={payBusy || paymentTiming === "pay_now"}
-                    onClick={() => void payNow()}
-                  >
-                    {payBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-                    {paymentTiming === "pay_now" ? "Team notified" : "Pay now"}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-9 border-amber-300 bg-white/70"
-                    disabled={payBusy || paymentTiming === "at_checkout"}
-                    onClick={() => void payAtCheckout()}
-                  >
-                    {paymentTiming === "at_checkout" ? "At checkout" : "Pay at checkout"}
-                  </Button>
-                </div>
-              </div>
-            </div>
+        {reqs && (
+          <div className="mb-4 space-y-2">
+            <GuestFolio
+              requests={reqs}
+              paymentTiming={paymentTiming}
+              payBusy={payBusy}
+              onPayNow={() => void payNow()}
+              onPayAtCheckout={() => void payAtCheckout()}
+              variant="compact"
+            />
+            <Button variant="outline" size="sm" className="h-9 w-full" asChild>
+              <Link to={`${guestStayPath(hotelSlug, roomId, "checkout")}?token=${encodeURIComponent(token)}`}>
+                <LogOut className="mr-1.5 h-3.5 w-3.5" /> Open full checkout page
+              </Link>
+            </Button>
           </div>
         )}
         {reqs === null ? (

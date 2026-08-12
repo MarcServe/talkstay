@@ -9,10 +9,14 @@ import Landing from "@/talkstay/pages/Landing";
 
 // Lazy-loaded surfaces (built out across phases)
 const GuestApp = lazy(() => import("@/talkstay/pages/GuestApp"));
+const GuestCheckIn = lazy(() => import("@/talkstay/pages/GuestCheckIn"));
+const GuestCheckOut = lazy(() => import("@/talkstay/pages/GuestCheckOut"));
 const HotelApp = lazy(() => import("@/talkstay/pages/HotelApp"));
 const DemoHub = lazy(() => import("@/talkstay/pages/DemoHub"));
 const DemoApp = lazy(() => import("@/talkstay/pages/DemoApp"));
 const DemoGuestApp = lazy(() => import("@/talkstay/pages/DemoGuestApp"));
+const DemoGuestCheckIn = lazy(() => import("@/talkstay/pages/DemoGuestCheckIn"));
+const DemoGuestCheckOut = lazy(() => import("@/talkstay/pages/DemoGuestCheckOut"));
 const LiveView = lazy(() => import("@/talkstay/pages/LiveView"));
 const TalkStayAdminApp = lazy(() => import("@/talkstay/admin/TalkStayAdminApp"));
 const NotFound = lazy(() => import("@/talkstay/pages/NotFound"));
@@ -65,6 +69,8 @@ const App = () => (
 
               {/* Guest PWA — scanned from a room QR code */}
               <Route path="/h/:hotelSlug/r/:roomId" element={<GuestApp />} />
+              <Route path="/h/:hotelSlug/r/:roomId/checkin" element={<GuestCheckIn />} />
+              <Route path="/h/:hotelSlug/r/:roomId/checkout" element={<GuestCheckOut />} />
 
               {/* Hotel staff + admin (auth-gated inside) */}
               <Route path="/app/*" element={<HotelApp />} />
@@ -72,6 +78,8 @@ const App = () => (
               {/* Marketing demos — hub + guest + staff operations */}
               <Route path="/demo" element={<DemoHub />} />
               <Route path="/demo/guest" element={<DemoGuestApp />} />
+              <Route path="/demo/guest/checkin" element={<DemoGuestCheckIn />} />
+              <Route path="/demo/guest/checkout" element={<DemoGuestCheckOut />} />
               <Route path="/demo/operations" element={<DemoApp />} />
               {/* Back-compat aliases from older campaign links */}
               <Route path="/demo/*" element={<DemoHub />} />

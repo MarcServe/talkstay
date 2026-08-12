@@ -4,13 +4,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import {
-  ArrowLeft, Bell, Check, ClipboardList, Loader2, Meh, MessageCircle,
+  ArrowLeft, Bell, Check, ClipboardList, Loader2, LogOut, Meh, MessageCircle,
   Mic, MicOff, Pencil, Send, Smile, Frown, Star, X,
 } from "lucide-react";
 import { RealtimeChat } from "@/utils/RealtimeChat";
 import { conversationMemory } from "@/utils/ConversationMemory";
 import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
 import { formatMoney, PAYMENT_STYLE, paymentLabel, statusBadge, statusDot, statusLabel } from "@/talkstay/lib/statusStyles";
+import { GuestFolio } from "@/talkstay/components/GuestFolio";
 import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
 import NoIndexMeta from "@/talkstay/components/NoIndexMeta";
 import { DemoProvider, useDemo, type DemoApi } from "@/talkstay/demo/DemoContext";
@@ -233,47 +234,36 @@ function DemoRequestsSheet({
           Same close-out loop as a real stay — confirm, remind, update, cancel, and rate.
           Staff replies and status changes sync from the Operations demo.
         </p>
-        {unpaid.length > 0 && (
-          <div className="mb-4 rounded-2xl border border-amber-300 bg-amber-50 px-3.5 py-3 text-amber-950">
-            <p className="text-sm font-semibold tracking-tight">
-              {owedTotal != null
-                ? `You currently owe ${formatMoney(owedTotal, currency)}`
-                : `${unpaid.length} unpaid item${unpaid.length === 1 ? "" : "s"}`}
-            </p>
-            <p className="mt-0.5 text-[11px] leading-snug text-amber-900/80">
-              {paymentTiming === "pay_now"
-                ? "We've asked the team to collect payment in your room."
-                : paymentTiming === "at_checkout"
-                  ? "You'll settle this at checkout — no card needed in chat."
-                  : "Pay now (someone collects in your room) or settle at checkout."}
-            </p>
-            <div className="mt-2.5 grid grid-cols-2 gap-1.5">
-              <Button
-                size="sm"
-                className="h-9 bg-amber-700 text-white hover:bg-amber-800"
-                disabled={paymentTiming === "pay_now"}
-                onClick={() => {
-                  demo.guestRequestPayment();
-                  toast.success("We've asked the team to come collect payment.");
-                }}
-              >
-                {paymentTiming === "pay_now" ? "Team notified" : "Pay now"}
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-9 border-amber-300 bg-white"
-                disabled={paymentTiming === "at_checkout"}
-                onClick={() => {
-                  demo.guestSetPaymentTiming("at_checkout");
-                  toast.success("We'll settle this at checkout.");
-                }}
-              >
-                {paymentTiming === "at_checkout" ? "At checkout" : "Pay at checkout"}
-              </Button>
-            </div>
-          </div>
-        )}
+        <div className="mb-4 space-y-2">
+          <GuestFolio
+            requests={visible.map((r) => ({
+              id: r.id,
+              department_key: r.department_key,
+              summary: r.summary,
+              status: r.status,
+              is_complaint: false,
+              is_chargeable: r.is_chargeable,
+              price: r.price,
+              currency: r.currency,
+              payment_status: r.payment_status,
+            }))}
+            paymentTiming={paymentTiming}
+            onPayNow={() => {
+              demo.guestRequestPayment();
+              toast.success("We've asked the team to come collect payment.");
+            }}
+            onPayAtCheckout={() => {
+              demo.guestSetPaymentTiming("at_checkout");
+              toast.success("We'll settle this at checkout.");
+            }}
+            variant="compact"
+          />
+          <Button variant="outline" size="sm" className="h-9 w-full" asChild>
+            <Link to="/demo/guest/checkout">
+              <LogOut className="mr-1.5 h-3.5 w-3.5" /> Open full checkout page
+            </Link>
+          </Button>
+        </div>
         {visible.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             No requests yet — ask for towels or report a problem.
@@ -827,6 +817,11 @@ function DemoGuestInner() {
               {openCount}
             </span>
           )}
+        </Button>
+        <Button asChild size="sm" variant="outline" className="h-8 shrink-0 gap-1 border-white/50 bg-white/60 px-2.5 text-xs">
+          <Link to="/demo/guest/checkout">
+            <LogOut className="h-3.5 w-3.5" /> Checkout
+          </Link>
         </Button>
       </header>
 
