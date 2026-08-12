@@ -69,6 +69,8 @@ async function selectInChunks<T>(
 
 // ─── Ops queue ───────────────────────────────────────────────────────────────
 
+export type PaymentStatus = "unpaid" | "paid" | "waived";
+
 export interface OpsRequest {
   id: string;
   room_id: string | null;
@@ -82,6 +84,11 @@ export interface OpsRequest {
   guest_language: string | null;
   /** guest_chat | phone | walk_in | front_desk | repeat | pulse */
   source?: string | null;
+  is_chargeable?: boolean | null;
+  price?: number | null;
+  currency?: string | null;
+  /** unpaid | paid | waived — only meaningful when is_chargeable */
+  payment_status?: PaymentStatus | null;
   created_at: string;
   ts_rooms?: { room_number: string } | null;
 }
@@ -99,13 +106,15 @@ export interface OpsQueueData {
   fetchedAt: number;
 }
 
-export type GuestSignalKind = "remind" | "update" | "cancel" | "followup";
+export type GuestSignalKind = "remind" | "update" | "cancel" | "followup" | "payment";
 
 function guestSignalKind(status: string, note: string | null): GuestSignalKind {
+  if (status === "payment_requested") return "payment";
   if (status === "guest_updated" || status === "updated") return "update";
   if (status === "guest_reminded") return "remind";
   if (status === "guest_cancelled") return "cancel";
   const n = (note ?? "").toLowerCase();
+  if (n.includes("pay now") || n.includes("collect payment")) return "payment";
   if (n.includes("updated")) return "update";
   if (n.includes("remind") || n.includes("still waiting")) return "remind";
   if (n.includes("cancel")) return "cancel";
@@ -113,7 +122,9 @@ function guestSignalKind(status: string, note: string | null): GuestSignalKind {
 }
 
 const OPS_SELECT_FULL =
-  "id, room_id, department_key, summary, summary_staff, status, priority, is_complaint, needs_triage, guest_language, source, created_at, ts_rooms(room_number)";
+  "id, room_id, department_key, summary, summary_staff, status, priority, is_complaint, needs_triage, guest_language, source, is_chargeable, price, currency, payment_status, created_at, ts_rooms(room_number)";
+const OPS_SELECT_NO_PAYMENT =
+  "id, room_id, department_key, summary, summary_staff, status, priority, is_complaint, needs_triage, guest_language, source, is_chargeable, price, currency, created_at, ts_rooms(room_number)";
 const OPS_SELECT_LEGACY =
   "id, room_id, department_key, summary, summary_staff, status, priority, is_complaint, needs_triage, guest_language, created_at, ts_rooms(room_number)";
 
@@ -144,6 +155,13 @@ export async function fetchOpsQueue(hotelId: string, timeRange: OpsTimeRange): P
   };
 
   let [openRes, closedRes] = await load(OPS_SELECT_FULL);
+  // Before payment_status migration lands, fall back without that column.
+  if (
+    openRes.error?.message?.includes("payment_status") ||
+    closedRes.error?.message?.includes("payment_status")
+  ) {
+    [openRes, closedRes] = await load(OPS_SELECT_NO_PAYMENT);
+  }
   // Before migration 20260810000006 lands, `source` isn't selectable yet.
   if (
     openRes.error?.message?.includes("source") ||
@@ -176,6 +194,7 @@ export async function fetchOpsQueue(hotelId: string, timeRange: OpsTimeRange): P
     (q) => q.in("status", [
       "accepted", "escalated", "assigned", "staff_note", "forwarded",
       "guest_updated", "guest_reminded", "guest_cancelled", "updated",
+      "payment_requested",
     ]),
   );
 
@@ -194,6 +213,7 @@ export async function fetchOpsQueue(hotelId: string, timeRange: OpsTimeRange): P
       || e.status === "guest_reminded"
       || e.status === "guest_cancelled"
       || e.status === "updated"
+      || e.status === "payment_requested"
     ) {
       const kind = guestSignalKind(e.status, e.note);
       escalationEvents.push({ id: e.id, request_id: e.request_id, note: e.note, kind });
@@ -229,6 +249,10 @@ export interface RequestDetailRow {
   guest_language: string | null;
   session_id: string | null;
   conversation: unknown;
+  is_chargeable?: boolean | null;
+  price?: number | null;
+  currency?: string | null;
+  payment_status?: PaymentStatus | null;
   created_at: string;
   updated_at: string;
   ts_rooms?: { room_number: string } | null;
@@ -245,12 +269,22 @@ export interface RequestDetailData {
 }
 
 const DETAIL_SELECT =
+  "id, hotel_id, room_id, department_key, intent, summary, summary_staff, status, priority, is_complaint, needs_triage, guest_language, session_id, conversation, is_chargeable, price, currency, payment_status, created_at, updated_at, ts_rooms(room_number)";
+const DETAIL_SELECT_NO_PAYMENT =
+  "id, hotel_id, room_id, department_key, intent, summary, summary_staff, status, priority, is_complaint, needs_triage, guest_language, session_id, conversation, is_chargeable, price, currency, created_at, updated_at, ts_rooms(room_number)";
+const DETAIL_SELECT_LEGACY =
   "id, hotel_id, room_id, department_key, intent, summary, summary_staff, status, priority, is_complaint, needs_triage, guest_language, session_id, conversation, created_at, updated_at, ts_rooms(room_number)";
 
 export async function fetchRequestDetail(requestId: string): Promise<RequestDetailData> {
   // Kick request + events + messages in parallel; chat needs session siblings after.
-  const [rowRes, evRes, msgRes] = await Promise.all([
-    supabase.from("ts_service_requests").select(DETAIL_SELECT).eq("id", requestId).maybeSingle(),
+  let rowRes = await supabase.from("ts_service_requests").select(DETAIL_SELECT).eq("id", requestId).maybeSingle();
+  if (rowRes.error?.message?.includes("payment_status")) {
+    rowRes = await supabase.from("ts_service_requests").select(DETAIL_SELECT_NO_PAYMENT).eq("id", requestId).maybeSingle();
+  }
+  if (rowRes.error?.message?.includes("is_chargeable") || rowRes.error?.message?.includes("price")) {
+    rowRes = await supabase.from("ts_service_requests").select(DETAIL_SELECT_LEGACY).eq("id", requestId).maybeSingle();
+  }
+  const [evRes, msgRes] = await Promise.all([
     supabase.from("ts_request_events")
       .select("id, status, actor_type, note, created_at")
       .eq("request_id", requestId)
@@ -329,7 +363,8 @@ export interface InsightsData {
   requests: {
     id: string; room_id: string | null; department_key: string; summary: string;
     status: string; is_complaint: boolean; is_chargeable?: boolean | null;
-    price?: number | null; classification_method: string | null;
+    price?: number | null; payment_status?: PaymentStatus | null;
+    classification_method: string | null;
     session_id: string | null; created_at: string; updated_at: string;
     ts_rooms?: { room_number: string } | null;
   }[];
@@ -362,7 +397,7 @@ export async function fetchInsights(hotelId: string, timeRange: InsightsTimeRang
       .gte("created_at", sinceIso)
       .order("created_at", { ascending: false }).limit(1000),
     supabase.from("ts_service_requests")
-      .select("id, room_id, department_key, summary, status, is_complaint, is_chargeable, price, classification_method, session_id, created_at, updated_at, ts_rooms(room_number)")
+      .select("id, room_id, department_key, summary, status, is_complaint, is_chargeable, price, payment_status, classification_method, session_id, created_at, updated_at, ts_rooms(room_number)")
       .eq("hotel_id", hotelId)
       .gte("created_at", sinceIso)
       .order("created_at", { ascending: false }).limit(500),

@@ -2,7 +2,7 @@ import {
   createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode,
 } from "react";
 import type {
-  InsightsData, OpsQueueData, OpsTimeRange, RequestDetailData,
+  InsightsData, OpsQueueData, OpsTimeRange, PaymentStatus, RequestDetailData,
 } from "@/talkstay/lib/data";
 import type { Hotel } from "@/talkstay/lib/hotels";
 import {
@@ -31,6 +31,8 @@ import {
   guestNudgeDemoRequest,
   guestRateDemoRequest,
   guestReopenDemoRequest,
+  guestRequestPaymentDemo,
+  guestSetPaymentTimingDemo,
   guestUpdateDemoRequest,
   listDemoOpenForRoom,
   listDemoStaffMessagesForGuest,
@@ -42,6 +44,7 @@ import {
   removeDemoRoom,
   removeDemoStaff,
   replyDemoRequest,
+  setDemoBilling,
   setDemoRequireCheckinCode,
   setDemoRoomPublic,
   toggleDemoDepartment,
@@ -60,6 +63,10 @@ export type DemoApi = {
   getRequestDetail: (requestId: string) => RequestDetailData | null;
   getInsights: () => InsightsData;
   advance: (requestId: string, to: string, opts?: { cancelReason?: string }) => void;
+  setBilling: (
+    requestId: string,
+    patch: { is_chargeable: boolean; payment_status: PaymentStatus | null; price: number | null },
+  ) => void;
   escalate: (requestId: string) => void;
   addNote: (requestId: string, note: string) => void;
   assignHandler: (requestId: string, handlerName: string) => void;
@@ -101,12 +108,16 @@ export type DemoApi = {
     source: string;
     priority?: string;
     force?: boolean;
+    isChargeable?: boolean;
+    price?: number | null;
   }) => { requestId?: string; duplicate?: boolean; open?: ReturnType<typeof listDemoOpenForRoom>; roomNumber?: string };
   listOpenForRoom: (roomId: string) => ReturnType<typeof listDemoOpenForRoom>;
   guestConfirm: (requestId: string) => void;
   guestReopen: (requestId: string) => void;
   guestCancel: (requestId: string, reason?: string) => void;
   guestNudge: (requestId: string) => void;
+  guestRequestPayment: (requestId?: string) => void;
+  guestSetPaymentTiming: (timing: "pay_now" | "at_checkout") => void;
   guestUpdate: (requestId: string, note: string) => void;
   guestRate: (requestId: string, rating: number, comment?: string) => void;
   guestPulse: (input: { rating: number; text?: string }) => void;
@@ -194,6 +205,12 @@ export function DemoProvider({ children }: { children: ReactNode }) {
 
   const advance = useCallback((requestId: string, to: string, opts?: { cancelReason?: string }) => {
     setState((s) => advanceDemoRequest(s, requestId, to, opts));
+  }, []);
+  const setBilling = useCallback((
+    requestId: string,
+    patch: { is_chargeable: boolean; payment_status: PaymentStatus | null; price: number | null },
+  ) => {
+    setState((s) => setDemoBilling(s, requestId, patch));
   }, []);
   const escalate = useCallback((requestId: string) => {
     setState((s) => escalateDemoRequest(s, requestId));
@@ -291,6 +308,8 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     source: string;
     priority?: string;
     force?: boolean;
+    isChargeable?: boolean;
+    price?: number | null;
   }) => {
     let result: ReturnType<typeof addDemoStaffOrder> | null = null;
     setState((s) => {
@@ -316,6 +335,12 @@ export function DemoProvider({ children }: { children: ReactNode }) {
   const guestNudge = useCallback((requestId: string) => {
     setState((s) => guestNudgeDemoRequest(s, requestId));
   }, []);
+  const guestRequestPayment = useCallback((requestId?: string) => {
+    setState((s) => guestRequestPaymentDemo(s, requestId));
+  }, []);
+  const guestSetPaymentTiming = useCallback((timing: "pay_now" | "at_checkout") => {
+    setState((s) => guestSetPaymentTimingDemo(s, timing));
+  }, []);
   const guestUpdate = useCallback((requestId: string, note: string) => {
     setState((s) => guestUpdateDemoRequest(s, requestId, note));
   }, []);
@@ -340,6 +365,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     getRequestDetail: (requestId) => getDemoRequestDetail(state, requestId),
     getInsights: () => state.insights,
     advance,
+    setBilling,
     escalate,
     addNote,
     assignHandler,
@@ -368,17 +394,20 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     guestReopen,
     guestCancel,
     guestNudge,
+    guestRequestPayment,
+    guestSetPaymentTiming,
     guestUpdate,
     guestRate,
     guestPulse,
     listStaffMessagesForGuest: () => listDemoStaffMessagesForGuest(state),
     reset,
   }), [
-    state, advance, escalate, addNote, assignHandler, forwardRequest, reply, ackPulse, updateBranding,
+    state, advance, setBilling, escalate, addNote, assignHandler, forwardRequest, reply, ackPulse, updateBranding,
     addRoom, removeRoom, toggleRoomOccupancy, setRoomPublic, setRequireCheckinCode, regenerateCheckinCode,
     addStaff, removeStaff, assignStaffDepartment, toggleDepartment, patchDepartment,
     addKnowledge, removeKnowledge, updateKnowledge, addGuestRequest, logStaffOrder, listOpenForRoom,
-    guestConfirm, guestReopen, guestCancel, guestNudge, guestUpdate, guestRate, guestPulse,
+    guestConfirm, guestReopen, guestCancel, guestNudge, guestRequestPayment, guestSetPaymentTiming,
+    guestUpdate, guestRate, guestPulse,
     reset,
   ]);
 

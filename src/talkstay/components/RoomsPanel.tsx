@@ -16,9 +16,10 @@ import {
   regenerateCheckinCode, sendCheckinCodeEmail, setRoomPublicQr, setRoomRequireCheckinCode,
   roomRequiresCheckinCode, type Hotel, type Room,
 } from "@/talkstay/lib/hotels";
-import { getPublicBaseUrl } from "@/config/environment";
-import { OCCUPANCY_STYLE } from "@/talkstay/lib/statusStyles";
+import { OCCUPANCY_STYLE, formatMoney } from "@/talkstay/lib/statusStyles";
 import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
+import { supabase } from "@/integrations/supabase/client";
+import { guestStayUrl, type GuestStaySurface } from "@/talkstay/lib/guestUrls";
 
 type RoomStatusFilter = "all" | "occupied" | "vacant" | "public";
 type RoomsView = "card" | "list";
@@ -33,10 +34,13 @@ function readRoomsView(): RoomsView {
   }
 }
 
-function guestUrl(hotel: Hotel, room: Room, token: string): string {
-  // Always the canonical production URL — a printed QR must resolve on a guest's
-  // phone, never localhost/preview.
-  return `${getPublicBaseUrl()}/h/${hotel.slug}/r/${room.id}?token=${token}`;
+function guestUrl(hotel: Hotel, room: Room, token: string, surface: GuestStaySurface = "chat"): string {
+  return guestStayUrl({
+    hotelSlug: hotel.slug,
+    roomId: room.id,
+    token,
+    surface,
+  });
 }
 
 export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?: (h: Hotel) => void }) {
@@ -48,7 +52,7 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
   const [num, setNum] = useState("");
   const [floor, setFloor] = useState("");
   const [busy, setBusy] = useState(false);
-  const [qr, setQr] = useState<{ room: Room; url: string } | null>(null);
+  const [qr, setQr] = useState<{ room: Room; token: string; surface: GuestStaySurface } | null>(null);
   const [requireCode, setRequireCode] = useState(!!hotel.require_checkin_code);
   const [savingToggle, setSavingToggle] = useState(false);
   const [emailFor, setEmailFor] = useState<Room | null>(null);
@@ -163,7 +167,7 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
     try {
       const token = await getRoomToken(room.id);
       if (!token) { toast.error("No active token for this room"); return; }
-      setQr({ room, url: guestUrl(hotel, room, token) });
+      setQr({ room, token, surface: "chat" });
     } catch (e: any) {
       toast.error(e?.message ?? "Failed to load QR");
     }
@@ -192,7 +196,29 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
 
   const toggleOccupancy = async (room: Room) => {
     const next = room.occupancy_status === "vacant" ? "occupied" : "vacant";
-    if (next === "vacant" && !confirm(`Check out ${formatRoomLabel(room.room_number)}? Any link the guest saved will stop working immediately.`)) return;
+    if (next === "vacant") {
+      let unpaidNote = "";
+      try {
+        const { data } = await supabase
+          .from("ts_service_requests")
+          .select("id, summary, price, currency, payment_status")
+          .eq("room_id", room.id)
+          .eq("is_chargeable", true)
+          .eq("payment_status", "unpaid");
+        const unpaid = data ?? [];
+        if (unpaid.length) {
+          const priced = unpaid.filter((r) => typeof r.price === "number" && Number(r.price) > 0);
+          const total = priced.reduce((sum, r) => sum + Number(r.price), 0);
+          const currency = unpaid.find((r) => r.currency)?.currency ?? "GBP";
+          unpaidNote = priced.length
+            ? `\n\n⚠ ${unpaid.length} unpaid chargeable item(s) · ${formatMoney(total, currency)} still owed.`
+            : `\n\n⚠ ${unpaid.length} unpaid chargeable item(s) — open Operations to settle before checkout.`;
+        }
+      } catch { /* billing columns may not exist yet */ }
+      if (!confirm(
+        `Check out ${formatRoomLabel(room.room_number)}? Any link the guest saved will stop working immediately.${unpaidNote}`,
+      )) return;
+    }
     try {
       await setRoomOccupancy(room.id, next);
       await refresh();
@@ -618,23 +644,65 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
         </>
       )}
 
-      {qr && (
+      {qr && (() => {
+        const url = guestUrl(hotel, qr.room, qr.token, qr.surface);
+        const surfaceLabel =
+          qr.surface === "checkin" ? "Check-in"
+            : qr.surface === "checkout" ? "Checkout & balance"
+              : "Room assistant";
+        return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setQr(null)}>
           <div className="w-full max-w-xs rounded-2xl bg-card p-6 text-center shadow-lg" onClick={(e) => e.stopPropagation()}>
             <h3 className="mb-1 font-semibold">{formatRoomLabel(qr.room.room_number)}</h3>
-            <p className="mb-4 text-xs text-muted-foreground">Print this and place it in the room.</p>
+            <p className="mb-3 text-xs text-muted-foreground">
+              Print a QR for the assistant, check-in, or checkout folio (prices).
+            </p>
+            <div className="mb-3 grid grid-cols-3 gap-1 rounded-xl bg-muted/50 p-1">
+              {([
+                ["chat", "Ask"],
+                ["checkin", "In"],
+                ["checkout", "Out"],
+              ] as const).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setQr({ ...qr, surface: key })}
+                  className={`rounded-lg px-1.5 py-1.5 text-[11px] font-semibold transition ${
+                    qr.surface === key ? "bg-white text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <p className="mb-2 text-[11px] font-medium text-foreground">{surfaceLabel}</p>
             {/* Real <a> links (not window.open()) — a single tap opens them
                 directly on mobile, no long-press-to-select needed. */}
-            <a href={qr.url} target="_blank" rel="noopener noreferrer" className="flex justify-center rounded-xl bg-white p-4" title="Open this room's assistant">
+            <a href={url} target="_blank" rel="noopener noreferrer" className="flex justify-center rounded-xl bg-white p-4" title={surfaceLabel}>
               <QRCodeCanvas
-                value={qr.url} size={200} includeMargin level="H"
+                value={url} size={200} includeMargin level="H"
                 fgColor={brandColor}
                 imageSettings={brandLogo ? { src: brandLogo, height: 40, width: 40, excavate: true } : undefined}
               />
             </a>
-            <a href={qr.url} target="_blank" rel="noopener noreferrer" className="mt-3 block break-all text-[10px] text-primary underline">
-              {qr.url}
+            <a href={url} target="_blank" rel="noopener noreferrer" className="mt-3 block break-all text-[10px] text-primary underline">
+              {url}
             </a>
+            <Button
+              className="mt-2 w-full"
+              size="sm"
+              variant="secondary"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(url);
+                  toast.success(`${surfaceLabel} link copied`);
+                } catch {
+                  toast.error("Couldn't copy link");
+                }
+              }}
+            >
+              <Copy className="mr-1.5 h-3.5 w-3.5" /> Copy {surfaceLabel.toLowerCase()} link
+            </Button>
             {roomRequiresCheckinCode(qr.room, requireCode) && qr.room.occupancy_status === "occupied" && qr.room.checkin_code && (
               <p className="mt-2 text-xs text-muted-foreground">
                 Check-in code: <span className="font-mono tracking-widest text-foreground">{qr.room.checkin_code}</span>
@@ -649,7 +717,8 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
             <Button className="mt-4 w-full" variant="outline" onClick={() => setQr(null)}>Close</Button>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {emailFor && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setEmailFor(null)}>

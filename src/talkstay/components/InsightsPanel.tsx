@@ -49,6 +49,7 @@ interface Interaction { session_id: string | null; role: string; content: string
 interface Req {
   id: string; room_id: string | null; department_key: string; summary: string; status: string;
   is_complaint: boolean; is_chargeable?: boolean | null; price?: number | null;
+  payment_status?: string | null;
   classification_method: string | null; session_id: string | null; created_at: string; updated_at: string;
   ts_rooms?: { room_number: string } | null;
 }
@@ -352,6 +353,7 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
         is_complaint: a.is_complaint,
         is_chargeable: (a as Req).is_chargeable,
         price: (a as Req).price,
+        payment_status: (a as Req).payment_status,
         isDone: a.isDone,
         toAcceptMin: a.toAcceptMin,
         toCompleteMin: a.toCompleteMin,

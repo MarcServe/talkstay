@@ -77,6 +77,7 @@ export function DemoRoomsPanel() {
   const [num, setNum] = useState("");
   const [floor, setFloor] = useState("");
   const [qrRoomId, setQrRoomId] = useState<string | null>(null);
+  const [qrSurface, setQrSurface] = useState<"chat" | "checkin" | "checkout">("chat");
   const [emailFor, setEmailFor] = useState<string | null>(null);
   const [emailInput, setEmailInput] = useState("");
   const [search, setSearch] = useState("");
@@ -86,7 +87,11 @@ export function DemoRoomsPanel() {
   const qrRoom = rooms.find((r) => r.id === qrRoomId) ?? null;
   const requireCode = !!demo.hotel.require_checkin_code;
   const qrUrl = qrRoom
-    ? `${getPublicBaseUrl()}/demo/guest?room=${encodeURIComponent(qrRoom.room_number)}`
+    ? qrSurface === "checkin"
+      ? `${getPublicBaseUrl()}/demo/guest/checkin`
+      : qrSurface === "checkout"
+        ? `${getPublicBaseUrl()}/demo/guest/checkout`
+        : `${getPublicBaseUrl()}/demo/guest?room=${encodeURIComponent(qrRoom.room_number)}`
     : "";
 
   const setRoomsView = (next: RoomsView) => {
@@ -300,8 +305,19 @@ export function DemoRoomsPanel() {
                           variant="outline"
                           className="h-8"
                           onClick={() => {
-                            if (r.occupancy_status === "occupied"
-                              && !confirm(`Check out ${formatRoomLabel(r.room_number)}?`)) return;
+                            if (r.occupancy_status === "occupied") {
+                              const unpaid = demo.state.requests.filter(
+                                (req) => req.room_id === r.id && req.is_chargeable && (req.payment_status ?? "unpaid") === "unpaid",
+                              );
+                              const priced = unpaid.filter((req) => typeof req.price === "number" && Number(req.price) > 0);
+                              const total = priced.reduce((sum, req) => sum + Number(req.price), 0);
+                              const note = unpaid.length
+                                ? priced.length
+                                  ? `\n\n⚠ ${unpaid.length} unpaid chargeable item(s) · £${total.toFixed(2)} still owed.`
+                                  : `\n\n⚠ ${unpaid.length} unpaid chargeable item(s) — settle in Operations first.`
+                                : "";
+                              if (!confirm(`Check out ${formatRoomLabel(r.room_number)}?${note}`)) return;
+                            }
                             demo.toggleRoomOccupancy(r.id);
                           }}
                         >
@@ -411,8 +427,19 @@ export function DemoRoomsPanel() {
                         size="sm"
                         variant="outline"
                         onClick={() => {
-                          if (r.occupancy_status === "occupied"
-                            && !confirm(`Check out ${formatRoomLabel(r.room_number)}?`)) return;
+                          if (r.occupancy_status === "occupied") {
+                            const unpaid = demo.state.requests.filter(
+                              (req) => req.room_id === r.id && req.is_chargeable && (req.payment_status ?? "unpaid") === "unpaid",
+                            );
+                            const priced = unpaid.filter((req) => typeof req.price === "number" && Number(req.price) > 0);
+                            const total = priced.reduce((sum, req) => sum + Number(req.price), 0);
+                            const note = unpaid.length
+                              ? priced.length
+                                ? `\n\n⚠ ${unpaid.length} unpaid chargeable item(s) · £${total.toFixed(2)} still owed.`
+                                : `\n\n⚠ ${unpaid.length} unpaid chargeable item(s) — settle in Operations first.`
+                              : "";
+                            if (!confirm(`Check out ${formatRoomLabel(r.room_number)}?${note}`)) return;
+                          }
                           demo.toggleRoomOccupancy(r.id);
                           toast.message(r.occupancy_status === "occupied" ? "Checked out (demo)." : "Checked in (demo).");
                         }}
@@ -471,11 +498,40 @@ export function DemoRoomsPanel() {
       {qrRoom && (
         <div className="flex flex-col items-center gap-3 rounded-2xl border bg-violet-50/60 p-6 text-center">
           <p className="text-sm font-medium">Guest QR · {formatRoomLabel(qrRoom.room_number)}</p>
+          <div className="grid w-full max-w-xs grid-cols-3 gap-1 rounded-xl bg-white/80 p-1">
+            {([
+              ["chat", "Ask"],
+              ["checkin", "In"],
+              ["checkout", "Out"],
+            ] as const).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setQrSurface(key)}
+                className={`rounded-lg px-1.5 py-1.5 text-[11px] font-semibold ${
+                  qrSurface === key ? "bg-violet-600 text-white" : "text-muted-foreground"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <QRCodeCanvas value={qrUrl} size={180} includeMargin />
           <p className="max-w-sm text-xs text-muted-foreground">
-            Demo QR opens the Guest experience for this room.
+            {qrSurface === "checkout"
+              ? "Checkout QR opens the stay balance with prices."
+              : qrSurface === "checkin"
+                ? "Check-in QR opens the arrival landing."
+                : "Ask QR opens the guest assistant."}
           </p>
-          <Button size="sm" variant="outline" onClick={() => setQrRoomId(null)}>Close</Button>
+          <div className="flex flex-wrap justify-center gap-2">
+            <Button size="sm" variant="outline" asChild>
+              <Link to={qrSurface === "checkin" ? "/demo/guest/checkin" : qrSurface === "checkout" ? "/demo/guest/checkout" : "/demo/guest"} target="_blank" rel="noreferrer">
+                Open
+              </Link>
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setQrRoomId(null)}>Close</Button>
+          </div>
         </div>
       )}
     </div>

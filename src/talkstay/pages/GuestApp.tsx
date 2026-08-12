@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useSearchParams } from "react-router-dom";
+import { useParams, useSearchParams, Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Loader2, Send, ClipboardList, Star, X, Mic, MicOff, Square, Globe, Check, MessageCircle, Smile, Meh, Frown, BellRing, Bell, Pencil, ExternalLink, RotateCcw } from "lucide-react";
+import { Loader2, Send, ClipboardList, Star, X, Mic, MicOff, Square, Globe, Check, MessageCircle, Smile, Meh, Frown, BellRing, Bell, Pencil, ExternalLink, RotateCcw, Banknote, LogOut } from "lucide-react";
 import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
 import { toast } from "sonner";
 import { RealtimeChat } from "@/utils/RealtimeChat";
@@ -18,9 +18,12 @@ import {
   fetchStaffMessages, enableDevicePush, disableDevicePush,
   getSessionId, getDeviceId, loadHistory, saveHistory, getNotifyChoice, setNotifyChoice,
   submitPulse, transcribePulseAudio, getPulseState, setPulseState,
-  type ChatMsg, type GuestCard, type GuestRequest, type GuestBranding,
+  requestPaymentNow, setPaymentTiming,
+  type ChatMsg, type GuestCard, type GuestRequest, type GuestBranding, type GuestPaymentTiming,
 } from "@/talkstay/lib/guest";
-import { statusBadge, statusDot, statusLabel } from "@/talkstay/lib/statusStyles";
+import { formatMoney, PAYMENT_STYLE, paymentLabel, statusBadge, statusDot, statusLabel } from "@/talkstay/lib/statusStyles";
+import { GuestFolio } from "@/talkstay/components/GuestFolio";
+import { guestStayPath } from "@/talkstay/lib/guestUrls";
 
 /** Guest My-requests card washes — kept in this file so Tailwind always emits them. */
 const GUEST_REQ_CARD: Record<string, string> = {
@@ -697,6 +700,11 @@ function GuestAppInner({ hotelSlug, roomId, token }: { hotelSlug: string; roomId
         <Button variant="outline" size="sm" className="h-8 shrink-0 px-2.5 text-xs" onClick={() => setRequestsOpen(true)}>
           <ClipboardList className="mr-1 h-3.5 w-3.5" /> Requests
         </Button>
+        <Button variant="outline" size="sm" className="h-8 shrink-0 px-2.5 text-xs" asChild>
+          <Link to={`${guestStayPath(hotelSlug, roomId, "checkout")}?token=${encodeURIComponent(token)}`}>
+            <LogOut className="mr-1 h-3.5 w-3.5" /> Checkout
+          </Link>
+        </Button>
       </header>
 
       {/* Voice-first strip — centred under the header. */}
@@ -1250,6 +1258,8 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
   hotelSlug: string; roomId: string; token: string; sid: string; onClose: () => void;
 }) {
   const [reqs, setReqs] = useState<GuestRequest[] | null>(null);
+  const [paymentTiming, setPaymentTimingState] = useState<GuestPaymentTiming | null>(null);
+  const [payBusy, setPayBusy] = useState(false);
   // Optimistic guest close-out: id → "confirmed" | "reopened".
   const [resolved, setResolved] = useState<Record<string, "confirmed" | "reopened">>({});
   const [rated, setRated] = useState<Record<string, number>>({});
@@ -1263,11 +1273,49 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
   const [cancelReason, setCancelReason] = useState("");
 
   const reload = () =>
-    fetchMyRequests(hotelSlug, roomId, token, sid).then(setReqs).catch(() => setReqs([]));
+    fetchMyRequests(hotelSlug, roomId, token, sid)
+      .then((payload) => {
+        setReqs(payload.requests);
+        setPaymentTimingState(payload.paymentTiming);
+      })
+      .catch(() => setReqs([]));
 
   useEffect(() => {
     reload();
   }, [hotelSlug, roomId, token, sid]);
+
+  const payNow = async () => {
+    setPayBusy(true);
+    try {
+      await requestPaymentNow({ hotelSlug, roomId, token, sessionId: sid });
+      setPaymentTimingState("pay_now");
+      toast.success("We've asked the team to come collect payment.");
+    } catch (e: any) {
+      const msg = String(e?.message ?? e?.code ?? "");
+      toast.error(
+        msg.includes("too_soon")
+          ? "You've already asked — please wait a few minutes."
+          : msg.includes("nothing_owed")
+            ? "Nothing unpaid right now."
+            : "Couldn't notify the team. Please try again.",
+      );
+    } finally {
+      setPayBusy(false);
+    }
+  };
+
+  const payAtCheckout = async () => {
+    setPayBusy(true);
+    try {
+      await setPaymentTiming({ hotelSlug, roomId, token, sessionId: sid, timing: "at_checkout" });
+      setPaymentTimingState("at_checkout");
+      toast.success("We'll settle this at checkout.");
+    } catch {
+      toast.error("Couldn't save that preference. Please try again.");
+    } finally {
+      setPayBusy(false);
+    }
+  };
 
   const confirmDone = async (r: GuestRequest) => {
     setResolved((p) => ({ ...p, [r.id]: "confirmed" }));
@@ -1420,6 +1468,23 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
         <p className="mb-4 text-xs text-muted-foreground">
           Track open and completed asks. You can remind, update, or cancel anything still in progress.
         </p>
+        {reqs && (
+          <div className="mb-4 space-y-2">
+            <GuestFolio
+              requests={reqs}
+              paymentTiming={paymentTiming}
+              payBusy={payBusy}
+              onPayNow={() => void payNow()}
+              onPayAtCheckout={() => void payAtCheckout()}
+              variant="compact"
+            />
+            <Button variant="outline" size="sm" className="h-9 w-full" asChild>
+              <Link to={`${guestStayPath(hotelSlug, roomId, "checkout")}?token=${encodeURIComponent(token)}`}>
+                <LogOut className="mr-1.5 h-3.5 w-3.5" /> Open full checkout page
+              </Link>
+            </Button>
+          </div>
+        )}
         {reqs === null ? (
           <div className="flex items-center gap-2 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</div>
         ) : reqs.length === 0 ? (
@@ -1441,6 +1506,7 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
               const isEditing = editingId === r.id;
               const isCancelling = cancellingId === r.id;
               const cardTone = GUEST_REQ_CARD[effStatus] ?? GUEST_REQ_CARD.new;
+              const showBilling = !!r.is_chargeable;
               return (
                 <div
                   key={r.id}
@@ -1452,6 +1518,12 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
                       <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDot(effStatus)}`} />
                       {statusLabel(effStatus)}
                     </span>
+                    {showBilling && (
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${PAYMENT_STYLE[r.payment_status ?? "unpaid"] ?? PAYMENT_STYLE.unpaid}`}>
+                        {paymentLabel(r.payment_status ?? "unpaid")}
+                        {r.price != null ? ` · ${formatMoney(r.price, r.currency)}` : ""}
+                      </span>
+                    )}
                   </div>
 
                   {/* Staff marked it done — the guest gets the final say. */}

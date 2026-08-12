@@ -100,6 +100,8 @@ export type DemoState = {
   escalationEvents: OpsQueueData["escalationEvents"];
   details: Record<string, DemoDetail>;
   insights: InsightsData;
+  /** Guest demo Room 306 — pay now vs settle at checkout. */
+  paymentTiming: "pay_now" | "at_checkout" | null;
   version: number;
 };
 
@@ -144,6 +146,10 @@ function seedRequests(): OpsRequest[] {
       is_complaint: false,
       needs_triage: false,
       guest_language: "en",
+      is_chargeable: true,
+      price: 24,
+      currency: "GBP",
+      payment_status: "unpaid",
       created_at: ago(22),
       ts_rooms: { room_number: "507" },
     },
@@ -200,6 +206,10 @@ function seedRequests(): OpsRequest[] {
       is_complaint: false,
       needs_triage: false,
       guest_language: "en",
+      is_chargeable: true,
+      price: 28,
+      currency: "GBP",
+      payment_status: "unpaid",
       created_at: ago(8),
       ts_rooms: { room_number: "306" },
     },
@@ -214,6 +224,10 @@ function seedRequests(): OpsRequest[] {
       is_complaint: false,
       needs_triage: false,
       guest_language: "en",
+      is_chargeable: true,
+      price: 35,
+      currency: "GBP",
+      payment_status: "unpaid",
       created_at: ago(45),
       ts_rooms: { room_number: "412" },
     },
@@ -427,8 +441,10 @@ function seedInsights(requests: OpsRequest[]): InsightsData {
     summary: r.summary,
     status: r.status,
     is_complaint: r.is_complaint,
-    is_chargeable: ["kitchen", "bar", "laundry"].includes(r.department_key),
-    price: ["kitchen", "bar", "laundry"].includes(r.department_key) ? 18 + (r.id.length % 40) : null,
+    is_chargeable: r.is_chargeable ?? ["kitchen", "bar", "laundry"].includes(r.department_key),
+    price: r.price ?? (["kitchen", "bar", "laundry"].includes(r.department_key) ? 18 + (r.id.length % 40) : null),
+    payment_status: r.payment_status
+      ?? ((r.is_chargeable ?? ["kitchen", "bar", "laundry"].includes(r.department_key)) ? "unpaid" as const : null),
     classification_method: "voice",
     session_id: `demo-session-${r.id}`,
     created_at: r.created_at,
@@ -449,6 +465,7 @@ function seedInsights(requests: OpsRequest[]): InsightsData {
       is_complaint: i % 7 === 0,
       is_chargeable: paid,
       price: paid ? 22 + i * 3 : null,
+      payment_status: paid ? (i % 3 === 0 ? "paid" as const : "unpaid" as const) : null,
       classification_method: "voice",
       session_id: `demo-hist-sess-${i}`,
       created_at: new Date(now - (i + 1) * 8 * 3_600_000).toISOString(),
@@ -590,6 +607,7 @@ export function createInitialDemoState(): DemoState {
     escalationEvents,
     details,
     insights: seedInsights(requests),
+    paymentTiming: null,
     version: 1,
   };
 }
@@ -1138,6 +1156,14 @@ export function addDemoGuestRequest(
     is_complaint: /complaint|broken|not working|noise/i.test(summary),
     needs_triage: false,
     guest_language: "en",
+    is_chargeable: ["kitchen", "bar", "laundry"].includes(department_key),
+    price: ["kitchen", "bar", "laundry"].includes(department_key)
+      ? (Number((summary.match(/£\s?(\d+(?:\.\d{1,2})?)/) || [])[1])
+        || Number((summary.match(/(\d+(?:\.\d{1,2})?)\s?(?:gbp|pounds?)/i) || [])[1])
+        || (department_key === "bar" ? 14 : department_key === "laundry" ? 22 : 18))
+      : null,
+    currency: "GBP",
+    payment_status: ["kitchen", "bar", "laundry"].includes(department_key) ? "unpaid" : null,
     created_at: new Date().toISOString(),
     source: "guest_app",
     ts_rooms: { room_number: GUEST_DEMO_ROOM.room_number },
@@ -1158,7 +1184,8 @@ export function addDemoGuestRequest(
           status: req.status,
           is_complaint: req.is_complaint,
           is_chargeable: ["kitchen", "bar", "laundry"].includes(req.department_key),
-          price: null,
+          price: req.price ?? null,
+          payment_status: ["kitchen", "bar", "laundry"].includes(req.department_key) ? "unpaid" : null,
           classification_method: "demo_guest",
           session_id: `demo-session-${id}`,
           created_at: req.created_at,
@@ -1200,6 +1227,8 @@ export function addDemoStaffOrder(
     source: string;
     priority?: string;
     force?: boolean;
+    isChargeable?: boolean;
+    price?: number | null;
   },
 ): { state: DemoState; requestId?: string; duplicate?: boolean; open?: ReturnType<typeof listDemoOpenForRoom>; roomNumber?: string } {
   const room = state.rooms.find((r) => r.id === input.roomId);
@@ -1224,6 +1253,10 @@ export function addDemoStaffOrder(
     is_complaint: false,
     needs_triage: false,
     guest_language: "en",
+    is_chargeable: !!input.isChargeable || ["kitchen", "bar", "laundry"].includes(input.departmentKey),
+    price: input.price ?? null,
+    currency: "GBP",
+    payment_status: (input.isChargeable || ["kitchen", "bar", "laundry"].includes(input.departmentKey)) ? "unpaid" : null,
     created_at: new Date().toISOString(),
     source: input.source,
     ts_rooms: { room_number: room.room_number },
@@ -1245,6 +1278,7 @@ export function addDemoStaffOrder(
           is_complaint: false,
           is_chargeable: ["kitchen", "bar", "laundry"].includes(req.department_key),
           price: null,
+          payment_status: ["kitchen", "bar", "laundry"].includes(req.department_key) ? "unpaid" : null,
           classification_method: "demo_staff_log",
           session_id: `demo-session-${id}`,
           created_at: req.created_at,
@@ -1261,6 +1295,82 @@ export function addDemoStaffOrder(
 
 function formatRoomLabelSafe(roomNumber: string) {
   return /^\d+$/.test(roomNumber) ? `Room ${roomNumber}` : roomNumber;
+}
+
+/** Front-desk billing: chargeable flag, amount, and paid/unpaid/waived. */
+export function setDemoBilling(
+  state: DemoState,
+  requestId: string,
+  patch: {
+    is_chargeable: boolean;
+    payment_status: "unpaid" | "paid" | "waived" | null;
+    price: number | null;
+  },
+): DemoState {
+  const req = state.requests.find((r) => r.id === requestId);
+  if (!req) return state;
+  const at = new Date().toISOString();
+  const nextReq: OpsRequest = {
+    ...req,
+    is_chargeable: patch.is_chargeable,
+    payment_status: patch.is_chargeable ? patch.payment_status : null,
+    price: patch.is_chargeable ? patch.price : null,
+    currency: req.currency ?? "GBP",
+  };
+  const label = !patch.is_chargeable
+    ? "Marked not chargeable"
+    : patch.payment_status === "paid"
+      ? "Marked paid"
+      : patch.payment_status === "waived"
+        ? "Marked waived"
+        : patch.payment_status === "unpaid"
+          ? "Marked unpaid"
+          : "Updated billing";
+  const details = { ...state.details };
+  const prev = details[requestId] ?? seedDetail(req);
+  details[requestId] = {
+    ...prev,
+    request: {
+      ...prev.request,
+      ...nextReq,
+      hotel_id: prev.request.hotel_id,
+      intent: prev.request.intent,
+      session_id: prev.request.session_id,
+      conversation: prev.request.conversation,
+      updated_at: at,
+    },
+    events: [
+      ...prev.events,
+      {
+        id: `${requestId}-ev-billing-${Date.now()}`,
+        request_id: requestId,
+        status: "staff_note",
+        note: `${DEMO_ACTOR} — ${label}`,
+        actor_type: "staff",
+        created_at: at,
+      },
+    ],
+  };
+  return {
+    ...state,
+    requests: state.requests.map((r) => (r.id === requestId ? nextReq : r)),
+    details,
+    insights: {
+      ...state.insights,
+      requests: state.insights.requests.map((r) =>
+        r.id === requestId
+          ? {
+              ...r,
+              is_chargeable: nextReq.is_chargeable,
+              price: nextReq.price,
+              payment_status: nextReq.payment_status,
+              updated_at: at,
+            }
+          : r,
+      ),
+    },
+    version: state.version + 1,
+  };
 }
 
 /** Guest confirms staff marked a request complete. */
@@ -1322,6 +1432,72 @@ export function guestCancelDemoRequest(state: DemoState, requestId: string, reas
     },
     version: state.version + 1,
   };
+}
+
+/** Guest asks staff to collect payment now (demo — no Stripe). */
+export function guestRequestPaymentDemo(state: DemoState, requestId?: string): DemoState {
+  const unpaid = state.requests.filter((r) =>
+    r.room_id === GUEST_DEMO_ROOM.id
+    && r.is_chargeable
+    && (r.payment_status ?? "unpaid") === "unpaid"
+    && r.status !== "cancelled"
+    && (!requestId || r.id === requestId),
+  );
+  if (!unpaid.length) return { ...state, paymentTiming: "pay_now", version: state.version + 1 };
+
+  const at = new Date().toISOString();
+  const priced = unpaid.filter((r) => typeof r.price === "number" && Number(r.price) > 0);
+  const total = priced.reduce((sum, r) => sum + Number(r.price), 0);
+  const note = priced.length
+    ? `Guest asked to pay now — please collect payment in the room · about £${total.toFixed(2)}`
+    : "Guest asked to pay now — please collect payment in the room";
+
+  let details = { ...state.details };
+  let requests = state.requests;
+  let escalations = { ...state.escalations };
+  let escalationEvents = [...state.escalationEvents];
+
+  for (const req of unpaid.slice(0, 8)) {
+    const prev = details[req.id] ?? seedDetail(req);
+    details[req.id] = {
+      ...prev,
+      request: { ...prev.request, priority: "urgent", updated_at: at },
+      events: [
+        ...prev.events,
+        {
+          id: `${req.id}-pay-${Date.now()}`,
+          request_id: req.id,
+          status: "payment_requested",
+          note,
+          actor_type: "guest",
+          created_at: at,
+        },
+      ],
+    };
+    requests = requests.map((r) => (r.id === req.id ? { ...r, priority: "urgent" } : r));
+    escalations[req.id] = { note, at, kind: "payment" };
+    escalationEvents = [
+      ...escalationEvents,
+      { id: `${req.id}-esc-pay-${Date.now()}`, request_id: req.id, note, kind: "payment" },
+    ];
+  }
+
+  return {
+    ...state,
+    paymentTiming: "pay_now",
+    requests,
+    details,
+    escalations,
+    escalationEvents,
+    version: state.version + 1,
+  };
+}
+
+export function guestSetPaymentTimingDemo(
+  state: DemoState,
+  timing: "pay_now" | "at_checkout",
+): DemoState {
+  return { ...state, paymentTiming: timing, version: state.version + 1 };
 }
 
 /** Guest nudges waiting staff (clear Remind signal on Operations). */
@@ -1536,6 +1712,7 @@ export function loadPersistedDemoState(): DemoState | null {
     }));
     parsed.handlers = parsed.handlers ?? {};
     parsed.notes = parsed.notes ?? {};
+    parsed.paymentTiming = parsed.paymentTiming ?? null;
     return parsed;
   } catch {
     return null;

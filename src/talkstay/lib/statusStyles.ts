@@ -18,6 +18,7 @@ export type RequestStatus =
   | "assigned"
   | "guest_updated"
   | "guest_reminded"
+  | "payment_requested"
   | "guest_cancelled";
 
 type StatusTone = {
@@ -140,6 +141,13 @@ export const REQUEST_STATUS: Record<RequestStatus, StatusTone> = {
     dot: "bg-rose-500",
     accent: "bg-rose-500",
   },
+  payment_requested: {
+    label: "Guest wants to pay now",
+    badge: "border border-amber-300/70 bg-amber-100/70 text-amber-950 backdrop-blur-sm",
+    card: "border-amber-300/50 bg-amber-100/40 border-l-[3px] border-l-amber-600",
+    dot: "bg-amber-600",
+    accent: "bg-amber-600",
+  },
   guest_cancelled: {
     label: "Guest cancelled",
     badge: "border border-slate-300/70 bg-slate-100/70 text-slate-700 backdrop-blur-sm",
@@ -194,6 +202,33 @@ export const OCCUPANCY_STYLE: Record<string, string> = {
   vacant: "border border-slate-300 bg-slate-100 text-slate-600",
   occupied: "border border-emerald-200 bg-emerald-100 text-emerald-800",
 };
+
+/** Chargeable order settlement chips. */
+export const PAYMENT_STYLE: Record<string, string> = {
+  unpaid: "border border-amber-300 bg-amber-100 text-amber-950",
+  paid: "border border-emerald-200 bg-emerald-100 text-emerald-800",
+  waived: "border border-slate-300 bg-slate-100 text-slate-700",
+};
+
+export function paymentLabel(status: string | null | undefined): string {
+  if (status === "paid") return "Paid";
+  if (status === "waived") return "Waived";
+  if (status === "unpaid") return "Unpaid";
+  return "—";
+}
+
+export function formatMoney(
+  amount: number | null | undefined,
+  currency: string | null | undefined = "GBP",
+): string {
+  if (amount == null || Number.isNaN(Number(amount))) return "—";
+  const cur = (currency || "GBP").toUpperCase();
+  try {
+    return new Intl.NumberFormat(undefined, { style: "currency", currency: cur }).format(Number(amount));
+  } catch {
+    return `${Number(amount).toFixed(2)} ${cur}`;
+  }
+}
 
 /** Conversation intent chips (insights). */
 export const INTENT_STYLE: Record<string, string> = {

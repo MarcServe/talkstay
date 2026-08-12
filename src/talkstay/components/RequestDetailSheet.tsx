@@ -12,11 +12,11 @@ import {
   Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle,
 } from "@/components/ui/sheet";
 import { toast } from "sonner";
-import { ArrowRightLeft, Loader2, MessageCircle, Send, UserRound, StickyNote } from "lucide-react";
+import { ArrowRightLeft, Loader2, MessageCircle, Send, UserRound, StickyNote, Banknote } from "lucide-react";
 import { DEPARTMENTS } from "@/talkstay/lib/hotels";
-import { talkstayKeys, type RequestDetailData } from "@/talkstay/lib/data";
+import { talkstayKeys, type PaymentStatus, type RequestDetailData } from "@/talkstay/lib/data";
 import { useRequestDetail } from "@/talkstay/hooks/useTalkStayQueries";
-import { statusAccent, statusBadge, statusLabel } from "@/talkstay/lib/statusStyles";
+import { formatMoney, PAYMENT_STYLE, paymentLabel, statusAccent, statusBadge, statusLabel } from "@/talkstay/lib/statusStyles";
 import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
 import { useDemo } from "@/talkstay/demo/DemoContext";
 
@@ -78,6 +78,8 @@ export default function RequestDetailSheet({
   const [forwardNote, setForwardNote] = useState("");
   const [forwardBusy, setForwardBusy] = useState(false);
   const [teamAction, setTeamAction] = useState<"message" | "handler" | "forward" | null>("message");
+  const [priceDraft, setPriceDraft] = useState("");
+  const [billingBusy, setBillingBusy] = useState(false);
 
   const latestHandler = useMemo(
     () => [...events].reverse().find((e) => e.status === "assigned")?.note ?? null,
@@ -86,18 +88,20 @@ export default function RequestDetailSheet({
 
   const guestSignal = useMemo(() => {
     const e = [...events].reverse().find((ev) =>
-      ["guest_updated", "guest_reminded", "guest_cancelled", "updated"].includes(ev.status)
+      ["guest_updated", "guest_reminded", "guest_cancelled", "updated", "payment_requested"].includes(ev.status)
       || (ev.status === "escalated" && ev.actor_type === "guest")
     );
     if (!e) return null;
     const kind =
-      e.status === "guest_updated" || e.status === "updated" || (e.note ?? "").toLowerCase().includes("updated")
-        ? "update"
-        : e.status === "guest_reminded" || (e.note ?? "").toLowerCase().includes("remind") || (e.note ?? "").toLowerCase().includes("waiting")
-          ? "remind"
-          : e.status === "guest_cancelled" || (e.note ?? "").toLowerCase().includes("cancel")
-            ? "cancel"
-            : "followup";
+      e.status === "payment_requested" || (e.note ?? "").toLowerCase().includes("pay now") || (e.note ?? "").toLowerCase().includes("collect payment")
+        ? "payment"
+        : e.status === "guest_updated" || e.status === "updated" || (e.note ?? "").toLowerCase().includes("updated")
+          ? "update"
+          : e.status === "guest_reminded" || (e.note ?? "").toLowerCase().includes("remind") || (e.note ?? "").toLowerCase().includes("waiting")
+            ? "remind"
+            : e.status === "guest_cancelled" || (e.note ?? "").toLowerCase().includes("cancel")
+              ? "cancel"
+              : "followup";
     return { kind, note: e.note, at: e.created_at };
   }, [events]);
 
@@ -110,8 +114,14 @@ export default function RequestDetailSheet({
       setForwardDept("");
       setForwardNote("");
       setTeamAction("message");
+      setPriceDraft("");
     }
   }, [open, requestId]);
+
+  useEffect(() => {
+    if (!req) return;
+    setPriceDraft(req.price != null ? String(req.price) : "");
+  }, [req?.id, req?.price]);
 
   useEffect(() => {
     if (open && isError && error) toast.error(error.message);
@@ -321,6 +331,84 @@ export default function RequestDetailSheet({
     onChanged?.();
   };
 
+  const saveBilling = async (patch: {
+    is_chargeable?: boolean;
+    payment_status?: PaymentStatus | null;
+    price?: number | null;
+  }) => {
+    if (!req) return;
+    setBillingBusy(true);
+    try {
+      const nextChargeable = patch.is_chargeable ?? !!req.is_chargeable;
+      const nextPayment =
+        patch.payment_status !== undefined
+          ? patch.payment_status
+          : nextChargeable
+            ? (req.payment_status ?? "unpaid")
+            : null;
+      const nextPrice = patch.price !== undefined ? patch.price : req.price ?? null;
+
+      if (demo) {
+        demo.setBilling(req.id, {
+          is_chargeable: nextChargeable,
+          payment_status: nextPayment,
+          price: nextPrice,
+        });
+        toast.success("Billing updated (demo).");
+        onChanged?.();
+        return;
+      }
+
+      const { data: { user } } = await supabase.auth.getUser();
+      const { error: err } = await supabase
+        .from("ts_service_requests")
+        .update({
+          is_chargeable: nextChargeable,
+          payment_status: nextChargeable ? nextPayment : null,
+          price: nextChargeable ? nextPrice : null,
+        })
+        .eq("id", req.id);
+      if (err) { toast.error(err.message); return; }
+
+      const who = user?.email ?? "staff";
+      const label = !nextChargeable
+        ? "Marked not chargeable"
+        : nextPayment === "paid"
+          ? "Marked paid"
+          : nextPayment === "waived"
+            ? "Marked waived"
+            : nextPayment === "unpaid"
+              ? "Marked unpaid"
+              : "Updated billing";
+      await supabase.from("ts_request_events").insert({
+        request_id: req.id,
+        status: "staff_note",
+        actor_type: "staff",
+        actor_id: user?.id ?? null,
+        note: `${who} — ${label}${nextPrice != null ? ` · ${formatMoney(nextPrice, req.currency)}` : ""}`,
+      });
+
+      qc.setQueryData<RequestDetailData>(talkstayKeys.request(req.id), (prev) =>
+        prev
+          ? {
+              ...prev,
+              request: {
+                ...prev.request,
+                is_chargeable: nextChargeable,
+                payment_status: nextChargeable ? nextPayment : null,
+                price: nextChargeable ? nextPrice : null,
+              },
+            }
+          : prev,
+      );
+      toast.success(`${label}.`);
+      await refetch();
+      onChanged?.();
+    } finally {
+      setBillingBusy(false);
+    }
+  };
+
   const isOpen = req ? !["completed", "guest_confirmed", "cancelled"].includes(req.status) : false;
 
   return (
@@ -354,6 +442,12 @@ export default function RequestDetailSheet({
                 <Badge variant="secondary">{req.guest_language}</Badge>
               )}
               {req.intent && <Badge variant="secondary">{req.intent}</Badge>}
+              {req.is_chargeable && (
+                <Badge className={PAYMENT_STYLE[req.payment_status ?? "unpaid"] ?? PAYMENT_STYLE.unpaid}>
+                  {paymentLabel(req.payment_status ?? "unpaid")}
+                  {req.price != null ? ` · ${formatMoney(req.price, req.currency)}` : ""}
+                </Badge>
+              )}
             </div>
 
             {guestSignal && (
@@ -363,7 +457,9 @@ export default function RequestDetailSheet({
                     ? "border-amber-300 bg-amber-50 text-amber-950"
                     : guestSignal.kind === "cancel"
                       ? "border-slate-300 bg-slate-50 text-slate-800"
-                      : "border-rose-200 bg-rose-50 text-rose-900"
+                      : guestSignal.kind === "payment"
+                        ? "border-amber-400 bg-amber-50 text-amber-950"
+                        : "border-rose-200 bg-rose-50 text-rose-900"
                 }`}
               >
                 {guestSignal.kind === "update"
@@ -372,7 +468,9 @@ export default function RequestDetailSheet({
                     ? "⏰ Guest reminded you — still waiting"
                     : guestSignal.kind === "cancel"
                       ? "✕ Guest cancelled this order"
-                      : "⚠ Guest followed up"}
+                      : guestSignal.kind === "payment"
+                        ? "💷 Guest wants to pay now — collect in the room"
+                        : "⚠ Guest followed up"}
                 {guestSignal.note ? ` — "${guestSignal.note}"` : ""}
               </div>
             )}
@@ -396,6 +494,108 @@ export default function RequestDetailSheet({
                 </div>
               )}
             </div>
+
+            <section className="space-y-3 rounded-2xl border border-emerald-200/80 bg-emerald-50/40 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <h3 className="flex items-center gap-1.5 text-sm font-semibold text-emerald-950">
+                    <Banknote className="h-4 w-4" />
+                    Billing / checkout
+                  </h3>
+                  <p className="mt-1 text-xs text-emerald-900/75">
+                    Mark chargeable orders paid before the guest checks out. Fulfillment status stays separate.
+                    Upload menus in Knowledge so the guest assistant can attach prices when it knows them.
+                  </p>
+                </div>
+                {req.is_chargeable ? (
+                  <Badge className={PAYMENT_STYLE[req.payment_status ?? "unpaid"] ?? PAYMENT_STYLE.unpaid}>
+                    {paymentLabel(req.payment_status ?? "unpaid")}
+                  </Badge>
+                ) : (
+                  <Badge variant="secondary">Not chargeable</Badge>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-end gap-2">
+                <div className="min-w-[7rem] flex-1">
+                  <label className="text-[11px] font-medium text-muted-foreground">Amount</label>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    inputMode="decimal"
+                    value={priceDraft}
+                    onChange={(e) => setPriceDraft(e.target.value)}
+                    placeholder="0.00"
+                    className="mt-1 h-9 bg-white"
+                    disabled={billingBusy || !req.is_chargeable}
+                  />
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-9"
+                  disabled={billingBusy || !req.is_chargeable}
+                  onClick={() => {
+                    const n = priceDraft.trim() === "" ? null : Number(priceDraft);
+                    if (n != null && (Number.isNaN(n) || n < 0)) {
+                      toast.error("Enter a valid amount.");
+                      return;
+                    }
+                    void saveBilling({ price: n });
+                  }}
+                >
+                  Save amount
+                </Button>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                {!req.is_chargeable ? (
+                  <Button
+                    size="sm"
+                    disabled={billingBusy}
+                    onClick={() => void saveBilling({ is_chargeable: true, payment_status: "unpaid" })}
+                  >
+                    Mark chargeable
+                  </Button>
+                ) : (
+                  <>
+                    <Button
+                      size="sm"
+                      disabled={billingBusy || req.payment_status === "paid"}
+                      className="bg-emerald-700 hover:bg-emerald-800"
+                      onClick={() => void saveBilling({ payment_status: "paid" })}
+                    >
+                      Mark paid
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={billingBusy || req.payment_status === "unpaid"}
+                      onClick={() => void saveBilling({ payment_status: "unpaid" })}
+                    >
+                      Mark unpaid
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={billingBusy || req.payment_status === "waived"}
+                      onClick={() => void saveBilling({ payment_status: "waived" })}
+                    >
+                      Waive
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={billingBusy}
+                      onClick={() => void saveBilling({ is_chargeable: false, payment_status: null, price: null })}
+                    >
+                      Not chargeable
+                    </Button>
+                  </>
+                )}
+              </div>
+            </section>
 
             {isOpen && (
               <section className="space-y-3 rounded-2xl border-2 border-amber-300/80 bg-amber-50/50 p-4 shadow-sm">
