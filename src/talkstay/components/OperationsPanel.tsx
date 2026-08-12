@@ -1064,7 +1064,9 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
                             ? "border-amber-200 bg-amber-100 text-amber-950"
                             : escalation.kind === "cancel"
                               ? "border-slate-300 bg-slate-100 text-slate-800"
-                              : "border-rose-200 bg-rose-100 text-rose-800"
+                              : escalation.kind === "payment"
+                                ? "border-amber-300 bg-amber-100 text-amber-950"
+                                : "border-rose-200 bg-rose-100 text-rose-800"
                         }`}
                         >
                           <MessageCircle className="mr-1 h-3 w-3" />
@@ -1074,7 +1076,9 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
                               ? "Guest reminded"
                               : escalation.kind === "cancel"
                                 ? "Guest cancelled"
-                                : "Follow-up"}
+                                : escalation.kind === "payment"
+                                  ? "Pay now"
+                                  : "Follow-up"}
                         </Badge>
                       )}
                     </div>
@@ -1113,7 +1117,9 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
                         ? "border-amber-300 bg-amber-50 text-amber-950 hover:bg-amber-100"
                         : escalation.kind === "cancel"
                           ? "border-slate-300 bg-slate-50 text-slate-800 hover:bg-slate-100"
-                          : "border-rose-200 bg-rose-50/80 text-rose-800 hover:bg-rose-100"
+                          : escalation.kind === "payment"
+                            ? "border-amber-400 bg-amber-50 text-amber-950 hover:bg-amber-100"
+                            : "border-rose-200 bg-rose-50/80 text-rose-800 hover:bg-rose-100"
                     }`}
                   >
                     {escalation.kind === "update"
@@ -1122,7 +1128,9 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
                         ? "⏰ Guest reminded you — still waiting"
                         : escalation.kind === "cancel"
                           ? "✕ Guest cancelled this order"
-                          : "⚠ Guest followed up"}
+                          : escalation.kind === "payment"
+                            ? "💷 Guest wants to pay now — collect in the room"
+                            : "⚠ Guest followed up"}
                     {escalation.note ? ` — "${escalation.note}"` : ""}
                     {" · "}
                     {timeAgo(escalation.at)}

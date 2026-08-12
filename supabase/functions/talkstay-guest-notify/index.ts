@@ -33,10 +33,22 @@ serve(async (req) => {
     if (!requestId || !status) return json({ error: "requestId and status required" }, 400);
     if (!LINE[status]) return json({ ok: true, skipped: "status not guest-facing" });
 
-    const { data: r } = await admin
-      .from("ts_service_requests")
-      .select("id, hotel_id, room_id, summary, session_id")
-      .eq("id", requestId).maybeSingle();
+    let r: any = null;
+    {
+      const full = await admin
+        .from("ts_service_requests")
+        .select("id, hotel_id, room_id, summary, session_id, is_chargeable, price, currency, payment_status")
+        .eq("id", requestId).maybeSingle();
+      if (full.error?.message?.includes("payment_status") || full.error?.message?.includes("is_chargeable")) {
+        const legacy = await admin
+          .from("ts_service_requests")
+          .select("id, hotel_id, room_id, summary, session_id")
+          .eq("id", requestId).maybeSingle();
+        r = legacy.data;
+      } else {
+        r = full.data;
+      }
+    }
     if (!r?.session_id) return json({ ok: true, skipped: "no guest session" });
 
     const authz = await authorizeRequestSideEffect(req, admin, {
@@ -47,16 +59,62 @@ serve(async (req) => {
     });
     if (!authz.ok) return json({ error: authz.error }, authz.status);
 
-    const [{ data: sess }, { data: hotel }, { data: room }, { data: pushSubs }] = await Promise.all([
-      admin.from("ts_guest_sessions")
-        .select("notify_channel, contact_email")
-        .eq("hotel_id", r.hotel_id).eq("session_id", r.session_id).maybeSingle(),
+    let sess: { notify_channel?: string | null; contact_email?: string | null; payment_timing?: string | null } | null = null;
+    {
+      const full = await admin.from("ts_guest_sessions")
+        .select("notify_channel, contact_email, payment_timing")
+        .eq("hotel_id", r.hotel_id).eq("session_id", r.session_id).maybeSingle();
+      if (full.error?.message?.includes("payment_timing")) {
+        const legacy = await admin.from("ts_guest_sessions")
+          .select("notify_channel, contact_email")
+          .eq("hotel_id", r.hotel_id).eq("session_id", r.session_id).maybeSingle();
+        sess = legacy.data;
+      } else {
+        sess = full.data;
+      }
+    }
+
+    const [{ data: hotel }, { data: room }, { data: pushSubs }] = await Promise.all([
       admin.from("ts_hotels").select("name, slug, branding").eq("id", r.hotel_id).maybeSingle(),
       r.room_id ? admin.from("ts_rooms").select("room_number").eq("id", r.room_id).maybeSingle()
                 : Promise.resolve({ data: null }),
       admin.from("ts_guest_push_subscriptions").select("id, endpoint, p256dh, auth")
         .eq("hotel_id", r.hotel_id).eq("session_id", r.session_id),
     ]);
+
+    let unpaid: any[] = [];
+    {
+      const bill = await admin.from("ts_service_requests")
+        .select("id, price, currency, payment_status, is_chargeable")
+        .eq("hotel_id", r.hotel_id)
+        .eq("session_id", r.session_id)
+        .eq("is_chargeable", true)
+        .neq("status", "cancelled")
+        .limit(40);
+      if (!bill.error) unpaid = ((bill.data ?? []) as any[]).filter((row) => (row.payment_status ?? "unpaid") === "unpaid");
+    }
+
+    const priced = unpaid.filter((row) => typeof row.price === "number" && Number(row.price) > 0);
+    const owedTotal = priced.length ? priced.reduce((sum, row) => sum + Number(row.price), 0) : null;
+    const currency = (unpaid.find((row) => row.currency)?.currency || "GBP").toUpperCase();
+    const timing = sess?.payment_timing;
+    let balanceHtml = "";
+    if (unpaid.length) {
+      const amountLine = owedTotal != null
+        ? `${owedTotal.toFixed(2)} ${currency}`
+        : `${unpaid.length} item${unpaid.length === 1 ? "" : "s"} (amounts confirmed at the desk)`;
+      const timingLine = timing === "at_checkout"
+        ? "You've chosen to settle at checkout."
+        : timing === "pay_now"
+          ? "You've asked the team to collect payment in your room."
+          : "Open My requests in chat to pay now (someone collects in your room) or settle at checkout.";
+      balanceHtml = `
+            <div style="margin:14px 0 0;padding:12px 14px;border-radius:10px;background:#fffbeb;border:1px solid #fcd34d;">
+              <p style="margin:0 0 4px;font-weight:600;color:#92400e;">Current balance</p>
+              <p style="margin:0;color:#78350f;">${escapeHtml(amountLine)}</p>
+              <p style="margin:8px 0 0;font-size:13px;color:#92400e;">${escapeHtml(timingLine)}</p>
+            </div>`;
+    }
 
     const hotelName = hotel?.name ?? "Your hotel";
     const roomLabel = room?.room_number ? formatRoomLabel(room.room_number) : "";
@@ -86,6 +144,7 @@ serve(async (req) => {
           bodyHtml: `
             <p style="margin:0 0 10px;">${roomLabel ? `${escapeHtml(roomLabel)} — ` : ""}here's the latest on what you asked for:</p>
             ${quoteBlock(r.summary)}
+            ${balanceHtml}
             ${status === "cancelled"
               ? `<p style="margin:14px 0 0;">If you still need help, open the chat below or scan the QR in your room and ask again.</p>`
               : status === "completed"
@@ -110,11 +169,14 @@ serve(async (req) => {
       if (vapidPub && vapidPriv) {
         webpush.setVapidDetails(Deno.env.get("VAPID_SUBJECT") || "mailto:notifications@talkweb.io", vapidPub, vapidPriv);
         let pushed = 0;
+        const pushBody = unpaid.length && owedTotal != null
+          ? `${r.summary} · Balance ${owedTotal.toFixed(2)} ${currency}`
+          : r.summary;
         for (const s of pushSubs) {
           try {
             await webpush.sendNotification(
               { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
-              JSON.stringify({ title: `${hotelName}: ${heading}`, body: r.summary, url: guestUrl, tag: r.id })
+              JSON.stringify({ title: `${hotelName}: ${heading}`, body: pushBody, url: guestUrl, tag: r.id })
             );
             pushed++;
           } catch (err: any) {

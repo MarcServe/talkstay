@@ -4,13 +4,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import {
-  ArrowLeft, Bell, Check, ClipboardList, Loader2, Meh, MessageCircle,
+  ArrowLeft, Bell, Check, ClipboardList, Loader2, LogOut, Meh, MessageCircle,
   Mic, MicOff, Pencil, Send, Smile, Frown, Star, X,
 } from "lucide-react";
 import { RealtimeChat } from "@/utils/RealtimeChat";
 import { conversationMemory } from "@/utils/ConversationMemory";
 import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
-import { statusBadge, statusDot, statusLabel } from "@/talkstay/lib/statusStyles";
+import { formatMoney, PAYMENT_STYLE, paymentLabel, statusBadge, statusDot, statusLabel } from "@/talkstay/lib/statusStyles";
+import { GuestFolio } from "@/talkstay/components/GuestFolio";
 import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
 import NoIndexMeta from "@/talkstay/components/NoIndexMeta";
 import { DemoProvider, useDemo, type DemoApi } from "@/talkstay/demo/DemoContext";
@@ -188,6 +189,10 @@ function DemoRequestsSheet({
     department_key: string;
     summary: string;
     status: string;
+    is_chargeable?: boolean | null;
+    price?: number | null;
+    currency?: string | null;
+    payment_status?: "unpaid" | "paid" | "waived" | null;
   }>;
   onClose: () => void;
 }) {
@@ -200,6 +205,15 @@ function DemoRequestsSheet({
   const [cancelReason, setCancelReason] = useState("");
 
   const visible = reqs.filter((r) => r.status !== "cancelled");
+  const unpaid = visible.filter(
+    (r) => r.is_chargeable && (r.payment_status ?? "unpaid") === "unpaid",
+  );
+  const pricedUnpaid = unpaid.filter((r) => typeof r.price === "number" && Number(r.price) > 0);
+  const owedTotal = pricedUnpaid.length
+    ? pricedUnpaid.reduce((sum, r) => sum + Number(r.price), 0)
+    : null;
+  const currency = unpaid.find((r) => r.currency)?.currency ?? "GBP";
+  const paymentTiming = demo.state.paymentTiming;
 
   return (
     <div
@@ -220,6 +234,36 @@ function DemoRequestsSheet({
           Same close-out loop as a real stay — confirm, remind, update, cancel, and rate.
           Staff replies and status changes sync from the Operations demo.
         </p>
+        <div className="mb-4 space-y-2">
+          <GuestFolio
+            requests={visible.map((r) => ({
+              id: r.id,
+              department_key: r.department_key,
+              summary: r.summary,
+              status: r.status,
+              is_complaint: false,
+              is_chargeable: r.is_chargeable,
+              price: r.price,
+              currency: r.currency,
+              payment_status: r.payment_status,
+            }))}
+            paymentTiming={paymentTiming}
+            onPayNow={() => {
+              demo.guestRequestPayment();
+              toast.success("We've asked the team to come collect payment.");
+            }}
+            onPayAtCheckout={() => {
+              demo.guestSetPaymentTiming("at_checkout");
+              toast.success("We'll settle this at checkout.");
+            }}
+            variant="compact"
+          />
+          <Button variant="outline" size="sm" className="h-9 w-full" asChild>
+            <Link to="/demo/guest/checkout">
+              <LogOut className="mr-1.5 h-3.5 w-3.5" /> Open full checkout page
+            </Link>
+          </Button>
+        </div>
         {visible.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             No requests yet — ask for towels or report a problem.
@@ -242,6 +286,12 @@ function DemoRequestsSheet({
                       {statusLabel(r.status)}
                     </span>
                     <span className="text-[11px] text-muted-foreground">{deptLabel(r.department_key)}</span>
+                    {r.is_chargeable && (
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${PAYMENT_STYLE[r.payment_status ?? "unpaid"] ?? PAYMENT_STYLE.unpaid}`}>
+                        {paymentLabel(r.payment_status ?? "unpaid")}
+                        {r.price != null ? ` · ${formatMoney(r.price, r.currency)}` : ""}
+                      </span>
+                    )}
                   </div>
 
                   {awaitingConfirm && (
@@ -767,6 +817,11 @@ function DemoGuestInner() {
               {openCount}
             </span>
           )}
+        </Button>
+        <Button asChild size="sm" variant="outline" className="h-8 shrink-0 gap-1 border-white/50 bg-white/60 px-2.5 text-xs">
+          <Link to="/demo/guest/checkout">
+            <LogOut className="h-3.5 w-3.5" /> Checkout
+          </Link>
         </Button>
       </header>
 

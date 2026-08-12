@@ -100,6 +100,8 @@ export type DemoState = {
   escalationEvents: OpsQueueData["escalationEvents"];
   details: Record<string, DemoDetail>;
   insights: InsightsData;
+  /** Guest demo Room 306 — pay now vs settle at checkout. */
+  paymentTiming: "pay_now" | "at_checkout" | null;
   version: number;
 };
 
@@ -605,6 +607,7 @@ export function createInitialDemoState(): DemoState {
     escalationEvents,
     details,
     insights: seedInsights(requests),
+    paymentTiming: null,
     version: 1,
   };
 }
@@ -1154,7 +1157,11 @@ export function addDemoGuestRequest(
     needs_triage: false,
     guest_language: "en",
     is_chargeable: ["kitchen", "bar", "laundry"].includes(department_key),
-    price: null,
+    price: ["kitchen", "bar", "laundry"].includes(department_key)
+      ? (Number((summary.match(/£\s?(\d+(?:\.\d{1,2})?)/) || [])[1])
+        || Number((summary.match(/(\d+(?:\.\d{1,2})?)\s?(?:gbp|pounds?)/i) || [])[1])
+        || (department_key === "bar" ? 14 : department_key === "laundry" ? 22 : 18))
+      : null,
     currency: "GBP",
     payment_status: ["kitchen", "bar", "laundry"].includes(department_key) ? "unpaid" : null,
     created_at: new Date().toISOString(),
@@ -1177,7 +1184,7 @@ export function addDemoGuestRequest(
           status: req.status,
           is_complaint: req.is_complaint,
           is_chargeable: ["kitchen", "bar", "laundry"].includes(req.department_key),
-          price: null,
+          price: req.price ?? null,
           payment_status: ["kitchen", "bar", "laundry"].includes(req.department_key) ? "unpaid" : null,
           classification_method: "demo_guest",
           session_id: `demo-session-${id}`,
@@ -1427,6 +1434,72 @@ export function guestCancelDemoRequest(state: DemoState, requestId: string, reas
   };
 }
 
+/** Guest asks staff to collect payment now (demo — no Stripe). */
+export function guestRequestPaymentDemo(state: DemoState, requestId?: string): DemoState {
+  const unpaid = state.requests.filter((r) =>
+    r.room_id === GUEST_DEMO_ROOM.id
+    && r.is_chargeable
+    && (r.payment_status ?? "unpaid") === "unpaid"
+    && r.status !== "cancelled"
+    && (!requestId || r.id === requestId),
+  );
+  if (!unpaid.length) return { ...state, paymentTiming: "pay_now", version: state.version + 1 };
+
+  const at = new Date().toISOString();
+  const priced = unpaid.filter((r) => typeof r.price === "number" && Number(r.price) > 0);
+  const total = priced.reduce((sum, r) => sum + Number(r.price), 0);
+  const note = priced.length
+    ? `Guest asked to pay now — please collect payment in the room · about £${total.toFixed(2)}`
+    : "Guest asked to pay now — please collect payment in the room";
+
+  let details = { ...state.details };
+  let requests = state.requests;
+  let escalations = { ...state.escalations };
+  let escalationEvents = [...state.escalationEvents];
+
+  for (const req of unpaid.slice(0, 8)) {
+    const prev = details[req.id] ?? seedDetail(req);
+    details[req.id] = {
+      ...prev,
+      request: { ...prev.request, priority: "urgent", updated_at: at },
+      events: [
+        ...prev.events,
+        {
+          id: `${req.id}-pay-${Date.now()}`,
+          request_id: req.id,
+          status: "payment_requested",
+          note,
+          actor_type: "guest",
+          created_at: at,
+        },
+      ],
+    };
+    requests = requests.map((r) => (r.id === req.id ? { ...r, priority: "urgent" } : r));
+    escalations[req.id] = { note, at, kind: "payment" };
+    escalationEvents = [
+      ...escalationEvents,
+      { id: `${req.id}-esc-pay-${Date.now()}`, request_id: req.id, note, kind: "payment" },
+    ];
+  }
+
+  return {
+    ...state,
+    paymentTiming: "pay_now",
+    requests,
+    details,
+    escalations,
+    escalationEvents,
+    version: state.version + 1,
+  };
+}
+
+export function guestSetPaymentTimingDemo(
+  state: DemoState,
+  timing: "pay_now" | "at_checkout",
+): DemoState {
+  return { ...state, paymentTiming: timing, version: state.version + 1 };
+}
+
 /** Guest nudges waiting staff (clear Remind signal on Operations). */
 export function guestNudgeDemoRequest(state: DemoState, requestId: string): DemoState {
   const req = state.requests.find((r) => r.id === requestId);
@@ -1639,6 +1712,7 @@ export function loadPersistedDemoState(): DemoState | null {
     }));
     parsed.handlers = parsed.handlers ?? {};
     parsed.notes = parsed.notes ?? {};
+    parsed.paymentTiming = parsed.paymentTiming ?? null;
     return parsed;
   } catch {
     return null;
