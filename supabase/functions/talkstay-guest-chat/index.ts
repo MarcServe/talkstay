@@ -927,16 +927,27 @@ serve(async (req) => {
       return json({ messages });
     }
 
-    // ---- set_contact: guest wants email updates for this stay ----
+    // ---- set_contact: guest wants email updates / shared first name ----
     if (action === "set_contact") {
-      const { channel, contact } = body;
-      if (!sessionId || !channel) return json({ error: "sessionId and channel required" }, 400);
-      const clean = String(contact ?? "").trim().slice(0, 200).toLowerCase();
-      const { error } = await admin.from("ts_guest_sessions").upsert({
+      const { channel, contact, guestFirstName } = body;
+      if (!sessionId) return json({ error: "sessionId required" }, 400);
+      const first = String(guestFirstName ?? "").trim().slice(0, 80);
+      const patch: Record<string, unknown> = {
         hotel_id: ctx.hotelId, room_id: ctx.roomId, session_id: sessionId,
-        language: ctx.language, notify_channel: String(channel),
-        contact_email: clean || null,
-      }, { onConflict: "hotel_id,session_id" });
+        language: ctx.language,
+      };
+      if (first) patch.guest_first_name = first;
+      if (channel != null && String(channel).trim()) {
+        const clean = String(contact ?? "").trim().slice(0, 200).toLowerCase();
+        patch.notify_channel = String(channel);
+        patch.contact_email = clean || null;
+      }
+      if (!first && !patch.notify_channel) {
+        return json({ error: "guestFirstName or channel required" }, 400);
+      }
+      const { error } = await admin.from("ts_guest_sessions").upsert(patch, {
+        onConflict: "hotel_id,session_id",
+      });
       if (error) return json({ error: error.message }, 400);
       return json({ ok: true });
     }

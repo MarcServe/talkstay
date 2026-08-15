@@ -3,9 +3,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Loader2, Globe, Upload } from "lucide-react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { ChevronDown, Loader2, Globe, Upload } from "lucide-react";
 import { ingestHotelWebsite, setHotelWebsite, isPlaceholderWebsite, type Hotel } from "@/talkstay/lib/hotels";
 import { useDemo } from "@/talkstay/demo/DemoContext";
+import { cn } from "@/lib/utils";
 
 // TalkWeb's Content section, reused for the hotel's linked assistant.
 const CrawlStatusBanner = React.lazy(() =>
@@ -24,6 +26,7 @@ export default function ContentPanel({ hotel }: { hotel: Hotel }) {
   const [savedUrl, setSavedUrl] = useState(demo ? "https://www.your-property.com" : "");
   const [websiteInput, setWebsiteInput] = useState(demo ? "https://www.your-property.com" : "");
   const [savingWebsite, setSavingWebsite] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const uploadAnchorRef = useRef<HTMLDivElement>(null);
 
   const hasRealWebsite = !isPlaceholderWebsite(savedUrl);
@@ -79,22 +82,22 @@ export default function ContentPanel({ hotel }: { hotel: Hotel }) {
       toast.message("Document upload indexes menus and PDFs on live accounts.");
       return;
     }
-    uploadAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    setAdvancedOpen(true);
     window.setTimeout(() => {
+      uploadAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
       uploadAnchorRef.current?.querySelector<HTMLInputElement>('input[type="file"]')?.click();
-    }, 50);
+    }, 80);
   };
 
   return (
     <div className="space-y-5">
       <div className="rounded-2xl border border-dashed bg-muted/20 p-4">
         <div className="flex items-start gap-3">
-          <Upload className="mt-0.5 h-5 w-5 shrink-0 text-violet-600" />
+          <Globe className="mt-0.5 h-5 w-5 shrink-0 text-violet-600" />
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium">Website crawl &amp; document upload</p>
+            <p className="text-sm font-medium">Property website</p>
             <p className="mt-1 text-xs text-muted-foreground">
-              Paste your website to crawl pages, or upload menus / house rules as PDF or images.
-              TalkStay extracts answers automatically for the guest assistant.
+              Paste your website and scan — TalkStay indexes answers for the guest assistant.
             </p>
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <div className="relative min-w-[200px] flex-1">
@@ -114,17 +117,46 @@ export default function ContentPanel({ hotel }: { hotel: Hotel }) {
                 onClick={() => void saveWebsite()}
               >
                 {savingWebsite ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
-                Update &amp; rescan
-              </Button>
-              <Button size="sm" variant="outline" onClick={openUpload}>
-                <Upload className="mr-1 h-3.5 w-3.5" /> Upload menu / PDF
+                Add / Update &amp; scan
               </Button>
             </div>
             {!demo && !hasRealWebsite && (
               <p className="mt-2 text-[11px] text-muted-foreground">
-                No website connected yet — crawl when you have one, or upload documents anytime.
+                No website connected yet — add one above, or open Advanced to upload documents.
               </p>
             )}
+            {demo && (
+              <p className="mt-2 text-[11px] text-muted-foreground">
+                Sandbox — crawl runs on live properties. Try General / Department / Room tabs to add FAQs.
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+        <CollapsibleTrigger asChild>
+          <button
+            type="button"
+            className="flex w-full items-center justify-between rounded-xl border bg-muted/20 px-4 py-3 text-left text-sm font-medium transition-colors hover:bg-muted/40"
+          >
+            <span>Advanced</span>
+            <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", advancedOpen && "rotate-180")} />
+          </button>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="mt-3 space-y-4">
+          <div className="rounded-2xl border bg-card p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium">Documents</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Upload menus, house rules, or PDFs for the assistant.
+                </p>
+              </div>
+              <Button size="sm" variant="outline" onClick={openUpload}>
+                <Upload className="mr-1 h-3.5 w-3.5" /> Upload menu / PDF
+              </Button>
+            </div>
             {!demo && assistantId && (
               <div ref={uploadAnchorRef} className="mt-3">
                 <React.Suspense fallback={null}>
@@ -137,34 +169,29 @@ export default function ContentPanel({ hotel }: { hotel: Hotel }) {
                 </React.Suspense>
               </div>
             )}
-            {demo && (
-              <p className="mt-2 text-[11px] text-muted-foreground">
-                Sandbox — crawl and PDF indexing run on live properties. Try General / Department / Room tabs to add FAQs.
-              </p>
-            )}
           </div>
-        </div>
-      </div>
 
-      {!demo && assistantId && hasRealWebsite && (
-        <>
-          <React.Suspense fallback={null}>
-            <CrawlStatusBanner
-              assistantId={assistantId}
-              onReindex={async () => {
-                const { data, error } = await supabase.functions.invoke("reindex-knowledge", {
-                  body: { assistantId },
-                });
-                if (error) throw error;
-                if (!data?.success) throw new Error(data?.error || "Reindex failed");
-              }}
-            />
-          </React.Suspense>
-          <React.Suspense fallback={null}>
-            <ContentRefreshManager assistantId={assistantId} />
-          </React.Suspense>
-        </>
-      )}
+          {!demo && assistantId && hasRealWebsite && (
+            <>
+              <React.Suspense fallback={null}>
+                <CrawlStatusBanner
+                  assistantId={assistantId}
+                  onReindex={async () => {
+                    const { data, error } = await supabase.functions.invoke("reindex-knowledge", {
+                      body: { assistantId },
+                    });
+                    if (error) throw error;
+                    if (!data?.success) throw new Error(data?.error || "Reindex failed");
+                  }}
+                />
+              </React.Suspense>
+              <React.Suspense fallback={null}>
+                <ContentRefreshManager assistantId={assistantId} />
+              </React.Suspense>
+            </>
+          )}
+        </CollapsibleContent>
+      </Collapsible>
     </div>
   );
 }

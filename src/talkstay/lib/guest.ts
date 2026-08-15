@@ -231,7 +231,7 @@ export async function requestPaymentNow(args: {
 /** Store where this guest device wants email updates for their stay. */
 export async function saveGuestContact(args: {
   hotelSlug: string; roomId: string; token: string; sessionId: string;
-  channel: string; contact: string;
+  channel?: string; contact?: string; guestFirstName?: string;
 }) {
   const { data, error } = await fn({ action: "set_contact", ...args });
   if (error) throw error;

@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import {
   Loader2, LogOut, Bell, Menu, X, ChevronDown, Phone,
-  Inbox, BarChart3, QrCode, Building2, BookOpen, Users, Palette,
+  Inbox, BarChart3, QrCode, Building2, BookOpen, Users, Palette, LifeBuoy,
 } from "lucide-react";
 import { enablePush, pushSupported } from "@/talkstay/lib/push";
 import { enableAlertSounds, notificationPermission } from "@/talkstay/lib/alerts";
@@ -31,6 +31,7 @@ import {
   useHotelAccess, usePrefetchHotelData, invalidateOps,
 } from "@/talkstay/hooks/useTalkStayQueries";
 import PropertyProfileFields from "@/talkstay/components/PropertyProfileFields";
+import { normalizeReferralCode, supportLabelForHotel, supportMailtoForHotel } from "@/talkstay/lib/partners";
 
 const StaffPanel = lazy(() => import("@/talkstay/components/StaffPanel"));
 
@@ -48,10 +49,14 @@ const NAV = [
 type NavKey = (typeof NAV)[number]["key"];
 
 function CreateHotel({ onCreated }: { onCreated: (h: Hotel) => void }) {
+  const [searchParams] = useSearchParams();
   const [name, setName] = useState("");
   const [website, setWebsite] = useState("");
   const [language, setLanguage] = useState("English");
   const [property, setProperty] = useState<PropertyProfile>({ property_count: 1 });
+  const [referralCode, setReferralCode] = useState(
+    () => normalizeReferralCode(searchParams.get("ref")) ?? "",
+  );
   const [busy, setBusy] = useState(false);
   const [stage, setStage] = useState("");
 
@@ -65,6 +70,7 @@ function CreateHotel({ onCreated }: { onCreated: (h: Hotel) => void }) {
         name: name.trim(),
         website_url: website.trim() || undefined,
         default_language: language,
+        referral_code: referralCode.trim() || null,
         property: {
           ...property,
           type: property.type || undefined,
@@ -134,6 +140,19 @@ function CreateHotel({ onCreated }: { onCreated: (h: Hotel) => void }) {
           <div className="rounded-xl border bg-muted/30 p-4">
             <div className="mb-3 text-sm font-medium">Property profile</div>
             <PropertyProfileFields value={property} onChange={setProperty} compact />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="hotel-ref">Referral code (optional)</Label>
+            <Input
+              id="hotel-ref"
+              value={referralCode}
+              onChange={(e) => setReferralCode(e.target.value)}
+              placeholder="Partner code"
+              autoComplete="off"
+            />
+            <p className="text-xs text-muted-foreground">
+              Prefills from a ?ref= link when present. Used to route Support to your partner when one is assigned.
+            </p>
           </div>
           <Button type="submit" disabled={busy} className="w-full">
             {busy ? (stage || "Creating…") : "Create property"}
@@ -316,6 +335,12 @@ export default function HotelApp() {
       </nav>
 
       <div className="space-y-1 border-t border-white/10 p-3">
+        <a
+          href={supportMailtoForHotel(hotel.referral_code)}
+          className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-white/60 hover:bg-white/5 hover:text-white"
+        >
+          <LifeBuoy className="h-4 w-4" /> {supportLabelForHotel(hotel.referral_code)}
+        </a>
         {(pushSupported() || notificationPermission() !== "unsupported") && (
           <button
             onClick={async () => {

@@ -444,7 +444,8 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
   const [replaceOpen, setReplaceOpen] = useState(false);
   const [replaceBusy, setReplaceBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
-  const scanRef = useRef<HTMLInputElement>(null);
+  const scanCameraRef = useRef<HTMLInputElement>(null);
+  const scanGalleryRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (demo) {
@@ -848,7 +849,7 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
 
       <div className={`space-y-3 rounded-2xl border p-4 ${KB_SCOPE_CARD[scope] ?? ""}`}>
         <input
-          ref={scanRef}
+          ref={scanCameraRef}
           type="file"
           accept="image/*"
           capture="environment"
@@ -859,24 +860,50 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
             if (f) void scanAndSave(f);
           }}
         />
-        <button
-          type="button"
-          disabled={busy || scanBusy || imgBusy}
-          onClick={() => scanRef.current?.click()}
-          className="flex w-full items-center gap-3 rounded-xl border border-dashed bg-white/50 px-4 py-3 text-left transition hover:bg-white/80 disabled:opacity-60"
-        >
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-background shadow-sm">
-            {scanBusy ? <Loader2 className="h-5 w-5 animate-spin" /> : <Camera className="h-5 w-5" />}
-          </div>
-          <div className="min-w-0">
-            <p className="text-sm font-medium">
-              {scanBusy ? "Reading your photo…" : "Scan a photo (camera or gallery)"}
-            </p>
-            <p className="text-[11px] text-muted-foreground">
-              Point at a menu, hours board, or notice — we extract the text and save a guest card automatically.
-            </p>
-          </div>
-        </button>
+        <input
+          ref={scanGalleryRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            e.target.value = "";
+            if (f) void scanAndSave(f);
+          }}
+        />
+        <div className="grid gap-2 sm:grid-cols-2">
+          <button
+            type="button"
+            disabled={busy || scanBusy || imgBusy}
+            onClick={() => scanCameraRef.current?.click()}
+            className="flex items-center gap-3 rounded-xl border border-dashed bg-white/50 px-4 py-3 text-left transition hover:bg-white/80 disabled:opacity-60"
+          >
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-background shadow-sm">
+              {scanBusy ? <Loader2 className="h-5 w-5 animate-spin" /> : <Camera className="h-5 w-5" />}
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-medium">{scanBusy ? "Reading your photo…" : "Take photo"}</p>
+              <p className="text-[11px] text-muted-foreground">Opens the camera on phones</p>
+            </div>
+          </button>
+          <button
+            type="button"
+            disabled={busy || scanBusy || imgBusy}
+            onClick={() => scanGalleryRef.current?.click()}
+            className="flex items-center gap-3 rounded-xl border border-dashed bg-white/50 px-4 py-3 text-left transition hover:bg-white/80 disabled:opacity-60"
+          >
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-background shadow-sm">
+              {scanBusy ? <Loader2 className="h-5 w-5 animate-spin" /> : <ImageIcon className="h-5 w-5" />}
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-medium">{scanBusy ? "Reading your photo…" : "Choose from device"}</p>
+              <p className="text-[11px] text-muted-foreground">Pick an existing photo or screenshot</p>
+            </div>
+          </button>
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          Point at a menu, hours board, or notice — we extract the text and save a guest card automatically.
+        </p>
 
         <div className="relative py-1 text-center text-[10px] uppercase tracking-wide text-muted-foreground">
           <span className="relative z-10 bg-card px-2">or type it yourself</span>

@@ -20,6 +20,12 @@ interface StaffRow {
   status: string;
 }
 
+interface HotelDept {
+  key: string;
+  display_name: string;
+  is_active: boolean;
+}
+
 type BulkRow = { name?: string; email: string; departmentKey?: string | null; role?: string };
 
 const ALL_DEPTS = "__all__";
@@ -29,7 +35,7 @@ Helen Park,helen@hotel.com,housekeeping,staff
 James Wright,james@hotel.com,front_desk,manager
 `;
 
-const DEPT_KEYS = new Set(DEPARTMENTS.map((d) => d.key));
+const FALLBACK_DEPT_KEYS = new Set(DEPARTMENTS.map((d) => d.key));
 
 const isExcelFile = (file: File) =>
   /\.(xlsx|xls|xlsm)$/i.test(file.name)
@@ -148,12 +154,10 @@ function parseStaffRoster(raw: string): { rows: BulkRow[]; errors: string[] } {
     if (department.trim()) {
       const key = department.trim().toLowerCase().replace(/[\s-]+/g, "_");
       if (key === "all" || key === "all_departments") departmentKey = null;
-      else if (DEPT_KEYS.has(key)) departmentKey = key;
-      else if (DEPT_KEYS.has(department.trim().toLowerCase().replace(/\s+/g, "_"))) {
-        departmentKey = department.trim().toLowerCase().replace(/\s+/g, "_");
-      } else {
-        // Keep raw — server aliases "Front Desk" etc.
-        departmentKey = department.trim();
+      else if (FALLBACK_DEPT_KEYS.has(key)) departmentKey = key;
+      else {
+        // Pass through — server accepts hotel custom department keys.
+        departmentKey = key || department.trim();
       }
     }
 
@@ -171,6 +175,7 @@ function parseStaffRoster(raw: string): { rows: BulkRow[]; errors: string[] } {
 
 export default function StaffPanel({ hotel }: { hotel: Hotel }) {
   const [staff, setStaff] = useState<StaffRow[]>([]);
+  const [depts, setDepts] = useState<HotelDept[]>([]);
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -204,17 +209,44 @@ export default function StaffPanel({ hotel }: { hotel: Hotel }) {
   const load = async () => {
     setLoading(true);
     try {
-      const data = await call({ action: "list" });
+      const [data, deptRes] = await Promise.all([
+        call({ action: "list" }),
+        supabase
+          .from("ts_departments")
+          .select("key, display_name, is_active")
+          .eq("hotel_id", hotel.id)
+          .order("display_name"),
+      ]);
       setStaff(((data as any)?.staff as StaffRow[]) ?? []);
+      const rows = ((deptRes.data ?? []) as HotelDept[]);
+      // Prefer active departments; if empty fall back to built-in list.
+      const active = rows.filter((d) => d.is_active);
+      setDepts(active.length ? active : DEPARTMENTS.map((d) => ({
+        key: d.key, display_name: d.display_name, is_active: true,
+      })));
     } catch (e: any) {
       toast.error(e?.message ?? "Couldn't load staff");
       setStaff([]);
+      setDepts(DEPARTMENTS.map((d) => ({ key: d.key, display_name: d.display_name, is_active: true })));
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [hotel.id]);
+
+  const deptOptions = useMemo(() => {
+    const map = new Map(depts.map((d) => [d.key, d.display_name]));
+    // Ensure currently assigned keys still appear even if inactive.
+    for (const s of staff) {
+      if (s.department_key && !map.has(s.department_key)) {
+        map.set(s.department_key, s.department_key.replace(/_/g, " "));
+      }
+    }
+    return [...map.entries()]
+      .map(([key, display_name]) => ({ key, display_name }))
+      .sort((a, b) => a.display_name.localeCompare(b.display_name));
+  }, [depts, staff]);
 
   const parsedPreview = useMemo(() => parseStaffRoster(bulkText), [bulkText]);
 
@@ -400,7 +432,7 @@ export default function StaffPanel({ hotel }: { hotel: Hotel }) {
             <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value={ALL_DEPTS}>All departments</SelectItem>
-              {DEPARTMENTS.map((d) => <SelectItem key={d.key} value={d.key}>{d.display_name}</SelectItem>)}
+              {deptOptions.map((d) => <SelectItem key={d.key} value={d.key}>{d.display_name}</SelectItem>)}
             </SelectContent>
           </Select>
         </div>
@@ -551,7 +583,7 @@ export default function StaffPanel({ hotel }: { hotel: Hotel }) {
                       <SelectTrigger className="h-8 w-44"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value={ALL_DEPTS}>All departments</SelectItem>
-                        {DEPARTMENTS.map((d) => <SelectItem key={d.key} value={d.key}>{d.display_name}</SelectItem>)}
+                        {deptOptions.map((d) => <SelectItem key={d.key} value={d.key}>{d.display_name}</SelectItem>)}
                       </SelectContent>
                     </Select>
                   </td>

@@ -24,3 +24,17 @@ export function formatRoomLabel(
   // Named unit — show exactly what the host entered.
   return name;
 }
+
+/** Staff-facing label: "Timothy · Room 401" when the guest shared a first name. */
+export function guestStayLabel(
+  guestFirstName: string | null | undefined,
+  roomNumber: string | null | undefined,
+  opts?: { fallback?: string },
+): string {
+  const room = formatRoomLabel(roomNumber, opts);
+  const first = String(guestFirstName ?? "").trim();
+  if (!first) return room;
+  // Title-case lightly for display (Timothy, not TIMOTHY).
+  const nice = first.charAt(0).toUpperCase() + first.slice(1);
+  return `${nice} · ${room}`;
+}

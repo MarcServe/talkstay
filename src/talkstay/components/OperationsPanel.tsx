@@ -11,7 +11,7 @@ import {
   ArrowDownRight, ArrowUpRight, Clock3, Phone, Bot,
 } from "lucide-react";
 import { DEPARTMENTS, type Hotel } from "@/talkstay/lib/hotels";
-import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
+import { formatRoomLabel, guestStayLabel } from "@/talkstay/lib/roomLabel";
 import type { OpsRequest, OpsTimeRange } from "@/talkstay/lib/data";
 import { OPEN_STATUSES } from "@/talkstay/lib/data";
 import {
@@ -352,8 +352,9 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
     if (!roomQ) return true;
     const num = (r.ts_rooms?.room_number ?? "").toLowerCase();
     const label = formatRoomLabel(r.ts_rooms?.room_number).toLowerCase();
+    const guest = (r.guest_first_name ?? "").toLowerCase();
     const summary = `${r.summary ?? ""} ${r.summary_staff ?? ""}`.toLowerCase();
-    return num.includes(roomQ) || label.includes(roomQ) || summary.includes(roomQ);
+    return num.includes(roomQ) || label.includes(roomQ) || guest.includes(roomQ) || summary.includes(roomQ);
   };
 
   const matchesOrigin = (r: Req, o: OriginFilter) => {
@@ -656,7 +657,7 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
                     >
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-semibold">{formatRoomLabel(r.ts_rooms?.room_number)}</span>
+                          <span className="font-semibold">{guestStayLabel(r.guest_first_name, r.ts_rooms?.room_number)}</span>
                           <Badge variant="outline" className={`capitalize ${statusBadge(r.status)}`}>
                             {statusLabel(r.status)}
                           </Badge>
@@ -864,7 +865,7 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
                     {r.ts_rooms?.room_number ?? "—"}
                   </div>
                   <div className="min-w-0 flex-1 overflow-hidden">
-                    <p className="truncate text-sm font-medium">{formatRoomLabel(r.ts_rooms?.room_number)}</p>
+                    <p className="truncate text-sm font-medium">{guestStayLabel(r.guest_first_name, r.ts_rooms?.room_number)}</p>
                     <p className="truncate text-xs text-muted-foreground">
                       {deptLabel(r.department_key)} · {timeAgo(r.created_at)}
                     </p>
@@ -1040,7 +1041,7 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
                   </div>
                   <div className="min-w-0 flex-1 overflow-hidden">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-semibold">{formatRoomLabel(r.ts_rooms?.room_number)}</span>
+                      <span className="font-semibold">{guestStayLabel(r.guest_first_name, r.ts_rooms?.room_number)}</span>
                       <Badge variant="secondary">{deptLabel(r.department_key)}</Badge>
                       {isStaffLogged(r.source) ? (
                         <Badge variant="outline" className="border-sky-200 bg-sky-50 text-sky-800">

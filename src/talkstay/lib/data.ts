@@ -90,6 +90,9 @@ export interface OpsRequest {
   /** unpaid | paid | waived — only meaningful when is_chargeable */
   payment_status?: PaymentStatus | null;
   created_at: string;
+  session_id?: string | null;
+  /** From ts_guest_sessions when the guest opted in with a name. */
+  guest_first_name?: string | null;
   ts_rooms?: { room_number: string } | null;
 }
 
@@ -122,11 +125,13 @@ function guestSignalKind(status: string, note: string | null): GuestSignalKind {
 }
 
 const OPS_SELECT_FULL =
-  "id, room_id, department_key, summary, summary_staff, status, priority, is_complaint, needs_triage, guest_language, source, is_chargeable, price, currency, payment_status, created_at, ts_rooms(room_number)";
+  "id, room_id, department_key, summary, summary_staff, status, priority, is_complaint, needs_triage, guest_language, source, is_chargeable, price, currency, payment_status, created_at, session_id, ts_rooms(room_number)";
 const OPS_SELECT_NO_PAYMENT =
-  "id, room_id, department_key, summary, summary_staff, status, priority, is_complaint, needs_triage, guest_language, source, is_chargeable, price, currency, created_at, ts_rooms(room_number)";
+  "id, room_id, department_key, summary, summary_staff, status, priority, is_complaint, needs_triage, guest_language, source, is_chargeable, price, currency, created_at, session_id, ts_rooms(room_number)";
 const OPS_SELECT_LEGACY =
-  "id, room_id, department_key, summary, summary_staff, status, priority, is_complaint, needs_triage, guest_language, created_at, ts_rooms(room_number)";
+  "id, room_id, department_key, summary, summary_staff, status, priority, is_complaint, needs_triage, guest_language, created_at, session_id, ts_rooms(room_number)";
+const OPS_SELECT_NO_SESSION =
+  "id, room_id, department_key, summary, summary_staff, status, priority, is_complaint, needs_triage, guest_language, source, is_chargeable, price, currency, payment_status, created_at, ts_rooms(room_number)";
 
 export async function fetchOpsQueue(hotelId: string, timeRange: OpsTimeRange): Promise<OpsQueueData> {
   const ms = OPS_TIME_MS[timeRange];
@@ -169,6 +174,12 @@ export async function fetchOpsQueue(hotelId: string, timeRange: OpsTimeRange): P
   ) {
     [openRes, closedRes] = await load(OPS_SELECT_LEGACY);
   }
+  if (
+    openRes.error?.message?.includes("session_id") ||
+    closedRes.error?.message?.includes("session_id")
+  ) {
+    [openRes, closedRes] = await load(OPS_SELECT_NO_SESSION);
+  }
   if (openRes.error) throw openRes.error;
   if (closedRes.error) throw closedRes.error;
 
@@ -180,6 +191,34 @@ export async function fetchOpsQueue(hotelId: string, timeRange: OpsTimeRange): P
     requests.push(row);
   }
   requests.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+  // Attach guest first names when sessions opted in.
+  const sessionIds = [...new Set(
+    requests.map((r) => r.session_id).filter((s): s is string => !!s),
+  )];
+  if (sessionIds.length) {
+    const nameBySession = new Map<string, string>();
+    // Chunk to stay under PostgREST URL limits.
+    for (let i = 0; i < sessionIds.length; i += 80) {
+      const chunk = sessionIds.slice(i, i + 80);
+      const { data: sessions } = await supabase
+        .from("ts_guest_sessions")
+        .select("session_id, guest_first_name")
+        .eq("hotel_id", hotelId)
+        .in("session_id", chunk);
+      for (const s of (sessions ?? []) as { session_id: string; guest_first_name: string | null }[]) {
+        const n = String(s.guest_first_name ?? "").trim();
+        if (n) nameBySession.set(s.session_id, n);
+      }
+    }
+    if (nameBySession.size) {
+      for (const r of requests) {
+        if (r.session_id && nameBySession.has(r.session_id)) {
+          r.guest_first_name = nameBySession.get(r.session_id) ?? null;
+        }
+      }
+    }
+  }
 
   const ids = requests.map((r) => r.id);
   // Only ack + escalation events — keeps the second hop small as the queue grows.
@@ -255,6 +294,7 @@ export interface RequestDetailRow {
   payment_status?: PaymentStatus | null;
   created_at: string;
   updated_at: string;
+  guest_first_name?: string | null;
   ts_rooms?: { room_number: string } | null;
 }
 
@@ -348,6 +388,17 @@ export async function fetchRequestDetail(requestId: string): Promise<RequestDeta
         content: String(t.content ?? t.text ?? ""),
         at: t.at ?? t.created_at,
       }));
+  }
+
+  if (request.session_id) {
+    const { data: sess } = await supabase
+      .from("ts_guest_sessions")
+      .select("guest_first_name")
+      .eq("hotel_id", request.hotel_id)
+      .eq("session_id", request.session_id)
+      .maybeSingle();
+    const n = String((sess as { guest_first_name?: string | null } | null)?.guest_first_name ?? "").trim();
+    if (n) request.guest_first_name = n;
   }
 
   return { request, events, messages, chat };

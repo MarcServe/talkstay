@@ -115,6 +115,8 @@ export interface Hotel {
   branding?: HotelBranding | null;
   require_checkin_code?: boolean;
   max_devices_per_room?: number;
+  /** Marketing partner / referral code from signup (?ref=). */
+  referral_code?: string | null;
 }
 
 export interface Room {
@@ -414,6 +416,7 @@ export async function createHotel(input: {
   default_language?: string;
   timezone?: string;
   property?: PropertyProfile;
+  referral_code?: string | null;
 }): Promise<Hotel> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Not signed in");
@@ -441,20 +444,34 @@ export async function createHotel(input: {
     ? { property: input.property }
     : {};
 
+  const referral =
+    input.referral_code != null && String(input.referral_code).trim()
+      ? String(input.referral_code).trim().toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 64) || null
+      : null;
+
   // 2. Hotel row.
-  const { data: hotel, error: hErr } = await supabase
+  const baseRow = {
+    user_id: user.id,
+    assistant_id: assistant.id,
+    name: input.name,
+    slug: slugify(input.name),
+    default_language: input.default_language ?? "English",
+    timezone: input.timezone ?? "Europe/London",
+    branding,
+  };
+  let { data: hotel, error: hErr } = await supabase
     .from("ts_hotels")
-    .insert({
-      user_id: user.id,
-      assistant_id: assistant.id,
-      name: input.name,
-      slug: slugify(input.name),
-      default_language: input.default_language ?? "English",
-      timezone: input.timezone ?? "Europe/London",
-      branding,
-    })
+    .insert(referral ? { ...baseRow, referral_code: referral } : baseRow)
     .select("*")
     .single();
+  // Before referral_code migration lands, retry without that column.
+  if (hErr?.message?.includes("referral_code") && referral) {
+    ({ data: hotel, error: hErr } = await supabase
+      .from("ts_hotels")
+      .insert(baseRow)
+      .select("*")
+      .single());
+  }
   if (hErr) throw hErr;
 
   // 3. Seed departments.

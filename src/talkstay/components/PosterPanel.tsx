@@ -643,8 +643,40 @@ function runPrintFromSource(src: HTMLElement, onDone?: () => void) {
     el.classList.add("ts-poster-page");
   });
 
+  // Prefer the first poster's brand colour so scaled pages never flash white.
+  const firstPoster = clone.querySelector(".ts-poster") as HTMLElement | null;
+  const pageBg =
+    firstPoster?.style.getPropertyValue("--poster-bg")?.trim()
+    || firstPoster?.style.backgroundColor
+    || "#2e1065";
+  clone.style.setProperty("--ts-print-page-bg", pageBg);
+
   document.body.appendChild(clone);
   document.documentElement.classList.add("ts-printing-poster");
+
+  // Scale each A4 sheet so QR + copy fit one page (no second blank page).
+  const fitPages = () => {
+    const mmToPx = 96 / 25.4;
+    const pageH = 297 * mmToPx;
+    clone.querySelectorAll<HTMLElement>(".ts-poster-page").forEach((page) => {
+      page.style.height = "297mm";
+      page.style.width = "210mm";
+      page.style.overflow = "hidden";
+      page.style.backgroundColor = pageBg;
+      const poster = page.querySelector<HTMLElement>(".ts-poster");
+      if (!poster) return;
+      poster.style.transformOrigin = "top center";
+      poster.style.transform = "none";
+      poster.style.width = "210mm";
+      // Measure natural height after layout.
+      const natural = poster.scrollHeight;
+      if (natural > pageH + 2) {
+        const scale = Math.max(0.55, Math.min(1, pageH / natural));
+        poster.style.transform = `scale(${scale})`;
+        poster.style.width = `${100 / scale}%`;
+      }
+    });
+  };
 
   let cleaned = false;
   const cleanup = () => {
@@ -660,6 +692,7 @@ function runPrintFromSource(src: HTMLElement, onDone?: () => void) {
   // Let the clone paint (and QR data-URL decode) before the dialog opens.
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
+      fitPages();
       window.print();
       // Fallback if afterprint never fires (some mobile browsers).
       window.setTimeout(cleanup, 60_000);
@@ -726,8 +759,9 @@ const POSTER_CSS = `
   html.ts-printing-poster,
   html.ts-printing-poster body {
     width: 210mm !important;
+    height: auto !important;
     margin: 0 !important; padding: 0 !important;
-    background: #fff !important;
+    background: var(--ts-print-page-bg, #2e1065) !important;
     -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important;
   }
   html.ts-printing-poster body > *:not(#ts-poster-print-clone) {
@@ -739,6 +773,7 @@ const POSTER_CSS = `
     width: 210mm !important;
     margin: 0 !important; padding: 0 !important;
     overflow: visible !important;
+    background: var(--ts-print-page-bg, #2e1065) !important;
     z-index: 99999 !important;
     -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important;
   }
@@ -747,10 +782,14 @@ const POSTER_CSS = `
     box-sizing: border-box !important;
     width: 210mm !important;
     height: 297mm !important;
+    max-height: 297mm !important;
     margin: 0 !important; padding: 0 !important;
     overflow: hidden !important;
+    background: var(--ts-print-page-bg, #2e1065) !important;
     break-after: page;
     page-break-after: always;
+    break-inside: avoid;
+    page-break-inside: avoid;
     container-type: inline-size;
   }
   html.ts-printing-poster #ts-poster-print-clone .ts-poster-page:last-child {
@@ -758,8 +797,11 @@ const POSTER_CSS = `
     page-break-after: auto;
   }
   html.ts-printing-poster #ts-poster-print-clone .ts-poster {
-    width: 210mm !important; height: 297mm !important; border-radius: 0 !important;
+    width: 210mm !important;
+    min-height: 297mm !important;
+    border-radius: 0 !important;
     display: flex !important; flex-direction: column !important;
+    background-color: var(--poster-bg, var(--ts-print-page-bg, #2e1065)) !important;
     -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important;
   }
   html.ts-printing-poster #ts-poster-print-clone .ts-poster-body {

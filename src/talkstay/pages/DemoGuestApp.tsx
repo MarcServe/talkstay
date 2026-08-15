@@ -131,6 +131,9 @@ function DemoNotifySheet({ onDone, onClose }: { onDone: () => void; onClose: () 
   const [emailOn, setEmailOn] = useState(false);
   const [pushOn, setPushOn] = useState(false);
   const [email, setEmail] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const wantsNotify = pushOn || emailOn;
+  const nameOk = firstName.trim().length >= 1;
   return (
     <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/40 p-4 sm:items-center" onClick={onClose}>
       <div
@@ -141,7 +144,16 @@ function DemoNotifySheet({ onDone, onClose }: { onDone: () => void; onClose: () 
         <p className="mt-1 text-xs text-muted-foreground">
           Same choice real guests see after a request is logged.
         </p>
-        <label className="mt-4 flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-sm">
+        <div className="mt-4 space-y-1.5">
+          <label className="block text-xs text-muted-foreground">First name</label>
+          <Input
+            placeholder="Timothy"
+            value={firstName}
+            onChange={(e) => setFirstName(e.target.value)}
+            autoComplete="given-name"
+          />
+        </div>
+        <label className="mt-3 flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-sm">
           <span>Notify on this device</span>
           <input type="checkbox" checked={pushOn} onChange={(e) => setPushOn(e.target.checked)} />
         </label>
@@ -163,10 +175,15 @@ function DemoNotifySheet({ onDone, onClose }: { onDone: () => void; onClose: () 
           <Button
             className="flex-1"
             style={{ backgroundColor: BRAND }}
+            disabled={wantsNotify && !nameOk}
             onClick={() => {
+              if (wantsNotify && !nameOk) {
+                toast.error("Please add your first name.");
+                return;
+              }
               toast.success(
                 pushOn || emailOn
-                  ? "Preferences saved for this demo stay."
+                  ? `Preferences saved${firstName.trim() ? ` for ${firstName.trim()}` : ""} (demo).`
                   : "Okay — you can still track requests here.",
               );
               onDone();
