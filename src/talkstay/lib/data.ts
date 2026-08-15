@@ -201,7 +201,7 @@ export async function fetchOpsQueue(hotelId: string, timeRange: OpsTimeRange): P
     // Chunk to stay under PostgREST URL limits.
     for (let i = 0; i < sessionIds.length; i += 80) {
       const chunk = sessionIds.slice(i, i + 80);
-      let sessRes = await supabase
+      const sessRes = await supabase
         .from("ts_guest_sessions")
         .select("session_id, guest_first_name")
         .eq("hotel_id", hotelId)
