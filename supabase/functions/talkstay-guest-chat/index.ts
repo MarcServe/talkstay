@@ -31,6 +31,8 @@ interface RoomCtx {
   hotelId: string; hotelName: string; assistantId: string | null;
   roomId: string; roomNumber: string; language: string; slug: string;
   departments: string[];
+  /** Active departments with display names for the classifier prompt. */
+  departmentMeta: { key: string; display_name: string }[];
   rules: { department_key: string; keywords: string[] }[];
   branding: Record<string, unknown>;
   pulseEnabled: boolean;
@@ -49,6 +51,38 @@ const DEFAULT_RULES: Record<string, string[]> = {
   duty_manager: ["complaint", "complain", "manager", "unacceptable", "terrible", "awful", "disgusting", "refund", "compensation", "safety", "emergency", "police", "dangerous", "threat", "harass", "discriminat"],
 };
 
+/** Sensible keyword seeds for common custom departments (Spa, Security, …). */
+const CUSTOM_DEPT_HINTS: Record<string, string[]> = {
+  spa: ["spa", "massage", "facial", "treatment", "sauna", "hammam", "wellness", "beauty", "manicure", "pedicure"],
+  security: ["security", "security desk", "lockout", "locked out", "suspicious", "theft", "stolen", "break-in", "break in", "intruder", "lost key", "badge"],
+  pool: ["pool", "swimming", "swim", "pool towel", "poolside"],
+  gym: ["gym", "fitness", "workout", "exercise", "treadmill"],
+  parking: ["parking", "car park", "valet", "garage"],
+  kids_club: ["kids club", "kids' club", "children's club", "babysit", "childcare"],
+};
+
+const BUILTIN_ROUTING_GUIDE =
+  "towels/cleaning/bedding→housekeeping; laundry→laundry; food/breakfast/room service→kitchen; drinks/wine/cocktails→bar; TV/heating/AC/broken things→maintenance; taxi/recommendations/luggage→concierge; late checkout/billing/room access→front_desk; complaint/urgent safety→duty_manager";
+
+function routingGuideFor(meta: { key: string; display_name: string }[]): string {
+  const custom = meta.filter((d) => !DEPARTMENTS.includes(d.key));
+  if (!custom.length) return BUILTIN_ROUTING_GUIDE;
+  const extras = custom.map((d) => {
+    const hints = CUSTOM_DEPT_HINTS[d.key]
+      ?? CUSTOM_DEPT_HINTS[d.key.replace(/_+/g, "_")]
+      ?? [d.display_name.toLowerCase(), d.key.replace(/_/g, " ")];
+    return `${hints.slice(0, 6).join("/")}→${d.key} (${d.display_name})`;
+  }).join("; ");
+  return `${BUILTIN_ROUTING_GUIDE}. CUSTOM TEAMS (use these keys when the ask matches): ${extras}`;
+}
+
+function deptListForPrompt(meta: { key: string; display_name: string }[], keys: string[]): string {
+  if (meta.length) {
+    return meta.map((d) => `${d.key} (“${d.display_name}”)`).join(", ");
+  }
+  return keys.join(", ");
+}
+
 /** Deterministic route. Returns {dept, source} or null. Hotel rules are authoritative. */
 function classifyDeterministic(message: string, ctx: RoomCtx): { dept: string; source: "rule" | "keyword" } | null {
   const m = ` ${message.toLowerCase()} `;
@@ -65,6 +99,20 @@ function classifyDeterministic(message: string, ctx: RoomCtx): { dept: string; s
     if (!ctx.departments.includes(dept)) continue;
     const hits = kws.filter((k) => m.includes(k)).length;
     if (hits > 0 && (!best || hits > best.hits)) best = { dept, hits };
+  }
+  // 3) common custom-dept hints (spa, security, …) when those teams exist
+  for (const [dept, kws] of Object.entries(CUSTOM_DEPT_HINTS)) {
+    if (!ctx.departments.includes(dept)) continue;
+    const hits = kws.filter((k) => m.includes(k)).length;
+    if (hits > 0 && (!best || hits > best.hits)) best = { dept, hits };
+  }
+  // 4) display-name / key phrase match for any remaining custom dept
+  for (const d of ctx.departmentMeta) {
+    if (DEPARTMENTS.includes(d.key)) continue;
+    if (!ctx.departments.includes(d.key)) continue;
+    const phrases = [d.display_name.toLowerCase(), d.key.replace(/_/g, " ")].filter(Boolean);
+    const hits = phrases.filter((p) => p.length >= 3 && m.includes(p)).length;
+    if (hits > 0 && (!best || hits > best.hits)) best = { dept: d.key, hits };
   }
   return best ? { dept: best.dept, source: "keyword" } : null;
 }
@@ -119,7 +167,7 @@ async function resolveRoom(
     }
   }
   const [{ data: depts }, { data: rules }] = await Promise.all([
-    admin.from("ts_departments").select("key").eq("hotel_id", hotel.id).eq("is_active", true),
+    admin.from("ts_departments").select("key, display_name").eq("hotel_id", hotel.id).eq("is_active", true),
     admin.from("ts_routing_rules").select("department_key, keywords").eq("hotel_id", hotel.id).eq("is_active", true),
   ]);
   if (!room) return null;
@@ -130,11 +178,17 @@ async function resolveRoom(
     return { status: "checked_out", hotelName: hotel.name, roomNumber: room.room_number };
   }
 
+  const departmentMeta = ((depts ?? []) as { key: string; display_name: string }[]).map((d) => ({
+    key: String(d.key),
+    display_name: String(d.display_name || d.key),
+  }));
+
   return {
     hotelId: hotel.id, hotelName: hotel.name, assistantId: hotel.assistant_id,
     roomId: room.id, roomNumber: room.room_number,
     language: hotel.default_language || "English", slug: hotel.slug,
-    departments: (depts ?? []).map((d: any) => d.key),
+    departments: departmentMeta.map((d) => d.key),
+    departmentMeta,
     rules: (rules ?? []) as any,
     branding: (hotel as any).branding || {},
     pulseEnabled: (hotel as any).pulse_enabled !== false,
@@ -561,6 +615,10 @@ async function handleMarketingDemo(body: any, OPENAI_API_KEY: string) {
     language: "en",
     slug: "grand-hotel-demo",
     departments: DEMO_DEPTS,
+    departmentMeta: DEMO_DEPTS.map((key) => ({
+      key,
+      display_name: key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+    })),
     rules: [],
     branding: { primary_color: "#4c2bb8" },
     pulseEnabled: false,
@@ -1413,8 +1471,8 @@ FOLLOW-UP / already-ordered item, not a new request:
   escalate_request with that request's id (copied exactly from the list) so staff are alerted now.
 Only call create_service_request for something genuinely new that isn't already on the open list — or when they clearly want to repeat / re-open a closed one.
 
-DEPARTMENTS available (use exactly these keys): ${activeDepts.join(", ")}.
-Routing guide: towels/cleaning/bedding→housekeeping; laundry→laundry; food/breakfast/room service→kitchen; drinks/wine/cocktails→bar; TV/heating/AC/broken things→maintenance; taxi/recommendations/luggage→concierge; late checkout/billing/room access→front_desk; complaint/safety→duty_manager.
+DEPARTMENTS available (use exactly these keys): ${deptListForPrompt(ctx.departmentMeta, activeDepts)}.
+Routing guide: ${routingGuideFor(ctx.departmentMeta)}.
 Mark is_chargeable true for room service food, drinks, laundry, minibar, late checkout, spa. Towels, cleaning, maintenance, wifi help and complaints are free.
 When is_chargeable is true and you know the price from hotel knowledge/menus (e.g. "Club sandwich £14"), set the numeric price field. Never invent or guess a price — leave price unset if unsure.
 Keep replies to 1–3 short sentences.
