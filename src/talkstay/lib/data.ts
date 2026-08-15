@@ -201,12 +201,16 @@ export async function fetchOpsQueue(hotelId: string, timeRange: OpsTimeRange): P
     // Chunk to stay under PostgREST URL limits.
     for (let i = 0; i < sessionIds.length; i += 80) {
       const chunk = sessionIds.slice(i, i + 80);
-      const { data: sessions } = await supabase
+      let sessRes = await supabase
         .from("ts_guest_sessions")
         .select("session_id, guest_first_name")
         .eq("hotel_id", hotelId)
         .in("session_id", chunk);
-      for (const s of (sessions ?? []) as { session_id: string; guest_first_name: string | null }[]) {
+      if (sessRes.error?.message?.includes("guest_first_name")) {
+        // Migration not applied yet — skip names.
+        break;
+      }
+      for (const s of (sessRes.data ?? []) as { session_id: string; guest_first_name: string | null }[]) {
         const n = String(s.guest_first_name ?? "").trim();
         if (n) nameBySession.set(s.session_id, n);
       }
