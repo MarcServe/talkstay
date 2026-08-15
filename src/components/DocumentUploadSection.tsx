@@ -1,6 +1,8 @@
 import React, { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -32,6 +34,11 @@ interface DocumentUploadSectionProps {
   onUploadComplete?: () => void;
   /** TalkStay Knowledge: dashed simple chrome (same features, fewer clicks). */
   variant?: "default" | "simple";
+  /**
+   * When true, parse files into an editable draft first — nothing is indexed
+   * until the host confirms. Used by TalkStay so properties can review content.
+   */
+  reviewBeforeIndex?: boolean;
 }
 
 type ParsedPage = {url: string;title: string;content: string;headings: string[];};
@@ -110,6 +117,7 @@ onProgress: (status: string, pct: number) => void)
 
 export const DocumentUploadSection = ({
   assistantId, websiteUrl, onUploadComplete, variant = "default",
+  reviewBeforeIndex = false,
 }: DocumentUploadSectionProps) => {
   const [uploading, setUploading] = useState(false);
   const [reindexingDocs, setReindexingDocs] = useState(false);
@@ -118,6 +126,8 @@ export const DocumentUploadSection = ({
   const [progressStatus, setProgressStatus] = useState("");
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [documentType, setDocumentType] = useState("other");
+  const [reviewPages, setReviewPages] = useState<ParsedPage[] | null>(null);
+  const [indexingReview, setIndexingReview] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const totalSize = selectedFiles.reduce((sum, f) => sum + f.size, 0);
@@ -286,6 +296,130 @@ export const DocumentUploadSection = ({
     }
   };
 
+  const trimPages = (pages: ParsedPage[]) => {
+    const MAX_CONTENT_LENGTH = 15000;
+    return pages.map((p) => ({
+      ...p,
+      content: p.content.length > MAX_CONTENT_LENGTH
+        ? p.content.slice(0, MAX_CONTENT_LENGTH) + "\n\n[Content truncated for indexing]"
+        : p.content,
+    }));
+  };
+
+  const parseSelectedFiles = async (): Promise<{ pages: ParsedPage[]; failedFiles: string[] }> => {
+    const allPages: ParsedPage[] = [];
+    const fileCount = selectedFiles.length;
+    const failedFiles: string[] = [];
+
+    for (let i = 0; i < fileCount; i++) {
+      const file = selectedFiles[i];
+      const fileLabel = `File ${i + 1} of ${fileCount}: ${file.name}`;
+      setProgressStatus(`Processing ${fileLabel}`);
+      const fileProgressBase = (i / fileCount) * 80;
+      const fileProgressRange = 80 / fileCount;
+      try {
+        const pages = await parseFile(file, (status, pct) => {
+          const overall = fileProgressBase + (pct / 100) * fileProgressRange;
+          setProgress(Math.round(overall));
+          setProgressStatus(`${fileLabel} — ${status}`);
+        });
+        allPages.push(...pages);
+      } catch (err: any) {
+        console.error(`[DocumentUpload] Failed to parse ${file.name}:`, err);
+        failedFiles.push(file.name);
+      }
+    }
+    return { pages: allPages, failedFiles };
+  };
+
+  const indexPages = async (pages: ParsedPage[], failedFiles: string[] = []) => {
+    const trimmedPages = trimPages(pages);
+    const BATCH_SIZE = 10;
+    const totalBatches = Math.ceil(trimmedPages.length / BATCH_SIZE);
+    let totalChunks = 0;
+    let failedBatches: number[] = [];
+
+    const upsertBatch = async (batch: ParsedPage[]) => {
+      const { data: upsertData, error: upsertError } = await supabase.functions.invoke("knowledge-upsert", {
+        body: {
+          assistantId,
+          pages: batch,
+          websiteUrl: websiteUrl || `uploaded://batch-upload`,
+          replace: false,
+          tags: ["document-upload", documentType],
+        },
+      });
+      if (upsertError) throw new Error(upsertError.message);
+      return upsertData?.chunks ?? 0;
+    };
+
+    for (let b = 0; b < totalBatches; b++) {
+      const batch = trimmedPages.slice(b * BATCH_SIZE, (b + 1) * BATCH_SIZE);
+      const batchProgress = 85 + (b / totalBatches) * 12;
+      setProgress(Math.round(batchProgress));
+      setProgressStatus(`Indexing batch ${b + 1}/${totalBatches} (${batch.length} pages)...`);
+      try {
+        totalChunks += await upsertBatch(batch);
+      } catch (err: any) {
+        console.warn(`[DocumentUpload] Batch ${b + 1} failed, will retry:`, err.message);
+        failedBatches.push(b);
+      }
+    }
+
+    if (failedBatches.length > 0) {
+      const retryBatches = [...failedBatches];
+      failedBatches = [];
+      setProgressStatus(`Retrying ${retryBatches.length} failed batch(es)...`);
+      for (const b of retryBatches) {
+        const batch = trimmedPages.slice(b * BATCH_SIZE, (b + 1) * BATCH_SIZE);
+        setProgressStatus(`Retrying batch ${b + 1}/${totalBatches}...`);
+        await new Promise((r) => setTimeout(r, 2000));
+        try {
+          totalChunks += await upsertBatch(batch);
+        } catch (err: any) {
+          console.error(`[DocumentUpload] Batch ${b + 1} failed on retry:`, err.message);
+          failedBatches.push(b);
+        }
+      }
+    }
+
+    if (totalChunks === 0 && failedBatches.length === totalBatches) {
+      throw new Error("All batches failed after retry. The edge function may be overloaded — try uploading fewer files.");
+    }
+
+    setProgress(100);
+    setProgressStatus("Complete!");
+
+    try {
+      await supabase.from("content_refresh_logs").insert({
+        assistant_id: assistantId,
+        refresh_status: failedBatches.length > 0 || failedFiles.length > 0 ? "partial" : "completed",
+        triggered_by: "document-upload",
+        completed_at: new Date().toISOString(),
+        changes_detected: {
+          total_changes: pages.length,
+          chunks: totalChunks,
+          files: Math.max(0, selectedFiles.length - failedFiles.length) || pages.length,
+          failed_files: failedFiles.length,
+          failed_batches: failedBatches.length,
+        },
+      });
+    } catch (logErr) {
+      console.warn("[DocumentUpload] Failed to write refresh log:", logErr);
+    }
+
+    const successMsg = `${pages.length} pages indexed (${totalChunks} chunks).`;
+    const warnings: string[] = [];
+    if (failedFiles.length > 0) warnings.push(`${failedFiles.length} file(s) failed to parse.`);
+    if (failedBatches.length > 0) warnings.push(`${failedBatches.length} batch(es) failed to index.`);
+    if (warnings.length > 0) toast.warning(`${successMsg} ${warnings.join(" ")}`);
+    else toast.success(successMsg);
+
+    clearFiles();
+    setReviewPages(null);
+    onUploadComplete?.();
+  };
+
   const handleUpload = async () => {
     if (selectedFiles.length === 0) {
       toast.error("Please select file(s) first.");
@@ -297,148 +431,26 @@ export const DocumentUploadSection = ({
     setProgressStatus("Preparing files...");
 
     try {
-      const allPages: ParsedPage[] = [];
-      const fileCount = selectedFiles.length;
-      let failedFiles: string[] = [];
-
-      for (let i = 0; i < fileCount; i++) {
-        const file = selectedFiles[i];
-        const fileLabel = `File ${i + 1} of ${fileCount}: ${file.name}`;
-        setProgressStatus(`Processing ${fileLabel}`);
-
-        // Per-file progress mapped to overall progress
-        const fileProgressBase = i / fileCount * 80;
-        const fileProgressRange = 80 / fileCount;
-
-        try {
-          const pages = await parseFile(file, (status, pct) => {
-            const overall = fileProgressBase + pct / 100 * fileProgressRange;
-            setProgress(Math.round(overall));
-            setProgressStatus(`${fileLabel} — ${status}`);
-          });
-
-          allPages.push(...pages);
-        } catch (err: any) {
-          console.error(`[DocumentUpload] Failed to parse ${file.name}:`, err);
-          failedFiles.push(file.name);
-        }
-      }
-
-      if (allPages.length === 0) {
+      const { pages, failedFiles } = await parseSelectedFiles();
+      if (pages.length === 0) {
         throw new Error("No meaningful content extracted from any file.");
       }
 
-      // Trim oversized page content to prevent edge function memory issues
-      const MAX_CONTENT_LENGTH = 15000; // ~15k chars per page max
-      const trimmedPages = allPages.map((p) => ({
-        ...p,
-        content: p.content.length > MAX_CONTENT_LENGTH ?
-        p.content.slice(0, MAX_CONTENT_LENGTH) + '\n\n[Content truncated for indexing]' :
-        p.content
-      }));
-
-      // Batch upsert in chunks of 10 pages to avoid edge function memory/timeout limits
-      const BATCH_SIZE = 10;
-      const totalBatches = Math.ceil(trimmedPages.length / BATCH_SIZE);
-      let totalChunks = 0;
-      let failedBatches: number[] = [];
-
-      const upsertBatch = async (batch: ParsedPage[], batchLabel: string) => {
-        const { data: upsertData, error: upsertError } = await supabase.functions.invoke('knowledge-upsert', {
-          body: {
-            assistantId,
-            pages: batch,
-            websiteUrl: websiteUrl || `uploaded://batch-upload`,
-            replace: false,
-            tags: ['document-upload', documentType]
-          }
-        });
-        if (upsertError) throw new Error(upsertError.message);
-        return upsertData?.chunks ?? 0;
-      };
-
-      // First pass
-      for (let b = 0; b < totalBatches; b++) {
-        const batch = trimmedPages.slice(b * BATCH_SIZE, (b + 1) * BATCH_SIZE);
-        const batchProgress = 85 + b / totalBatches * 12;
-        setProgress(Math.round(batchProgress));
-        setProgressStatus(`Indexing batch ${b + 1}/${totalBatches} (${batch.length} pages)...`);
-
-        try {
-          totalChunks += await upsertBatch(batch, `Batch ${b + 1}`);
-        } catch (err: any) {
-          console.warn(`[DocumentUpload] Batch ${b + 1} failed, will retry:`, err.message);
-          failedBatches.push(b);
+      if (reviewBeforeIndex) {
+        setProgress(100);
+        setProgressStatus("Ready to review");
+        setReviewPages(trimPages(pages));
+        if (failedFiles.length) {
+          toast.warning(`Extracted ${pages.length} page(s). ${failedFiles.length} file(s) failed to parse.`);
+        } else {
+          toast.message("Review the extracted text below, then confirm to index.");
         }
+        return;
       }
 
-      // Retry failed batches once
-      if (failedBatches.length > 0) {
-        const retryBatches = [...failedBatches];
-        failedBatches = [];
-        setProgressStatus(`Retrying ${retryBatches.length} failed batch(es)...`);
-
-        for (const b of retryBatches) {
-          const batch = trimmedPages.slice(b * BATCH_SIZE, (b + 1) * BATCH_SIZE);
-          setProgressStatus(`Retrying batch ${b + 1}/${totalBatches}...`);
-
-          // Small delay before retry
-          await new Promise((r) => setTimeout(r, 2000));
-
-          try {
-            totalChunks += await upsertBatch(batch, `Retry batch ${b + 1}`);
-          } catch (err: any) {
-            console.error(`[DocumentUpload] Batch ${b + 1} failed on retry:`, err.message);
-            failedBatches.push(b);
-          }
-        }
-      }
-
-      if (totalChunks === 0 && failedBatches.length === totalBatches) {
-        throw new Error("All batches failed after retry. The edge function may be overloaded — try uploading fewer files.");
-      }
-
-      const upsertData = { chunks: totalChunks };
-
-      setProgress(100);
-      setProgressStatus("Complete!");
-
-      // Log to content_refresh_logs so it appears in refresh history
-      try {
-        await supabase.from('content_refresh_logs').insert({
-          assistant_id: assistantId,
-          refresh_status: failedBatches.length > 0 || failedFiles.length > 0 ? 'partial' : 'completed',
-          triggered_by: 'document-upload',
-          completed_at: new Date().toISOString(),
-          changes_detected: {
-            total_changes: allPages.length,
-            chunks: totalChunks,
-            files: fileCount - failedFiles.length,
-            failed_files: failedFiles.length,
-            failed_batches: failedBatches.length
-          }
-        });
-      } catch (logErr) {
-        console.warn('[DocumentUpload] Failed to write refresh log:', logErr);
-      }
-
-      const chunks = upsertData?.chunks ?? 0;
-      const successMsg = `${allPages.length} pages indexed (${chunks} chunks) from ${fileCount - failedFiles.length} file(s).`;
-      const warnings: string[] = [];
-      if (failedFiles.length > 0) warnings.push(`${failedFiles.length} file(s) failed to parse.`);
-      if (failedBatches.length > 0) warnings.push(`${failedBatches.length} batch(es) failed to index.`);
-
-      if (warnings.length > 0) {
-        toast.warning(`${successMsg} ${warnings.join(' ')}`);
-      } else {
-        toast.success(successMsg);
-      }
-
-      clearFiles();
-      onUploadComplete?.();
-
+      await indexPages(pages, failedFiles);
     } catch (error: any) {
-      console.error('[DocumentUpload] Error:', error);
+      console.error("[DocumentUpload] Error:", error);
       toast.error(error.message || "Failed to upload documents.");
     } finally {
       setUploading(false);
@@ -449,8 +461,89 @@ export const DocumentUploadSection = ({
     }
   };
 
+  const confirmReviewIndex = async () => {
+    if (!reviewPages?.length) return;
+    setIndexingReview(true);
+    setUploading(true);
+    setProgress(85);
+    setProgressStatus("Indexing reviewed pages...");
+    try {
+      await indexPages(reviewPages, []);
+    } catch (error: any) {
+      console.error("[DocumentUpload] Review index error:", error);
+      toast.error(error.message || "Failed to index documents.");
+    } finally {
+      setIndexingReview(false);
+      setUploading(false);
+      setTimeout(() => {
+        setProgress(0);
+        setProgressStatus("");
+      }, 3000);
+    }
+  };
+
+  const discardReview = () => {
+    setReviewPages(null);
+    toast.message("Draft discarded — nothing was indexed.");
+  };
+
+  const updateReviewPage = (index: number, patch: Partial<ParsedPage>) => {
+    setReviewPages((prev) => {
+      if (!prev) return prev;
+      return prev.map((p, i) => (i === index ? { ...p, ...patch } : p));
+    });
+  };
+
   const isMultiple = selectedFiles.length > 1;
   const simple = variant === "simple";
+
+  const reviewPanel = reviewPages && reviewPages.length > 0 ? (
+    <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50/80 p-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-amber-950">Review before indexing</p>
+          <p className="text-xs text-amber-900/80">
+            Edit titles or text if needed. Nothing is added to the knowledge base until you confirm.
+          </p>
+        </div>
+        <Button type="button" size="sm" variant="ghost" className="text-amber-900" onClick={discardReview} disabled={indexingReview}>
+          Discard
+        </Button>
+      </div>
+      <div className="max-h-80 space-y-3 overflow-y-auto">
+        {reviewPages.map((page, idx) => (
+          <div key={`${page.url}-${idx}`} className="space-y-1.5 rounded-lg border bg-white/80 p-2">
+            <Input
+              value={page.title}
+              onChange={(e) => updateReviewPage(idx, { title: e.target.value })}
+              className="h-8 text-sm"
+              disabled={indexingReview}
+            />
+            <Textarea
+              value={page.content}
+              onChange={(e) => updateReviewPage(idx, { content: e.target.value })}
+              rows={5}
+              className="text-xs"
+              disabled={indexingReview}
+            />
+            <p className="text-[10px] text-muted-foreground">
+              Page {idx + 1} of {reviewPages.length} · {page.content.length.toLocaleString()} characters
+            </p>
+          </div>
+        ))}
+      </div>
+      <Button
+        type="button"
+        size="sm"
+        className="bg-violet-600 hover:bg-violet-700"
+        disabled={indexingReview || !reviewPages.some((p) => p.content.trim().length > 20)}
+        onClick={() => void confirmReviewIndex()}
+      >
+        {indexingReview ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Upload className="mr-1 h-3.5 w-3.5" />}
+        Confirm &amp; index {reviewPages.length} page{reviewPages.length === 1 ? "" : "s"}
+      </Button>
+    </div>
+  ) : null;
 
   if (simple) {
     return (
@@ -464,7 +557,7 @@ export const DocumentUploadSection = ({
           className="hidden"
         />
 
-        {selectedFiles.length > 0 && (
+        {selectedFiles.length > 0 && !reviewPages && (
           <div className="space-y-1 max-h-36 overflow-y-auto rounded-xl border bg-background/70 p-2">
             {selectedFiles.map((file, idx) => (
               <div key={`${file.name}-${idx}`} className="flex items-center justify-between rounded-lg px-2 py-1.5 text-xs">
@@ -482,7 +575,7 @@ export const DocumentUploadSection = ({
           </div>
         )}
 
-        {uploading && (
+        {uploading && !reviewPages && (
           <div className="space-y-2">
             <Progress value={progress} className="h-2" />
             <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -493,14 +586,18 @@ export const DocumentUploadSection = ({
           </div>
         )}
 
-        {selectedFiles.length > 0 && !uploading && (
+        {reviewPanel}
+
+        {selectedFiles.length > 0 && !uploading && !reviewPages && (
           <Button type="button" size="sm" onClick={handleUpload} className="bg-violet-600 hover:bg-violet-700">
             <Upload className="mr-1 h-3.5 w-3.5" />
-            Upload &amp; index {isMultiple ? `${selectedFiles.length} files` : "file"}
+            {reviewBeforeIndex
+              ? `Extract & review ${isMultiple ? `${selectedFiles.length} files` : "file"}`
+              : `Upload & index ${isMultiple ? `${selectedFiles.length} files` : "file"}`}
           </Button>
         )}
 
-        {!uploading && (
+        {!uploading && !reviewPages && (
           <Button
             type="button"
             size="sm"
@@ -609,7 +706,7 @@ export const DocumentUploadSection = ({
         )}
 
         {/* Progress */}
-        {uploading && (
+        {uploading && !reviewPages && (
           <div className="space-y-2">
             <Progress value={progress} className="h-2" />
             <p className="text-xs text-muted-foreground flex items-center gap-1.5">
@@ -620,7 +717,10 @@ export const DocumentUploadSection = ({
           </div>
         )}
 
+        {reviewPanel}
+
         {/* Upload button */}
+        {!reviewPages && (
         <Button
           type="button"
           onClick={handleUpload}
@@ -635,13 +735,16 @@ export const DocumentUploadSection = ({
           ) : (
             <>
               <Upload className="h-4 w-4 mr-2" />
-              Upload & Index {isMultiple ? `${selectedFiles.length} Documents` : 'Document'}
+              {reviewBeforeIndex
+                ? `Extract & review ${isMultiple ? `${selectedFiles.length} documents` : "document"}`
+                : `Upload & Index ${isMultiple ? `${selectedFiles.length} Documents` : "Document"}`}
             </>
           )}
         </Button>
+        )}
 
         {/* Re-index uploaded documents */}
-        {!uploading && (
+        {!uploading && !reviewPages && (
           <div className="pt-3 border-t border-border">
             <Button
               type="button"

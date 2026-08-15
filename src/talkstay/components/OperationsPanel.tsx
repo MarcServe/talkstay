@@ -10,13 +10,14 @@ import {
   UtensilsCrossed, BedDouble, Wrench, Wine, Shirt, ConciergeBell, KeyRound, ShieldAlert,
   ArrowDownRight, ArrowUpRight, Clock3, Phone, Bot,
 } from "lucide-react";
-import { DEPARTMENTS, type Hotel } from "@/talkstay/lib/hotels";
+import { type Hotel } from "@/talkstay/lib/hotels";
 import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
 import type { OpsRequest, OpsTimeRange } from "@/talkstay/lib/data";
 import { OPEN_STATUSES } from "@/talkstay/lib/data";
 import {
   invalidateOps, useOpsQueue, useOpsRealtime,
 } from "@/talkstay/hooks/useTalkStayQueries";
+import { useHotelDepartments } from "@/talkstay/hooks/useHotelDepartments";
 import RequestDetailSheet from "@/talkstay/components/RequestDetailSheet";
 import ExportReportButton from "@/talkstay/components/ExportReportButton";
 import LogOrderDialog from "@/talkstay/components/LogOrderDialog";
@@ -80,7 +81,6 @@ const NEXT: Record<string, { to: string; label: string } | null> = {
   reopened: { to: "on_the_way", label: "Pick back up" },
 };
 
-const deptLabel = (k: string) => DEPARTMENTS.find((d) => d.key === k)?.display_name ?? k;
 const timeAgo = (iso: string) => {
   const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
   if (s < 60) return "just now";
@@ -159,6 +159,7 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
 }) {
   const qc = useQueryClient();
   const demo = useDemo();
+  const { departments: hotelDepts, deptLabel } = useHotelDepartments(hotel.id);
   const [filter, setFilter] = useState<Filter>("active");
   // Cap history so Done/All don't drown the board; open work always stays visible.
   const [timeRange, setTimeRange] = useState<TimeRange>("3d");
@@ -972,7 +973,7 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
               aria-label="Filter by department"
             >
               <option value="all">All departments</option>
-              {DEPARTMENTS.map((d) => <option key={d.key} value={d.key}>{d.display_name}</option>)}
+              {hotelDepts.map((d) => <option key={d.key} value={d.key}>{d.display_name}</option>)}
             </select>
           )}
           <Button

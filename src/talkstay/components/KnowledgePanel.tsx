@@ -20,6 +20,7 @@ import type { GuestCard } from "@/talkstay/lib/guest";
 import { cn } from "@/lib/utils";
 import { KB_SCOPE_CARD, KB_SCOPE_STYLE } from "@/talkstay/lib/statusStyles";
 import { useDemo } from "@/talkstay/demo/DemoContext";
+import { useHotelDepartments } from "@/talkstay/hooks/useHotelDepartments";
 
 // "site" = the hotel's website & uploaded documents (TalkWeb Content section);
 // the other three are TalkStay's layered, access-controlled entries.
@@ -460,6 +461,7 @@ function MediaEditor({
 
 export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
   const demo = useDemo();
+  const { departments: hotelDepts } = useHotelDepartments(hotel.id);
   const [scope, setScope] = useState<Scope>("site");
   const [dept, setDept] = useState(DEPARTMENTS[0].key);
   const [rooms, setRooms] = useState<Room[]>([]);
@@ -869,7 +871,7 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
         {scope === "department" && (
           <Select value={dept} onValueChange={setDept}>
             <SelectTrigger className="h-8 w-44"><SelectValue /></SelectTrigger>
-            <SelectContent>{DEPARTMENTS.map((d) => <SelectItem key={d.key} value={d.key}>{d.display_name}</SelectItem>)}</SelectContent>
+            <SelectContent>{hotelDepts.map((d) => <SelectItem key={d.key} value={d.key}>{d.display_name}</SelectItem>)}</SelectContent>
           </Select>
         )}
         {scope === "room" && (

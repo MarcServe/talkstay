@@ -13,14 +13,13 @@ import {
 } from "@/components/ui/sheet";
 import { toast } from "sonner";
 import { ArrowRightLeft, Loader2, MessageCircle, Send, UserRound, StickyNote, Banknote } from "lucide-react";
-import { DEPARTMENTS } from "@/talkstay/lib/hotels";
 import { talkstayKeys, type PaymentStatus, type RequestDetailData } from "@/talkstay/lib/data";
 import { useRequestDetail } from "@/talkstay/hooks/useTalkStayQueries";
+import { useHotelDepartments } from "@/talkstay/hooks/useHotelDepartments";
 import { formatMoney, PAYMENT_STYLE, paymentLabel, statusAccent, statusBadge, statusLabel } from "@/talkstay/lib/statusStyles";
 import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
 import { useDemo } from "@/talkstay/demo/DemoContext";
 
-const deptLabel = (k: string) => DEPARTMENTS.find((d) => d.key === k)?.display_name ?? k;
 const fmtWhen = (iso: string) =>
   new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 
@@ -61,6 +60,7 @@ export default function RequestDetailSheet({
     useRequestDetail(requestId, open);
 
   const req = data?.request ?? null;
+  const { departments: hotelDepts, deptLabel } = useHotelDepartments(req?.hotel_id);
   const events = data?.events ?? [];
   const messages = data?.messages ?? [];
   const chat = data?.chat ?? [];
@@ -731,7 +731,7 @@ export default function RequestDetailSheet({
                     <Select value={forwardDept || undefined} onValueChange={setForwardDept}>
                       <SelectTrigger className="border-amber-200 bg-white"><SelectValue placeholder="Which department should handle it?" /></SelectTrigger>
                       <SelectContent>
-                        {DEPARTMENTS.filter((d) => d.key !== req.department_key).map((d) => (
+                        {hotelDepts.filter((d) => d.key !== req.department_key).map((d) => (
                           <SelectItem key={d.key} value={d.key}>{d.display_name}</SelectItem>
                         ))}
                       </SelectContent>
