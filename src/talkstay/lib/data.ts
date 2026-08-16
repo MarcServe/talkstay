@@ -38,6 +38,8 @@ export const talkstayKeys = {
   insights: (hotelId: string, timeRange: InsightsTimeRange) =>
     [...talkstayKeys.all, "insights", hotelId, timeRange] as const,
   insightsHotel: (hotelId: string) => [...talkstayKeys.all, "insights", hotelId] as const,
+  insightsPortfolio: (hotelIdsKey: string, timeRange: InsightsTimeRange) =>
+    [...talkstayKeys.all, "insights", "portfolio", hotelIdsKey, timeRange] as const,
   rooms: (hotelId: string) => [...talkstayKeys.all, "rooms", hotelId] as const,
 };
 
@@ -469,6 +471,7 @@ export interface InsightsData {
   interactions: {
     session_id: string | null; role: string; content: string | null;
     intent: string | null; language: string | null; created_at: string;
+    hotel_id?: string; hotel_name?: string;
   }[];
   requests: {
     id: string; room_id: string | null; department_key: string; summary: string;
@@ -477,6 +480,7 @@ export interface InsightsData {
     classification_method: string | null;
     session_id: string | null; created_at: string; updated_at: string;
     ts_rooms?: { room_number: string } | null;
+    hotel_id?: string; hotel_name?: string;
   }[];
   ratings: {
     request_id: string; rating: number; comment: string | null; created_at: string;
@@ -484,14 +488,18 @@ export interface InsightsData {
       summary: string; room_id: string | null;
       ts_rooms?: { room_number: string } | null;
     } | null;
+    hotel_id?: string; hotel_name?: string;
   }[];
   pulses: {
     id: string; body: string; rating: number | null; sentiment: string; severity: string;
     department_key: string | null; issue_key: string; issue_label: string | null;
     request_id: string | null; acknowledged_at: string | null; created_at: string;
     ts_rooms?: { room_number: string } | null;
+    hotel_id?: string; hotel_name?: string;
   }[];
   events: { request_id: string; status: string; note: string | null; created_at: string }[];
+  /** Present when Insights was loaded as a multi-property portfolio. */
+  portfolio?: { hotelId: string; hotelName: string; requestCount: number }[];
 }
 
 const PERIOD_DAYS = 30;
@@ -543,6 +551,67 @@ export async function fetchInsights(hotelId: string, timeRange: InsightsTimeRang
     ratings: (rv as unknown as InsightsData["ratings"]) ?? [],
     pulses: (pl as unknown as InsightsData["pulses"]) ?? [],
     events,
+  };
+}
+
+/** Merge Insights across owned properties for portfolio view. */
+export async function fetchInsightsPortfolio(
+  hotels: { id: string; name: string }[],
+  timeRange: InsightsTimeRange,
+): Promise<InsightsData> {
+  if (!hotels.length) {
+    return { interactions: [], requests: [], ratings: [], pulses: [], events: [], portfolio: [] };
+  }
+  if (hotels.length === 1) {
+    const one = await fetchInsights(hotels[0].id, timeRange);
+    return {
+      ...one,
+      interactions: one.interactions.map((r) => ({ ...r, hotel_id: hotels[0].id, hotel_name: hotels[0].name })),
+      requests: one.requests.map((r) => ({ ...r, hotel_id: hotels[0].id, hotel_name: hotels[0].name })),
+      ratings: one.ratings.map((r) => ({ ...r, hotel_id: hotels[0].id, hotel_name: hotels[0].name })),
+      pulses: one.pulses.map((r) => ({ ...r, hotel_id: hotels[0].id, hotel_name: hotels[0].name })),
+      portfolio: [{ hotelId: hotels[0].id, hotelName: hotels[0].name, requestCount: one.requests.length }],
+    };
+  }
+
+  const parts = await Promise.all(
+    hotels.map(async (h) => ({ hotel: h, data: await fetchInsights(h.id, timeRange) })),
+  );
+
+  const interactions: InsightsData["interactions"] = [];
+  const requests: InsightsData["requests"] = [];
+  const ratings: InsightsData["ratings"] = [];
+  const pulses: InsightsData["pulses"] = [];
+  const events: InsightsData["events"] = [];
+  const portfolio: NonNullable<InsightsData["portfolio"]> = [];
+
+  for (const { hotel: h, data } of parts) {
+    portfolio.push({ hotelId: h.id, hotelName: h.name, requestCount: data.requests.length });
+    for (const row of data.interactions) {
+      interactions.push({ ...row, hotel_id: h.id, hotel_name: h.name });
+    }
+    for (const row of data.requests) {
+      requests.push({ ...row, hotel_id: h.id, hotel_name: h.name });
+    }
+    for (const row of data.ratings) {
+      ratings.push({ ...row, hotel_id: h.id, hotel_name: h.name });
+    }
+    for (const row of data.pulses) {
+      pulses.push({ ...row, hotel_id: h.id, hotel_name: h.name });
+    }
+    events.push(...data.events);
+  }
+
+  const byCreated = <T extends { created_at: string }>(a: T, b: T) =>
+    new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+
+  return {
+    interactions: interactions.sort(byCreated).slice(0, 2000),
+    requests: requests.sort(byCreated).slice(0, 1500),
+    ratings: ratings.sort(byCreated).slice(0, 2000),
+    pulses: pulses.sort(byCreated).slice(0, 2000),
+    events,
+    portfolio,
   };
 }
 

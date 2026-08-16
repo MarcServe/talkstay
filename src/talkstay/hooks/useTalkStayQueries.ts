@@ -9,6 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   fetchAccess,
   fetchInsights,
+  fetchInsightsPortfolio,
   fetchOpsQueue,
   fetchRequestDetail,
   talkstayKeys,
@@ -160,6 +161,29 @@ export function useInsightsData(hotelId: string | undefined, timeRange: Insights
     queryFn: () => (demo ? demo.getInsights() : fetchInsights(hotelId!, timeRange)),
     enabled: !!hotelId,
     staleTime: demo ? 0 : TALKSTAY_STALE.insights,
+    gcTime: 30 * 60_000,
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** Aggregate Insights across multiple owned properties. */
+export function useInsightsPortfolio(
+  hotels: { id: string; name: string }[] | undefined,
+  timeRange: InsightsTimeRange,
+  enabled = true,
+) {
+  const demo = useDemo();
+  const idsKey = (hotels ?? []).map((h) => h.id).sort().join(",");
+  return useQuery({
+    queryKey: demo
+      ? ["talkstay-demo", "insights-portfolio", idsKey, timeRange, demo.version]
+      : talkstayKeys.insightsPortfolio(idsKey || "none", timeRange),
+    queryFn: () => {
+      if (demo) return demo.getInsights();
+      return fetchInsightsPortfolio(hotels ?? [], timeRange);
+    },
+    enabled: enabled && !demo && !!hotels?.length,
+    staleTime: TALKSTAY_STALE.insights,
     gcTime: 30 * 60_000,
     placeholderData: keepPreviousData,
   });

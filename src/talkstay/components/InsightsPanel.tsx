@@ -4,7 +4,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import type { InsightsTimeRange } from "@/talkstay/lib/data";
 import { talkstayKeys } from "@/talkstay/lib/data";
-import { useInsightsData } from "@/talkstay/hooks/useTalkStayQueries";
+import { useInsightsData, useInsightsPortfolio } from "@/talkstay/hooks/useTalkStayQueries";
 import {
   Loader2, MessageSquare, Users, HelpCircle, ClipboardList, CheckCircle2, Star, Timer,
   Heart, TrendingDown, TrendingUp, Minus, BellRing, X, Printer,
@@ -52,6 +52,7 @@ interface Req {
   payment_status?: string | null;
   classification_method: string | null; session_id: string | null; created_at: string; updated_at: string;
   ts_rooms?: { room_number: string } | null;
+  hotel_id?: string; hotel_name?: string;
 }
 interface Ev { request_id: string; status: string; note: string | null; created_at: string; }
 interface Pulse {
@@ -59,6 +60,7 @@ interface Pulse {
   department_key: string | null; issue_key: string; issue_label: string | null;
   request_id: string | null; acknowledged_at: string | null; created_at: string;
   ts_rooms?: { room_number: string } | null;
+  hotel_id?: string; hotel_name?: string;
 }
 
 const PERIOD_DAYS = 30;
@@ -113,7 +115,14 @@ function Stat({ icon: Icon, label, value, sub, active, onClick }: {
   );
 }
 
-export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
+export default function InsightsPanel({
+  hotel,
+  portfolioHotels,
+}: {
+  hotel: Hotel;
+  /** Owned properties available for portfolio aggregation (includes current). */
+  portfolioHotels?: Hotel[];
+}) {
   const qc = useQueryClient();
   const demo = useDemo();
   const drillRef = useRef<HTMLDivElement>(null);
@@ -124,7 +133,12 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
   const [deptFilter, setDeptFilter] = useState<string | null>(null);
   const [dayFilter, setDayFilter] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
+  const [propertyFilter, setPropertyFilter] = useState<string | null>(null);
   const [qrRoomCount, setQrRoomCount] = useState<number | null>(null);
+  const ownedPortfolio = (portfolioHotels ?? []).filter((h) => !!h?.id);
+  const canPortfolio = !demo && ownedPortfolio.length > 1;
+  const [scope, setScope] = useState<"property" | "portfolio">("property");
+  const portfolioMode = canPortfolio && scope === "portfolio";
 
   const revealDrill = (next: Drill, note?: string) => {
     setDrill(next);
@@ -137,7 +151,16 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
   const rangeMeta = TIME_RANGES.find((r) => r.id === timeRange) ?? TIME_RANGES[2];
   const sinceMs = Date.now() - rangeMeta.ms;
 
-  const { data: insight, isPending, isError, error } = useInsightsData(hotel.id, timeRange);
+  const singleQ = useInsightsData(portfolioMode ? undefined : hotel.id, timeRange);
+  const portfolioQ = useInsightsPortfolio(
+    ownedPortfolio.map((h) => ({ id: h.id, name: h.name })),
+    timeRange,
+    portfolioMode,
+  );
+  const insight = portfolioMode ? portfolioQ.data : singleQ.data;
+  const isPending = portfolioMode ? portfolioQ.isPending : singleQ.isPending;
+  const isError = portfolioMode ? portfolioQ.isError : singleQ.isError;
+  const error = portfolioMode ? portfolioQ.error : singleQ.error;
   const rows = useMemo(
     () => (insight?.interactions as Interaction[] | undefined) ?? [],
     [insight?.interactions],
@@ -186,15 +209,18 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
       return;
     }
     let cancelled = false;
-    void supabase
-      .from("ts_rooms")
-      .select("id", { count: "exact", head: true })
-      .eq("hotel_id", hotel.id)
-      .then(({ count }) => {
-        if (!cancelled) setQrRoomCount(typeof count === "number" ? count : null);
-      });
+    const ids = portfolioMode ? ownedPortfolio.map((h) => h.id) : [hotel.id];
+    void Promise.all(
+      ids.map((id) =>
+        supabase.from("ts_rooms").select("id", { count: "exact", head: true }).eq("hotel_id", id),
+      ),
+    ).then((results) => {
+      if (cancelled) return;
+      const total = results.reduce((sum, r) => sum + (typeof r.count === "number" ? r.count : 0), 0);
+      setQrRoomCount(total);
+    });
     return () => { cancelled = true; };
-  }, [hotel.id, demo]);
+  }, [hotel.id, demo, portfolioMode, ownedPortfolio.map((h) => h.id).join(",")]);
 
   // Per-request audit model with timings.
   const audit = useMemo(() => {
@@ -212,7 +238,9 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
       return {
         ...r,
         dayKey,
-        room: r.ts_rooms?.room_number ?? "—",
+        room: r.hotel_name
+          ? `${r.hotel_name} · ${formatRoomLabel(r.ts_rooms?.room_number)}`
+          : (r.ts_rooms?.room_number ?? "—"),
         acceptedAt: acc?.created_at ?? null,
         acceptedBy: acc?.note ?? null,
         completedAt: doneAt ? new Date(doneAt).toISOString() : null,
@@ -322,12 +350,18 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
     if (deptFilter) rows = rows.filter((r) => r.department_key === deptFilter);
     if (dayFilter) rows = rows.filter((r) => r.created_at.startsWith(dayFilter) || r.dayKey === dayFilter);
     if (statusFilter) rows = rows.filter((r) => r.status === statusFilter);
+    if (propertyFilter) rows = rows.filter((r) => r.hotel_id === propertyFilter);
     if (drill === "completed") rows = rows.filter((r) => r.isDone);
     return rows;
-  }, [rangedAudit, deptFilter, dayFilter, statusFilter, drill]);
+  }, [rangedAudit, deptFilter, dayFilter, statusFilter, propertyFilter, drill]);
 
   const bi = useMemo(() => {
     const filterBits: string[] = [];
+    if (portfolioMode) filterBits.push(`${ownedPortfolio.length} properties`);
+    if (propertyFilter) {
+      const nm = ownedPortfolio.find((h) => h.id === propertyFilter)?.name ?? propertyFilter;
+      filterBits.push(nm);
+    }
     if (deptFilter) filterBits.push(deptLabel(deptFilter));
     if (dayFilter) filterBits.push(dayFilter.length > 10 ? dayFilter.slice(0, 13).replace("T", " ") : dayFilter);
     if (statusFilter) filterBits.push(statusFilter.replace(/_/g, " "));
@@ -344,6 +378,11 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
     const pulseNegRate = rangedPulses.length
       ? Math.round((rangedPulses.filter((p) => p.sentiment === "negative").length / rangedPulses.length) * 100)
       : null;
+
+    const profileBase = hotel.branding?.property ?? null;
+    const profile = portfolioMode
+      ? { ...(profileBase ?? {}), property_count: ownedPortfolio.length }
+      : profileBase;
 
     return buildBusinessIntelligence({
       periodLabel: rangeMeta.label,
@@ -364,13 +403,14 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
       ratingCount: rangedRatings.length,
       pulseCount: rangedPulses.length,
       pulseNegRate,
-      profile: hotel.branding?.property ?? null,
+      profile,
       qrRoomCount,
       filterNote: filterBits.length ? filterBits.join(" · ") : null,
     });
   }, [
     filteredAudit, rangedRows, rangedRatings, rangedPulses, rangeMeta.label,
-    deptFilter, dayFilter, statusFilter, drill, hotel.branding?.property, qrRoomCount,
+    deptFilter, dayFilter, statusFilter, propertyFilter, drill, hotel.branding?.property, qrRoomCount,
+    portfolioMode, ownedPortfolio,
   ]);
 
   const missingPropertyProfile = !hotel.branding?.property?.type
@@ -380,12 +420,38 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
     setDeptFilter(null);
     setDayFilter(null);
     setStatusFilter(null);
+    setPropertyFilter(null);
   };
+
+  const byProperty = useMemo(() => {
+    if (!portfolioMode) return [];
+    const map = new Map<string, { name: string; requests: number; done: number }>();
+    for (const a of rangedAudit) {
+      const id = a.hotel_id ?? "unknown";
+      const name = a.hotel_name ?? ownedPortfolio.find((h) => h.id === id)?.name ?? "Property";
+      const cur = map.get(id) ?? { name, requests: 0, done: 0 };
+      cur.requests += 1;
+      if (a.isDone) cur.done += 1;
+      map.set(id, cur);
+    }
+    // Include owned properties with zero volume so the portfolio chart stays complete.
+    for (const h of ownedPortfolio) {
+      if (!map.has(h.id)) map.set(h.id, { name: h.name, requests: 0, done: 0 });
+    }
+    return [...map.entries()]
+      .map(([id, v]) => ({ id, name: v.name, requests: v.requests, completed: v.done }))
+      .sort((a, b) => b.requests - a.requests);
+  }, [portfolioMode, rangedAudit, ownedPortfolio]);
 
   const buildExportPayload = (): TalkStayExportPayload | null => {
     // Full report for the selected time range (chart filters only narrow the on-screen table).
     const requestRows = rangedAudit.map((a) => ({
-      Room: a.room,
+      ...(portfolioMode
+        ? { Property: a.hotel_name ?? ownedPortfolio.find((h) => h.id === a.hotel_id)?.name ?? "" }
+        : {}),
+      Room: portfolioMode
+        ? formatRoomLabel(a.ts_rooms?.room_number)
+        : a.room,
       Department: deptLabel(a.department_key),
       Request: a.summary,
       Status: statusLabel(a.status),
@@ -404,6 +470,9 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
       .filter((p) => new Date(p.created_at).getTime() >= sinceMs)
       .map((p) => ({
         When: new Date(p.created_at).toLocaleString(),
+        ...(portfolioMode
+          ? { Property: p.hotel_name ?? "" }
+          : {}),
         Room: p.ts_rooms?.room_number ?? "—",
         Sentiment: p.sentiment,
         Severity: p.severity,
@@ -414,17 +483,30 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
         Acknowledged: p.acknowledged_at ? new Date(p.acknowledged_at).toLocaleString() : "",
       }));
     const ratingRows = rangedRatings.map((r) => ({
+      ...(portfolioMode
+        ? { Property: (r as { hotel_name?: string }).hotel_name ?? "" }
+        : {}),
       "Request ID": r.request_id,
       Rating: r.rating,
       Comment: r.comment ?? "",
     }));
+    const portfolioName = portfolioMode
+      ? `Portfolio (${ownedPortfolio.length} properties)`
+      : hotel.name;
     return {
-      propertyName: hotel.name,
-      title: "Insights report",
-      subtitle: "Full dashboard export for the selected range",
+      propertyName: portfolioName,
+      title: portfolioMode ? "Portfolio insights report" : "Insights report",
+      subtitle: portfolioMode
+        ? `Aggregated across ${ownedPortfolio.map((h) => h.name).join(", ")}`
+        : "Full dashboard export for the selected range",
       rangeLabel: rangeMeta.label,
-      filenameBase: exportFilenameBase(hotel.slug || hotel.name, "insights", timeRange),
+      filenameBase: exportFilenameBase(
+        portfolioMode ? "portfolio" : (hotel.slug || hotel.name),
+        "insights",
+        timeRange,
+      ),
       metrics: [
+        ...(portfolioMode ? [{ label: "Properties", value: ownedPortfolio.length }] : []),
         { label: "Guests engaged", value: m.guests },
         { label: "Conversations (guest messages)", value: m.conversations },
         { label: "Questions answered", value: m.questions },
@@ -439,6 +521,16 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
         { title: "Service requests", rows: requestRows },
         { title: "Guest pulse", rows: pulseRows },
         { title: "Ratings", rows: ratingRows },
+        ...(portfolioMode && byProperty.length
+          ? [{
+              title: "Volume by property",
+              rows: byProperty.map((p) => ({
+                Property: p.name,
+                Requests: p.requests,
+                Completed: p.completed,
+              })),
+            }]
+          : []),
         {
           title: "Volume by department",
           rows: charts.deptPie.map((d) => ({ Department: d.name, Requests: d.value })),
@@ -514,6 +606,7 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
       .eq("id", id);
     if (error) { toast.error(error.message); return; }
     void qc.invalidateQueries({ queryKey: talkstayKeys.insightsHotel(hotel.id) });
+    void qc.invalidateQueries({ queryKey: [...talkstayKeys.all, "insights", "portfolio"] });
     toast.success("Marked as seen.");
   };
 
@@ -521,18 +614,44 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
     return <div className="flex items-center gap-2 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading insights…</div>;
   }
 
-  const hasChartFilter = !!(deptFilter || dayFilter || statusFilter);
+  const hasChartFilter = !!(deptFilter || dayFilter || statusFilter || propertyFilter);
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="text-base font-semibold tracking-tight">Analytics board</h2>
+          <h2 className="text-base font-semibold tracking-tight">
+            {portfolioMode ? "Portfolio analytics" : "Analytics board"}
+          </h2>
           <p className="text-sm text-muted-foreground">
-            Click any KPI, bar, or pie slice to filter the records below.
+            {portfolioMode
+              ? `Aggregated across ${ownedPortfolio.length} properties — click a KPI or bar to drill in.`
+              : "Click any KPI, bar, or pie slice to filter the records below."}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 print:hidden">
+          {canPortfolio && (
+            <div className="flex rounded-lg border bg-background p-0.5" title="This property or all owned properties">
+              <button
+                type="button"
+                onClick={() => { setScope("property"); clearChartFilters(); }}
+                className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                  !portfolioMode ? "bg-violet-600 text-white" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                This property
+              </button>
+              <button
+                type="button"
+                onClick={() => { setScope("portfolio"); clearChartFilters(); }}
+                className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                  portfolioMode ? "bg-violet-600 text-white" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                All properties ({ownedPortfolio.length})
+              </button>
+            </div>
+          )}
           <div className="flex flex-wrap rounded-lg border bg-background p-0.5">
             {TIME_RANGES.map((r) => (
               <button
@@ -632,6 +751,7 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
                     setDayFilter(day);
                     setDeptFilter(null);
                     setStatusFilter(null);
+                    setPropertyFilter(null);
                     revealDrill("requests", charts.hourly ? `Filtered to ${row.label}` : `Filtered to ${row.label}`);
                   }}
                 >
@@ -656,6 +776,7 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
                     setDayFilter(day);
                     setDeptFilter(null);
                     setStatusFilter(null);
+                    setPropertyFilter(null);
                     revealDrill("completed", `Completed on ${row.label}`);
                   }}
                 />
@@ -692,6 +813,7 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
                       setDeptFilter(key);
                       setDayFilter(null);
                       setStatusFilter(null);
+                      setPropertyFilter(null);
                       revealDrill("requests", `${deptLabel(key)} requests`);
                     }}
                   >
@@ -710,6 +832,7 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
                       setDeptFilter(hit.key);
                       setDayFilter(null);
                       setStatusFilter(null);
+                      setPropertyFilter(null);
                       revealDrill("requests", `${hit.name} requests`);
                     }}
                   />
@@ -743,6 +866,7 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
                       setStatusFilter(key);
                       setDeptFilter(null);
                       setDayFilter(null);
+                      setPropertyFilter(null);
                       revealDrill("requests", `Status: ${key.replace(/_/g, " ")}`);
                     }}
                   >
@@ -777,6 +901,83 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
             </ResponsiveContainer>
           </div>
         </div>
+
+        {portfolioMode && (
+          <div className="rounded-2xl border bg-card p-4 shadow-sm lg:col-span-2">
+            <div className="mb-3">
+              <h3 className="text-sm font-medium">By property</h3>
+              <p className="text-xs text-muted-foreground">Click a bar to filter the table to that property</p>
+            </div>
+            <div className="h-56">
+              {byProperty.every((p) => p.requests === 0) ? (
+                <p className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                  No requests across your portfolio in this range.
+                </p>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={byProperty} margin={{ top: 8, right: 8, left: -8, bottom: 24 }}>
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                    <XAxis
+                      dataKey="name"
+                      tick={{ fontSize: 11 }}
+                      interval={0}
+                      angle={byProperty.length > 4 ? -20 : 0}
+                      textAnchor={byProperty.length > 4 ? "end" : "middle"}
+                      height={byProperty.length > 4 ? 50 : 30}
+                    />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                    <Tooltip />
+                    <Legend />
+                    <Bar
+                      dataKey="requests"
+                      name="Requests"
+                      fill="#8b5cf6"
+                      radius={[4, 4, 0, 0]}
+                      cursor="pointer"
+                      onClick={(entry: any) => {
+                        const row = chartRow(entry);
+                        const id = (row?.id ?? entry?.id) as string | undefined;
+                        const name = (row?.name ?? entry?.name) as string | undefined;
+                        if (!id) return;
+                        setPropertyFilter(id);
+                        setDeptFilter(null);
+                        setDayFilter(null);
+                        setStatusFilter(null);
+                        revealDrill("requests", name ? `${name} requests` : "Property filter");
+                      }}
+                    >
+                      {byProperty.map((p) => (
+                        <Cell
+                          key={p.id}
+                          fill="#8b5cf6"
+                          opacity={!propertyFilter || p.id === propertyFilter ? 1 : 0.28}
+                        />
+                      ))}
+                    </Bar>
+                    <Bar
+                      dataKey="completed"
+                      name="Completed"
+                      fill="#10b981"
+                      radius={[4, 4, 0, 0]}
+                      cursor="pointer"
+                      onClick={(entry: any) => {
+                        const row = chartRow(entry);
+                        const id = (row?.id ?? entry?.id) as string | undefined;
+                        const name = (row?.name ?? entry?.name) as string | undefined;
+                        if (!id) return;
+                        setPropertyFilter(id);
+                        setDeptFilter(null);
+                        setDayFilter(null);
+                        setStatusFilter(null);
+                        revealDrill("completed", name ? `Completed at ${name}` : "Completed");
+                      }}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Drill-down sits directly under charts so clicks feel instant */}
@@ -824,6 +1025,15 @@ export default function InsightsPanel({ hotel }: { hotel: Hotel }) {
               <button type="button" onClick={() => setStatusFilter(null)}
                 className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-100 px-2.5 py-1 font-medium text-amber-900">
                 {statusFilter.replace(/_/g, " ")}
+                <X className="h-3 w-3" />
+              </button>
+            )}
+            {propertyFilter && (
+              <button type="button" onClick={() => setPropertyFilter(null)}
+                className="inline-flex items-center gap-1 rounded-full border border-violet-200 bg-violet-100 px-2.5 py-1 font-medium text-violet-900">
+                {ownedPortfolio.find((h) => h.id === propertyFilter)?.name
+                  ?? byProperty.find((p) => p.id === propertyFilter)?.name
+                  ?? "Property"}
                 <X className="h-3 w-3" />
               </button>
             )}
