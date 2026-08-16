@@ -446,8 +446,10 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
                         <Copy className="h-3.5 w-3.5 text-muted-foreground" />
                       </button>
                     ) : (
-                      <span className="w-[88px] shrink-0 text-center text-[10px] text-muted-foreground">
-                        {isPublic ? "No code" : "—"}
+                      <span className="w-[88px] shrink-0 text-center text-[10px] leading-tight text-muted-foreground">
+                        {/* A bare dash reads as "broken". The code is minted at
+                            check-in and belongs to a stay, so say so. */}
+                        {isPublic ? "No code" : needsCode && !occupied ? "After check-in" : "—"}
                       </span>
                     )}
 

@@ -328,6 +328,14 @@ export default function InstallAppBanner({
                 {guide.tip && (
                   <p className="mt-2 text-[11px] text-violet-700/75">{guide.tip}</p>
                 )}
+                {/* Installing to the Home Screen is a fiddly, Apple-specific
+                    detour. Nobody should feel they've lost their alerts by
+                    skipping it — email needs no setup and works on any phone. */}
+                <p className="mt-2 rounded-lg bg-violet-100/70 px-2.5 py-1.5 text-[11px] leading-relaxed text-violet-900/85">
+                  {variant === "staff"
+                    ? "Rather not? You don't have to — alerts still reach you by email, and the dashboard updates live while it's open."
+                    : "Rather not? You don't have to — just tick “Email me updates” instead. It works on any phone, no setup."}
+                </p>
                 {deferred && (
                   <Button
                     size="sm"
