@@ -6,7 +6,7 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { Loader2, Save } from "lucide-react";
-import { adminApi } from "@/talkstay/admin/adminApi";
+import { loadPlatformSettings, savePlatformSetting } from "@/talkstay/admin/adminApi";
 
 type BillingSettings = {
   currency: string;
@@ -84,10 +84,7 @@ export default function AdminSettings() {
   const load = async () => {
     setLoading(true);
     try {
-      const res = await adminApi<{
-        settings: Record<string, unknown>;
-        missingTable?: boolean;
-      }>("get_settings");
+      const res = await loadPlatformSettings();
       setMissingTable(!!res.missingTable);
       const s = res.settings ?? {};
       setBilling({ ...BILLING_DEFAULT, ...(s.billing as object) });
@@ -106,7 +103,7 @@ export default function AdminSettings() {
   const save = async (key: string, value: unknown) => {
     setSaving(key);
     try {
-      await adminApi("update_settings", { key, value });
+      await savePlatformSetting(key, value);
       toast.success("Saved");
       setMissingTable(false);
     } catch (e: any) {

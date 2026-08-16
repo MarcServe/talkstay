@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { Download, Loader2, QrCode, RefreshCw } from "lucide-react";
-import { adminApi } from "@/talkstay/admin/adminApi";
+import { loadUsageSummary } from "@/talkstay/admin/adminApi";
 
 type Charge = {
   primary_meter: string;
@@ -108,14 +108,13 @@ export default function AdminUsage() {
   const load = async () => {
     setLoading(true);
     try {
-      const action = hotelId ? "usage_hotel" : "usage_summary";
-      const res = await adminApi<UsagePayload>(action, {
+      const res = await loadUsageSummary({
         days,
         ...(hotelId ? { hotelId } : {}),
-      });
+      }) as UsagePayload & { via?: string };
       setData(res);
-      if (res.rollup_ready === false) {
-        toast.message("Usage rollup pending — apply the admin usage migration, then redeploy talkstay-admin.");
+      if (res.rollup_ready === false && res.via === "direct") {
+        /* direct path is fine — no toast needed */
       }
     } catch (e: any) {
       toast.error(e.message);

@@ -9,7 +9,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { ArrowLeft, Copy, Loader2, RefreshCw, Save, Trash2 } from "lucide-react";
-import { adminApi } from "@/talkstay/admin/adminApi";
+import { adminApi, updateHotelAdmin } from "@/talkstay/admin/adminApi";
+import { supabase } from "@/integrations/supabase/client";
 
 type Detail = {
   hotel: Record<string, any>;
@@ -127,21 +128,20 @@ export default function AdminHotelDetail() {
         if (rates.rate_request !== "") billing_rates.rate_request = Number(rates.rate_request);
       }
 
-      const res = await adminApi<{ hotel: Record<string, any> }>("update_hotel", {
-        hotelId,
+      const res = await updateHotelAdmin(hotelId, {
         name,
         billing_mode: billingMode,
-        billing_notes: billingNotes,
+        billing_notes: billingNotes || null,
         billing_rates,
         pulse_enabled: pulse,
         require_checkin_code: requireCode,
         max_devices_per_room: maxDevices,
         timezone,
         default_language: language,
-        escalation_phone: escalationPhone,
-        whatsapp_number: whatsapp,
+        escalation_phone: escalationPhone || null,
+        whatsapp_number: whatsapp || null,
         whatsapp_enabled: whatsappEnabled,
-        referral_code: referral,
+        referral_code: referral || null,
       });
       setData((d) => d ? { ...d, hotel: res.hotel } : d);
       toast.success("Hotel settings saved");
@@ -182,7 +182,22 @@ export default function AdminHotelDetail() {
     if (!confirm(`Rotate QR token for room ${roomNumber}? The printed QR will stop working until reprinted.`)) return;
     setRotatingId(roomId);
     try {
-      await adminApi("rotate_room_token", { roomId });
+      try {
+        await adminApi("rotate_room_token", { roomId });
+      } catch {
+        // Direct fallback when edge function isn't redeployed yet
+        const { data: room, error: roomErr } = await (await import("@/integrations/supabase/client")).supabase
+          .from("ts_rooms").select("id, hotel_id").eq("id", roomId).maybeSingle();
+        if (roomErr || !room) throw roomErr ?? new Error("Room not found");
+        const { supabase } = await import("@/integrations/supabase/client");
+        await supabase.from("ts_room_tokens")
+          .update({ is_active: false, rotated_at: new Date().toISOString() })
+          .eq("room_id", roomId)
+          .eq("is_active", true);
+        const { error: insErr } = await supabase.from("ts_room_tokens")
+          .insert({ hotel_id: room.hotel_id, room_id: roomId });
+        if (insErr) throw new Error(insErr.message);
+      }
       toast.success(`QR rotated for ${roomNumber}`);
     } catch (e: any) {
       toast.error(e.message);
