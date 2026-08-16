@@ -26,7 +26,7 @@ const NAV = [
   { key: "operations", label: "Operations", icon: Inbox, desc: "Live queue — search a room to open tickets fast. Guest-app requests land here automatically.", adminOnly: false },
   { key: "log_order", label: "Log order", icon: Phone, desc: "Only for phone, walk-in or front-desk calls that aren’t already on the board.", adminOnly: false },
   { key: "insights", label: "Insights", icon: BarChart3, desc: "See volumes, departments, ratings and guest pulse.", adminOnly: true },
-  { key: "rooms", label: "Rooms & QR", icon: QrCode, desc: "Add rooms and print the QR code guests scan to reach you.", adminOnly: true },
+  { key: "rooms", label: "Rooms & QR", icon: QrCode, desc: "Add rooms and print the QR guests scan — or email the Room Assistant link so they open it from anywhere.", adminOnly: true },
   { key: "branding", label: "Branding", icon: Palette, desc: "Your logo, colour and the printable in-room poster.", adminOnly: true },
   { key: "departments", label: "Departments", icon: Building2, desc: "Teams, routing rules and per-department notifications.", adminOnly: true },
   { key: "knowledge", label: "Knowledge", icon: BookOpen, desc: "What the assistant knows — website, documents and property info.", adminOnly: true },

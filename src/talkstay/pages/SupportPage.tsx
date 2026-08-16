@@ -11,11 +11,16 @@ import {
 } from "@/config/contact";
 import { LifeBuoy, Mail, Phone, ArrowRight } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import GuestAccessTip from "@/talkstay/components/GuestAccessTip";
 
 const FAQS: { q: string; a: string }[] = [
   {
     q: "How do guests request help?",
-    a: "Each room or named area has a QR code. Guests scan it to open the TalkStay assistant and ask by voice or chat. Requests route to the right department on your Operations board automatically.",
+    a: "Each room or named area has a QR code guests can scan to open the TalkStay Room Assistant and ask by voice or chat. You can also email them a direct Room Assistant link (with their check-in details) so they open the same assistant from anywhere — hotel Wi‑Fi, mobile data, or another device — with no app to download. Requests route to the right department on your Operations board automatically.",
+  },
+  {
+    q: "Can guests use TalkStay without scanning the QR in the room?",
+    a: "Yes. From Rooms & QR, email the guest their check-in code and Room Assistant link. Opening that link on their phone works from anywhere. Scanning the printed QR is still the fastest in-room option; email is ideal when they’re busy at arrival or away from the property.",
   },
   {
     q: "Can someone order without being checked into a room?",
@@ -80,6 +85,7 @@ export default function SupportPage() {
         <p className="mt-2 max-w-xl text-sm text-muted-foreground">
           Answers for property teams and partners. Signed-in users also get direct Support from Account in the dashboard — routed to your partner when one is assigned.
         </p>
+        <GuestAccessTip className="mt-6" />
 
         <div className="mt-8 grid gap-3 sm:grid-cols-2">
           <a

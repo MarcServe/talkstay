@@ -23,6 +23,7 @@ import LogOrderDialog from "@/talkstay/components/LogOrderDialog";
 import { exportFilenameBase, type TalkStayExportPayload } from "@/talkstay/lib/exportReport";
 import { statusBadge, statusCard, statusLabel, formatMoney, PAYMENT_STYLE, paymentLabel } from "@/talkstay/lib/statusStyles";
 import { useDemo } from "@/talkstay/demo/DemoContext";
+import GuestAccessTip from "@/talkstay/components/GuestAccessTip";
 
 function channelLabel(source?: string | null) {
   if (source === "phone") return "Phone";
@@ -612,6 +613,7 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
 
   return (
     <div className="min-w-0 space-y-4 overflow-x-hidden">
+      <GuestAccessTip compact />
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-sky-200/80 bg-sky-50/70 px-4 py-3">
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-sky-950">Find a room’s tickets first</p>
