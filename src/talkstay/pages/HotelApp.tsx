@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import {
   Loader2, Bell, Menu, X, Phone,
-  Inbox, BarChart3, QrCode, Building2, BookOpen, Users, Palette, LifeBuoy, UserRound,
+  Inbox, BarChart3, QrCode, Building2, BookOpen, Users, Palette, LifeBuoy,
 } from "lucide-react";
 import { enablePush, pushSupported } from "@/talkstay/lib/push";
 import { enableAlertSounds, notificationPermission } from "@/talkstay/lib/alerts";
