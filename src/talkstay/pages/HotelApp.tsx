@@ -8,11 +8,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import {
-  Loader2, Bell, Menu, X, Phone,
+  Loader2, Menu, X, Phone,
   Inbox, BarChart3, QrCode, Building2, BookOpen, Users, Palette, LifeBuoy,
 } from "lucide-react";
-import { enablePush, pushSupported } from "@/talkstay/lib/push";
-import { enableAlertSounds, notificationPermission } from "@/talkstay/lib/alerts";
 import AuthPage, { isPasswordSetupUrl } from "@/talkstay/pages/AuthPage";
 import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
 import OperationsPanel from "@/talkstay/components/OperationsPanel";
@@ -26,6 +24,7 @@ import StaffAlertsHost from "@/talkstay/components/StaffAlertsHost";
 import InstallAppBanner from "@/talkstay/components/InstallAppBanner";
 import NoIndexMeta from "@/talkstay/components/NoIndexMeta";
 import AccountPanel from "@/talkstay/components/AccountPanel";
+import AlertSoundPicker from "@/talkstay/components/AlertSoundPicker";
 import { createHotel, ingestHotelWebsite, DEPARTMENTS, type Hotel, type PropertyProfile, type AccessibleProperty, pickAccessibleProperty, readActiveHotelId, writeActiveHotelId } from "@/talkstay/lib/hotels";
 import { talkstayKeys } from "@/talkstay/lib/data";
 import {
@@ -489,37 +488,7 @@ export default function HotelApp() {
         >
           <LifeBuoy className="h-4 w-4" /> Support & FAQ
         </a>
-        {(pushSupported() || notificationPermission() !== "unsupported") && (
-          <button
-            onClick={async () => {
-              try {
-                const { iosNeedsHomeScreenInstall, IOS_ADD_HOME_SCREEN_HINT } = await import("@/talkstay/lib/install");
-                if (iosNeedsHomeScreenInstall()) {
-                  toast.message(IOS_ADD_HOME_SCREEN_HINT);
-                  return;
-                }
-                const { permission } = await enableAlertSounds();
-                if (permission !== "granted") {
-                  toast.error(
-                    permission === "denied"
-                      ? "Notifications are blocked — enable them in browser settings."
-                      : permission === "unsupported"
-                        ? IOS_ADD_HOME_SCREEN_HINT
-                        : "Couldn't enable alert sounds.",
-                  );
-                  return;
-                }
-                if (pushSupported()) await enablePush(hotel.id);
-                toast.success("Alert sounds & notifications are on for this device.");
-              } catch (e: any) {
-                toast.error(e?.message ?? "Couldn't enable alerts");
-              }
-            }}
-            className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-white/60 hover:bg-white/5 hover:text-white"
-          >
-            <Bell className="h-4 w-4" /> Enable alert sounds
-          </button>
-        )}
+        <AlertSoundPicker hotelId={hotel.id} />
         <button
           type="button"
           onClick={() => go("account")}

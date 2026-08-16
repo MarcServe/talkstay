@@ -1,4 +1,4 @@
-import { playChime, primeChime } from "@/talkstay/lib/chime";
+import { playChime, primeChime, getAlertSoundId, type AlertSoundId } from "@/talkstay/lib/chime";
 
 export type IncomingAlert = {
   title: string;
@@ -9,6 +9,8 @@ export type IncomingAlert = {
   urgent?: boolean;
   /** When false, skip the WebAudio chime (OS notification only). Default true. */
   chime?: boolean;
+  /** Override the saved alert sound for this alert only. */
+  soundId?: AlertSoundId;
   /** When false, skip the browser/OS notification. Default true. */
   notify?: boolean;
 };
@@ -42,7 +44,9 @@ export async function requestNotificationPermission(): Promise<NotificationPermi
  */
 export async function alertIncoming(opts: IncomingAlert): Promise<void> {
   if (opts.chime !== false) {
-    try { await playChime(); } catch { /* ignore */ }
+    try {
+      await playChime(opts.soundId ?? getAlertSoundId());
+    } catch { /* ignore */ }
   }
 
   if (opts.notify === false) return;
@@ -81,9 +85,19 @@ export async function enableAlertSounds(): Promise<{
 }> {
   primeChime();
   const permission = await requestNotificationPermission();
-  // Confirm the unlock with a short chime so the user knows it worked.
+  // Confirm the unlock with the chosen chime so the user knows it worked.
   if (permission === "granted" || permission === "default") {
-    try { await playChime(); } catch { /* ignore */ }
+    try { await playChime(getAlertSoundId()); } catch { /* ignore */ }
   }
   return { permission };
 }
+
+// Re-export sound helpers so UI can import from one place.
+export {
+  ALERT_SOUNDS,
+  getAlertSoundId,
+  setAlertSoundId,
+  previewAlertSound,
+  type AlertSoundId,
+  type AlertSoundOption,
+} from "@/talkstay/lib/chime";
