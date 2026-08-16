@@ -1,9 +1,11 @@
 import { Link } from "react-router-dom";
+import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { LifeBuoy, Mail, BookOpen, LogOut, ExternalLink } from "lucide-react";
 import type { Hotel } from "@/talkstay/lib/hotels";
 import {
   directSupportMailto,
+  ensurePartnersLoaded,
   partnerForReferral,
   supportLabelForHotel,
 } from "@/talkstay/lib/partners";
@@ -22,6 +24,10 @@ export default function AccountPanel({
   displayName: string;
   roleLabel: string;
 }) {
+  useEffect(() => {
+    void ensurePartnersLoaded();
+  }, []);
+
   const partner = partnerForReferral(hotel.referral_code);
   const supportHref = directSupportMailto({
     referralCode: hotel.referral_code,
