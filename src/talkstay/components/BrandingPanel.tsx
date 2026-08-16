@@ -7,7 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { Loader2, Upload, Mic, Palette, Printer, ImageIcon, X, Building2 } from "lucide-react";
 import {
-  clampGuestBgWash, friendlyImageName, updatePropertyProfile,
+  clampGuestBgWash, friendlyImageName, updatePropertyProfile, updateHotelContactEmail,
   type Hotel, type HotelBranding, type PropertyProfile,
 } from "@/talkstay/lib/hotels";
 import PosterPanel from "@/talkstay/components/PosterPanel";
@@ -29,7 +29,15 @@ function readFileAsDataUrl(file: File): Promise<string> {
 /** Identity (logo/colour/tagline — used everywhere) and Poster (the printable
  *  in-room QR poster) share one brand colour + logo, so they live under one
  *  "Branding" tab instead of two disconnected nav items. */
-export default function BrandingPanel({ hotel, onSaved }: { hotel: Hotel; onSaved?: (b: HotelBranding) => void }) {
+export default function BrandingPanel({
+  hotel,
+  onSaved,
+  onHotel,
+}: {
+  hotel: Hotel;
+  onSaved?: (b: HotelBranding) => void;
+  onHotel?: (h: Hotel) => void;
+}) {
   return (
     <Tabs defaultValue="identity" className="space-y-6">
       <TabsList>
@@ -41,7 +49,7 @@ export default function BrandingPanel({ hotel, onSaved }: { hotel: Hotel; onSave
         <IdentityTab hotel={hotel} onSaved={onSaved} />
       </TabsContent>
       <TabsContent value="property">
-        <PropertyTab hotel={hotel} onSaved={onSaved} />
+        <PropertyTab hotel={hotel} onSaved={onSaved} onHotel={onHotel} />
       </TabsContent>
       <TabsContent value="poster">
         <PosterPanel hotel={hotel} onSaved={onSaved} />
@@ -50,9 +58,18 @@ export default function BrandingPanel({ hotel, onSaved }: { hotel: Hotel; onSave
   );
 }
 
-function PropertyTab({ hotel, onSaved }: { hotel: Hotel; onSaved?: (b: HotelBranding) => void }) {
+function PropertyTab({
+  hotel,
+  onSaved,
+  onHotel,
+}: {
+  hotel: Hotel;
+  onSaved?: (b: HotelBranding) => void;
+  onHotel?: (h: Hotel) => void;
+}) {
   const demo = useDemo();
   const [profile, setProfile] = useState<PropertyProfile>(() => ({ ...(hotel.branding?.property ?? {}) }));
+  const [contactEmail, setContactEmail] = useState(hotel.contact_email ?? "");
   const [saving, setSaving] = useState(false);
 
   const save = async () => {
@@ -63,13 +80,17 @@ function PropertyTab({ hotel, onSaved }: { hotel: Hotel; onSaved?: (b: HotelBran
           ...(hotel.branding ?? {}),
           property: profile,
         };
+        const email = contactEmail.trim().toLowerCase() || null;
         demo.updateBranding(branding);
         onSaved?.(branding);
+        onHotel?.({ ...hotel, branding, contact_email: email });
         toast.success("Property profile saved (demo).");
         return;
       }
       const branding = await updatePropertyProfile(hotel.id, hotel.branding, profile);
+      const email = await updateHotelContactEmail(hotel.id, contactEmail);
       onSaved?.(branding);
+      onHotel?.({ ...hotel, branding, contact_email: email });
       toast.success("Property profile saved — Insights will use this for smarter advice.");
     } catch (err: any) {
       toast.error(err?.message ?? "Couldn't save property profile");
@@ -85,6 +106,20 @@ function PropertyTab({ hotel, onSaved }: { hotel: Hotel; onSaved?: (b: HotelBran
         <p className="mt-1 text-sm text-muted-foreground">
           Tell TalkStay whether this is a hotel, Airbnb, or B&amp;B — and how many rooms/properties you run.
           Insights uses this (plus your address) for business intelligence that fits your scale and location.
+        </p>
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="property-contact-email">Property contact email</Label>
+        <Input
+          id="property-contact-email"
+          type="email"
+          value={contactEmail}
+          onChange={(e) => setContactEmail(e.target.value)}
+          placeholder="ops@yourproperty.com"
+          autoComplete="off"
+        />
+        <p className="text-xs text-muted-foreground">
+          Ops / guest contact for this property. Login stays on your owner account (one email for the whole portfolio).
         </p>
       </div>
       <PropertyProfileFields value={profile} onChange={setProfile} />

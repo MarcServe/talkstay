@@ -93,6 +93,7 @@ function CreateHotel({
   const [searchParams] = useSearchParams();
   const [name, setName] = useState("");
   const [website, setWebsite] = useState("");
+  const [contactEmail, setContactEmail] = useState("");
   const [language, setLanguage] = useState("English");
   const [property, setProperty] = useState<PropertyProfile>({
     property_count: asAdditional ? Math.max(2, (portfolioSize ?? 1) + 1) : 1,
@@ -124,6 +125,7 @@ function CreateHotel({
       const hotel = await createHotel({
         name: name.trim(),
         website_url: website.trim() || undefined,
+        contact_email: contactEmail.trim() || null,
         default_language: language,
         referral_code: code,
         property: {
@@ -177,7 +179,7 @@ function CreateHotel({
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           {asAdditional
-            ? "Each property gets its own rooms, QR codes, departments and knowledge. Switch between them in the sidebar; Insights can aggregate across your portfolio."
+            ? "Each property gets its own rooms, QR codes, departments, knowledge, website and contact email. You stay signed in with one owner account."
             : "Sets up your guest assistant, knowledge base and the standard service departments. A little context on type and scale helps Insights give better business advice."}
         </p>
         <form onSubmit={submit} className="mt-6 space-y-4">
@@ -190,6 +192,20 @@ function CreateHotel({
             <Input id="hotel-web" value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="https://yourproperty.com" />
             <p className="text-xs text-muted-foreground">
               We'll read your website so the assistant can answer guest questions from day one.
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="hotel-contact">Property contact email (optional)</Label>
+            <Input
+              id="hotel-contact"
+              type="email"
+              value={contactEmail}
+              onChange={(e) => setContactEmail(e.target.value)}
+              placeholder="ops@yourproperty.com"
+              autoComplete="off"
+            />
+            <p className="text-xs text-muted-foreground">
+              For this property only (ops / guest contact). Your login email stays on the owner account and covers the whole portfolio.
             </p>
           </div>
           <div className="space-y-1.5">
@@ -314,7 +330,13 @@ function Panel({ active, hotel, onHotel, departmentKey, focusRequestId, onOpenRe
       <InsightsPanel hotel={hotel} portfolioHotels={portfolioHotels} />
     );
     case "rooms": return <RoomsPanel hotel={hotel} onHotel={onHotel} />;
-    case "branding": return <BrandingPanel hotel={hotel} onSaved={(b) => onHotel({ ...hotel, branding: b })} />;
+    case "branding": return (
+      <BrandingPanel
+        hotel={hotel}
+        onSaved={(b) => onHotel({ ...hotel, branding: b })}
+        onHotel={onHotel}
+      />
+    );
     case "departments": return <DepartmentsPanel hotel={hotel} />;
     case "knowledge": return <KnowledgePanel hotel={hotel} />;
     case "staff": return (

@@ -51,6 +51,7 @@ export default function AdminHotelDetail() {
   const [whatsapp, setWhatsapp] = useState("");
   const [whatsappEnabled, setWhatsappEnabled] = useState(false);
   const [referral, setReferral] = useState("");
+  const [contactEmail, setContactEmail] = useState("");
   const [rates, setRates] = useState<RateDraft>({
     currency: "GBP",
     rate_active_qr: "",
@@ -79,6 +80,7 @@ export default function AdminHotelDetail() {
       setWhatsapp(h.whatsapp_number ?? "");
       setWhatsappEnabled(!!h.whatsapp_enabled);
       setReferral(h.referral_code ?? "");
+      setContactEmail(h.contact_email ?? "");
       const br = (h.billing_rates && typeof h.billing_rates === "object") ? h.billing_rates : null;
       setRates({
         currency: String(br?.currency ?? "GBP"),
@@ -142,6 +144,7 @@ export default function AdminHotelDetail() {
         whatsapp_number: whatsapp || null,
         whatsapp_enabled: whatsappEnabled,
         referral_code: referral || null,
+        contact_email: contactEmail || null,
       });
       setData((d) => d ? { ...d, hotel: res.hotel } : d);
       toast.success("Hotel settings saved");
@@ -294,6 +297,14 @@ export default function AdminHotelDetail() {
           </Field>
           <Field label="WhatsApp number">
             <Input value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} />
+          </Field>
+          <Field label="Property contact email">
+            <Input
+              type="email"
+              value={contactEmail}
+              onChange={(e) => setContactEmail(e.target.value)}
+              placeholder="ops@yourproperty.com"
+            />
           </Field>
           <Field label="Referral code">
             <Input value={referral} onChange={(e) => setReferral(e.target.value)} />

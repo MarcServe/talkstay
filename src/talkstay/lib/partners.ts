@@ -176,6 +176,7 @@ export function directSupportMailto(args: {
   hotelName: string;
   email?: string | null;
   roleLabel?: string;
+  contactEmail?: string | null;
 }): string {
   const partner = partnerForReferral(args.referralCode);
   const to = partner?.email ?? SUPPORT_EMAIL;
@@ -184,6 +185,7 @@ export function directSupportMailto(args: {
     [
       `Property: ${args.hotelName}`,
       args.email ? `Signed in as: ${args.email}` : null,
+      args.contactEmail ? `Property contact: ${args.contactEmail}` : null,
       args.roleLabel ? `Role: ${args.roleLabel}` : null,
       args.referralCode ? `Referral: ${args.referralCode}` : null,
       "",
