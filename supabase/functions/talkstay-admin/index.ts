@@ -203,20 +203,166 @@ serve(async (req) => {
     }
 
     if (action === "list_users") {
+      const TALKSTAY_BASE = "https://talkstay.talkweb.io";
+      const TALKWEB_BASE = "https://talkweb.io";
+
       const [{ data: profiles, error }, { data: adminRoles }] = await Promise.all([
         admin.from("profiles")
-          .select("user_id, email, first_name, last_name, company_name, created_at")
+          .select("user_id, email, first_name, last_name, company_name, website_url, created_at")
           .order("created_at", { ascending: false })
           .limit(500),
         admin.from("user_roles").select("user_id").eq("role", "admin"),
       ]);
       if (error) return json({ error: error.message }, 500);
       const adminSet = new Set((adminRoles ?? []).map((r) => r.user_id));
-      return json({
-        users: (profiles ?? []).map((p) => ({
+      const userIds = (profiles ?? []).map((p) => p.user_id).filter(Boolean);
+
+      // TalkStay: owned hotels + staff memberships
+      const hotelsByOwner = new Map<string, { id: string; name: string; slug: string; is_active: boolean }[]>();
+      const staffByUser = new Map<string, { hotel_id: string; role: string; status: string; name: string | null; slug: string | null }[]>();
+      // TalkWeb: assistants owned by user (shared DB parent product)
+      const assistantsByUser = new Map<string, {
+        id: string; business_name: string; preview_slug: string | null;
+        preview_url: string | null; website_url: string | null;
+      }[]>();
+
+      if (userIds.length) {
+        const [{ data: ownedHotels }, { data: staffRows }, { data: assistants }] = await Promise.all([
+          admin.from("ts_hotels")
+            .select("id, name, slug, is_active, user_id")
+            .in("user_id", userIds)
+            .limit(2000),
+          admin.from("ts_staff")
+            .select("user_id, hotel_id, role, status, ts_hotels(name, slug)")
+            .in("user_id", userIds)
+            .limit(3000),
+          admin.from("assistants")
+            .select("id, user_id, business_name, preview_slug, preview_url, website_url")
+            .in("user_id", userIds)
+            .limit(3000),
+        ]);
+
+        for (const h of ownedHotels ?? []) {
+          const list = hotelsByOwner.get(h.user_id) ?? [];
+          list.push({ id: h.id, name: h.name, slug: h.slug, is_active: !!h.is_active });
+          hotelsByOwner.set(h.user_id, list);
+        }
+        for (const s of staffRows ?? []) {
+          const hotel = (s as any).ts_hotels;
+          const list = staffByUser.get(s.user_id) ?? [];
+          list.push({
+            hotel_id: s.hotel_id,
+            role: s.role,
+            status: s.status,
+            name: hotel?.name ?? null,
+            slug: hotel?.slug ?? null,
+          });
+          staffByUser.set(s.user_id, list);
+        }
+        for (const a of assistants ?? []) {
+          if (!a.user_id) continue;
+          const list = assistantsByUser.get(a.user_id) ?? [];
+          list.push({
+            id: a.id,
+            business_name: a.business_name,
+            preview_slug: a.preview_slug,
+            preview_url: a.preview_url,
+            website_url: a.website_url,
+          });
+          assistantsByUser.set(a.user_id, list);
+        }
+      }
+
+      // Hotels already linked via TalkStay assistant_id — avoid double-counting
+      // pure TalkStay assistants as "TalkWeb only" when they only exist for a hotel.
+      const talkstayAssistantIds = new Set<string>();
+      {
+        const { data: linked } = await admin.from("ts_hotels")
+          .select("assistant_id")
+          .not("assistant_id", "is", null)
+          .limit(5000);
+        for (const row of linked ?? []) {
+          if (row.assistant_id) talkstayAssistantIds.add(row.assistant_id);
+        }
+      }
+
+      const users = (profiles ?? []).map((p) => {
+        const owned = hotelsByOwner.get(p.user_id) ?? [];
+        const staffed = staffByUser.get(p.user_id) ?? [];
+        const allAssistants = assistantsByUser.get(p.user_id) ?? [];
+        const talkwebAssistants = allAssistants.filter((a) => !talkstayAssistantIds.has(a.id));
+        // Assistants that power a TalkStay hotel still show as TalkStay context.
+        const talkstayAssistants = allAssistants.filter((a) => talkstayAssistantIds.has(a.id));
+
+        const products: string[] = [];
+        if (owned.length || staffed.length || talkstayAssistants.length) products.push("talkstay");
+        if (talkwebAssistants.length) products.push("talkweb");
+        if (!products.length) products.push("none");
+
+        const links: {
+          product: "talkstay" | "talkweb";
+          label: string;
+          href: string;
+          role?: string;
+        }[] = [];
+
+        for (const h of owned) {
+          links.push({
+            product: "talkstay",
+            label: `${h.name} (owner)`,
+            href: `${TALKSTAY_BASE}/admin/hotels/${h.id}`,
+            role: "owner",
+          });
+          links.push({
+            product: "talkstay",
+            label: `${h.name} dashboard`,
+            href: `${TALKSTAY_BASE}/app`,
+            role: "dashboard",
+          });
+        }
+        // Staff memberships on hotels they don't own
+        const ownedIds = new Set(owned.map((h) => h.id));
+        for (const s of staffed) {
+          if (ownedIds.has(s.hotel_id)) continue;
+          if (s.status !== "active") continue;
+          links.push({
+            product: "talkstay",
+            label: `${s.name ?? "Property"} (${s.role})`,
+            href: s.hotel_id
+              ? `${TALKSTAY_BASE}/admin/hotels/${s.hotel_id}`
+              : `${TALKSTAY_BASE}/app`,
+            role: s.role,
+          });
+        }
+        for (const a of talkwebAssistants) {
+          const href = a.preview_url
+            || `${TALKWEB_BASE}/preview/${a.id}?mode=widget-only`;
+          links.push({
+            product: "talkweb",
+            label: a.business_name || "Assistant",
+            href,
+            role: "owner",
+          });
+        }
+
+        return {
           ...p,
           is_platform_admin: adminSet.has(p.user_id),
-        })),
+          products,
+          links,
+          talkstay: {
+            owned_hotels: owned.length,
+            staff_roles: staffed.filter((s) => s.status === "active").length,
+          },
+          talkweb: {
+            assistants: talkwebAssistants.length,
+          },
+        };
+      });
+
+      return json({
+        users,
+        bases: { talkstay: TALKSTAY_BASE, talkweb: TALKWEB_BASE },
       });
     }
 
@@ -426,7 +572,17 @@ serve(async (req) => {
       if (hotelIdFilter) hotelQuery = hotelQuery.eq("id", hotelIdFilter);
       else if (!billing.include_inactive_hotels) hotelQuery = hotelQuery.eq("is_active", true);
 
-      const { data: hotels, error: hotelsErr } = await hotelQuery.limit(500);
+      let { data: hotels, error: hotelsErr } = await hotelQuery.limit(500);
+      if (hotelsErr && /billing_mode|billing_rates/i.test(hotelsErr.message)) {
+        let fb = admin.from("ts_hotels")
+          .select("id, name, slug, is_active, created_at")
+          .order("name");
+        if (hotelIdFilter) fb = fb.eq("id", hotelIdFilter);
+        else if (!billing.include_inactive_hotels) fb = fb.eq("is_active", true);
+        const retry = await fb.limit(500);
+        hotels = retry.data;
+        hotelsErr = retry.error;
+      }
       if (hotelsErr) return json({ error: hotelsErr.message }, 500);
 
       const { data: rollup, error: rollupErr } = await admin.rpc("ts_usage_rollup", {

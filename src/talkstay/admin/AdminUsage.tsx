@@ -218,6 +218,93 @@ export default function AdminUsage() {
             />
           </div>
 
+          {!hotelId && (
+            <section className="rounded-2xl border border-violet-200 bg-violet-50/50 p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-base font-semibold text-violet-950">Invoice draft (pilot / usage)</h2>
+                  <p className="mt-1 text-sm text-violet-900/80">
+                    Line items for properties on <span className="font-medium">pilot</span> or{" "}
+                    <span className="font-medium">usage</span> billing. Export CSV to invoice offline — Stripe auto-invoice can plug in later.
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-violet-300 bg-white"
+                  onClick={() => {
+                    const billable = data.hotels.filter((h) =>
+                      h.billing_mode === "pilot" || h.billing_mode === "usage",
+                    );
+                    if (!billable.length) {
+                      toast.message("No pilot/usage hotels yet — set billing mode on each hotel.");
+                      return;
+                    }
+                    const currency = data.totals.currency;
+                    const rows: string[][] = [
+                      ["invoice_line", "hotel", "slug", "billing_mode", "meter", "units", "rate", "amount", "currency", "period_start", "period_end"],
+                      ...billable.map((h, i) => [
+                        String(i + 1),
+                        h.name,
+                        h.slug,
+                        h.billing_mode,
+                        h.charge.primary_meter,
+                        String(h.charge.units),
+                        String(h.charge.rate),
+                        String(h.charge.suggested),
+                        currency,
+                        data.since,
+                        data.until,
+                      ]),
+                    ];
+                    downloadCsv(`talkstay-invoice-draft-${days}d.csv`, rows);
+                    toast.success(`Exported ${billable.length} invoice line${billable.length === 1 ? "" : "s"}`);
+                  }}
+                >
+                  <Download className="mr-1.5 h-3.5 w-3.5" /> Export invoice CSV
+                </Button>
+              </div>
+              <div className="mt-4 overflow-hidden rounded-xl border bg-white">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-muted/40 text-xs uppercase text-muted-foreground">
+                    <tr>
+                      <th className="px-3 py-2 font-medium">Customer / property</th>
+                      <th className="px-3 py-2 font-medium">Mode</th>
+                      <th className="px-3 py-2 font-medium">Meter</th>
+                      <th className="px-3 py-2 font-medium">Units</th>
+                      <th className="px-3 py-2 font-medium">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.hotels
+                      .filter((h) => h.billing_mode === "pilot" || h.billing_mode === "usage")
+                      .map((h) => (
+                        <tr key={h.hotel_id} className="border-t">
+                          <td className="px-3 py-2 font-medium">{h.name}</td>
+                          <td className="px-3 py-2 capitalize">{h.billing_mode}</td>
+                          <td className="px-3 py-2 text-muted-foreground">
+                            {h.charge.primary_meter.replace(/_/g, " ")}
+                          </td>
+                          <td className="px-3 py-2">{h.charge.units}</td>
+                          <td className="px-3 py-2 font-medium">
+                            {money(h.charge.suggested, h.charge.currency)}
+                          </td>
+                        </tr>
+                      ))}
+                    {data.hotels.filter((h) => h.billing_mode === "pilot" || h.billing_mode === "usage").length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="px-3 py-6 text-center text-sm text-muted-foreground">
+                          No pilot/usage properties yet. Open a hotel → set billing mode to{" "}
+                          <strong>pilot</strong> or <strong>usage</strong>, then refresh.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+
           {hotelId && detail ? (
             <div className="space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
