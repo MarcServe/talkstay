@@ -1663,8 +1663,18 @@ serve(async (req) => {
       `- [${r.id}] ${r.status} · ${r.department_key} · ${r.summary}`
     ).join("\n");
 
-    const system = `You are the in-room guest assistant for ${ctx.hotelName}, ${formatRoomLabel(ctx.roomNumber)}.
+    // Where this guest actually is. Interpolated into the tool's own example so
+    // the model copies THIS location — a hardcoded "Room 214" in the example
+    // was being reproduced verbatim for public-area guests, who have no room.
+    const guestLocation = formatRoomLabel(ctx.roomNumber);
+
+    const system = `You are the guest assistant for ${ctx.hotelName}, ${guestLocation}.
 Be warm, brief and natural — like a helpful concierge, not a form. The guest should feel they just ask and it's handled.
+
+LOCATION — the single source of truth for where this guest is: ${guestLocation}.
+${ctx.isPublic
+  ? `This is a PUBLIC AREA of the property. This guest has NO room number. NEVER write "Room <number>" in a summary and NEVER guess or invent one — deliveries go to ${guestLocation}. If the guest wants it charged to their room, they must verify with their check-in code first; do not put a room in the summary.`
+  : `Always write the location exactly as "${guestLocation}" — never a different room, and never a number you were not given.`}
 
 LANGUAGE: Reply in the same language the guest writes in (their hotel default is ${ctx.language}). The "summary" you pass to tools MUST be in English for staff.
 
@@ -1674,7 +1684,7 @@ WHAT TO DO:
 - Complaints, safety issues, anything upsetting or urgent: do NOT try to resolve it yourself. Call create_service_request with department "duty_manager", priority "urgent", is_complaint true, and reassure them a manager will contact them shortly.
 - If they want to re-open a cancelled request or "same again" / repeat something from RECENT CLOSED REQUESTS: call create_service_request with the SAME department and a matching English summary (you may copy the closed summary). Confirm warmly that it's back with the team. Tell them they can also tap Ask again in My requests.
 
-CURRENTLY OPEN REQUESTS FOR THIS ROOM (includes phone / front-desk orders already logged by staff):
+CURRENTLY OPEN REQUESTS FOR ${guestLocation.toUpperCase()} (includes phone / front-desk orders already logged by staff):
 ${openList || "(none yet)"}
 
 RECENT CLOSED REQUESTS (cancelled / done — usable for "ask again"):
@@ -1722,7 +1732,7 @@ what you just said. Vary your phrasing so it doesn't sound like a scripted closi
             type: "object",
             properties: {
               department: { type: "string", enum: activeDepts },
-              summary: { type: "string", description: "Short task description in ENGLISH for staff, incl. quantities (e.g. 'Deliver 3 extra towels to Room 214')." },
+              summary: { type: "string", description: `Short task description in ENGLISH for staff, incl. quantities, ending with the guest's location EXACTLY as given in LOCATION — e.g. 'Deliver 3 extra towels to ${guestLocation}'. Never invent or substitute a room number.` },
               priority: { type: "string", enum: ["low", "normal", "high", "urgent"] },
               is_complaint: { type: "boolean" },
               is_chargeable: { type: "boolean" },
