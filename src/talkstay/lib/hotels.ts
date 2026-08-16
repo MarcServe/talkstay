@@ -117,6 +117,39 @@ export interface Hotel {
   max_devices_per_room?: number;
   /** Marketing partner / referral code from signup (?ref=). */
   referral_code?: string | null;
+  created_at?: string;
+}
+
+/** Persist which property the dashboard is showing (per auth user). */
+export function activeHotelStorageKey(userId: string) {
+  return `talkstay:activeHotel:${userId}`;
+}
+
+export function readActiveHotelId(userId: string): string | null {
+  try {
+    return localStorage.getItem(activeHotelStorageKey(userId));
+  } catch {
+    return null;
+  }
+}
+
+export function writeActiveHotelId(userId: string, hotelId: string) {
+  try {
+    localStorage.setItem(activeHotelStorageKey(userId), hotelId);
+  } catch { /* ignore */ }
+}
+
+export function pickAccessibleProperty(
+  hotels: AccessibleProperty[],
+  preferredId?: string | null,
+): AccessibleProperty | null {
+  if (!hotels.length) return null;
+  if (preferredId) {
+    const hit = hotels.find((h) => h.hotel.id === preferredId);
+    if (hit) return hit;
+  }
+  const owned = hotels.filter((h) => h.isOwner);
+  return owned[0] ?? hotels[0];
 }
 
 export interface Room {
@@ -277,8 +310,20 @@ function slugify(name: string): string {
   return `${base}-${suffix}`;
 }
 
+export interface AccessibleProperty {
+  hotel: Hotel;
+  isOwner: boolean;
+  role: "owner" | "manager" | "staff";
+  /** null = all departments; otherwise this member only works one team. */
+  departmentKey: string | null;
+  name: string | null;
+}
+
 export interface HotelAccess {
+  /** Active property (first owned / preferred). Prefer picking from `hotels` in the UI. */
   hotel: Hotel | null;
+  /** Every property this user owns or staffs — for switcher + portfolio insights. */
+  hotels: AccessibleProperty[];
   isOwner: boolean;
   role: "owner" | "manager" | "staff" | null;
   /** null = all departments; otherwise this member only works one team. */
@@ -287,25 +332,35 @@ export interface HotelAccess {
 }
 
 /**
- * Resolve the current user's hotel AND what they may see.
- * Owners get their own hotel; DEPARTMENT STAFF resolve theirs via ts_staff
- * membership (previously they saw the "create your hotel" screen and were
- * locked out entirely).
+ * Resolve the current user's hotels AND what they may see.
+ * Owners get every hotel they own; staff get each membership (managers see
+ * everything at that property; department staff are scoped to their team).
  */
 export async function getMyAccess(): Promise<HotelAccess> {
-  const none: HotelAccess = { hotel: null, isOwner: false, role: null, departmentKey: null, name: null };
+  const none: HotelAccess = {
+    hotel: null, hotels: [], isOwner: false, role: null, departmentKey: null, name: null,
+  };
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return none;
 
-  // 1. Owner? (ts_hotels.user_id must match THIS auth user — Google vs email
-  //    password can be different auth.users rows even with the same email.)
+  const byId = new Map<string, AccessibleProperty>();
+
+  // 1. Owned properties (ts_hotels.user_id — Google vs email can be different auth rows).
   const { data: owned, error: ownedErr } = await supabase
     .from("ts_hotels").select("*").eq("user_id", user.id)
-    .order("created_at", { ascending: true }).limit(1).maybeSingle();
+    .order("created_at", { ascending: true });
   if (ownedErr) throw ownedErr;
-  if (owned) return { hotel: owned as Hotel, isOwner: true, role: "owner", departmentKey: null, name: null };
+  for (const row of (owned ?? []) as Hotel[]) {
+    byId.set(row.id, {
+      hotel: row,
+      isOwner: true,
+      role: "owner",
+      departmentKey: null,
+      name: null,
+    });
+  }
 
-  // 2. Staff member? (managers see everything; staff are scoped to their team)
+  // 2. Staff memberships (managers see everything; staff scoped to their team).
   const { data: memberships, error: staffErr } = await supabase
     .from("ts_staff")
     .select("hotel_id, role, department_key, name, status")
@@ -314,33 +369,69 @@ export async function getMyAccess(): Promise<HotelAccess> {
   const rows = (memberships ?? []) as Array<{
     hotel_id: string; role: string; department_key: string | null; name: string | null; status: string;
   }>;
-  if (rows.length === 0) return none;
 
-  const manager = rows.find((r) => r.role === "manager" || r.role === "owner");
-  const chosen = manager ?? rows[0];
-  const { data: hotel, error: hotelErr } = await supabase
-    .from("ts_hotels").select("*").eq("id", chosen.hotel_id).maybeSingle();
-  if (hotelErr) throw hotelErr;
-  if (!hotel) {
-    // Membership exists but the property row is missing — treat as invited staff
-    // with no dashboard, not as a brand-new owner.
-    return {
-      hotel: null, isOwner: false,
-      role: (chosen.role as HotelAccess["role"]) ?? "staff",
-      departmentKey: chosen.department_key, name: chosen.name ?? null,
-    };
+  const staffHotelIds = [...new Set(rows.map((r) => r.hotel_id).filter((id) => !byId.has(id)))];
+  if (staffHotelIds.length) {
+    const { data: staffHotels, error: hotelErr } = await supabase
+      .from("ts_hotels").select("*").in("id", staffHotelIds);
+    if (hotelErr) throw hotelErr;
+    const hotelMap = new Map((staffHotels ?? []).map((h) => [h.id, h as Hotel]));
+
+    for (const hotelId of staffHotelIds) {
+      const hotel = hotelMap.get(hotelId);
+      const forHotel = rows.filter((r) => r.hotel_id === hotelId);
+      const manager = forHotel.find((r) => r.role === "manager" || r.role === "owner");
+      const chosen = manager ?? forHotel[0];
+      if (!hotel) {
+        // Membership exists but the property row is missing — skip for switcher.
+        continue;
+      }
+      const depts = forHotel.map((r) => r.department_key);
+      const departmentKey = manager || depts.length !== 1 ? null : depts[0];
+      byId.set(hotelId, {
+        hotel,
+        isOwner: false,
+        role: (chosen.role as AccessibleProperty["role"]) ?? "staff",
+        departmentKey,
+        name: chosen.name ?? null,
+      });
+    }
   }
 
-  // A member listed under several departments works across them → treat as all.
-  const depts = rows.filter((r) => r.hotel_id === chosen.hotel_id).map((r) => r.department_key);
-  const departmentKey = manager || depts.length !== 1 ? null : depts[0];
+  const hotels = [...byId.values()].sort((a, b) => {
+    // Owners first (creation order preserved via created_at), then staff A–Z.
+    if (a.isOwner !== b.isOwner) return a.isOwner ? -1 : 1;
+    if (a.isOwner && b.isOwner) {
+      return String(a.hotel.created_at ?? "").localeCompare(String(b.hotel.created_at ?? ""));
+    }
+    return a.hotel.name.localeCompare(b.hotel.name, undefined, { sensitivity: "base" });
+  });
+
+  if (hotels.length === 0) {
+    // Invited staff whose hotel row vanished — preserve role so UI shows NoAccess.
+    if (rows.length) {
+      const chosen = rows.find((r) => r.role === "manager" || r.role === "owner") ?? rows[0];
+      return {
+        hotel: null,
+        hotels: [],
+        isOwner: false,
+        role: (chosen.role as HotelAccess["role"]) ?? "staff",
+        departmentKey: chosen.department_key,
+        name: chosen.name ?? null,
+      };
+    }
+    return none;
+  }
+
+  const primary = hotels.find((h) => h.isOwner) ?? hotels[0];
 
   return {
-    hotel: hotel as Hotel,
-    isOwner: false,
-    role: (chosen.role as HotelAccess["role"]) ?? "staff",
-    departmentKey,
-    name: chosen.name ?? null,
+    hotel: primary.hotel,
+    hotels,
+    isOwner: primary.isOwner,
+    role: primary.role,
+    departmentKey: primary.departmentKey,
+    name: primary.name,
   };
 }
 

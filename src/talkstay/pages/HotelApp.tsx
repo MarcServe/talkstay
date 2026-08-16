@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import {
-  Loader2, LogOut, Bell, Menu, X, ChevronDown, Phone,
+  Loader2, Bell, Menu, X, Phone,
   Inbox, BarChart3, QrCode, Building2, BookOpen, Users, Palette, LifeBuoy, UserRound,
 } from "lucide-react";
 import { enablePush, pushSupported } from "@/talkstay/lib/push";
@@ -26,12 +26,13 @@ import StaffAlertsHost from "@/talkstay/components/StaffAlertsHost";
 import InstallAppBanner from "@/talkstay/components/InstallAppBanner";
 import NoIndexMeta from "@/talkstay/components/NoIndexMeta";
 import AccountPanel from "@/talkstay/components/AccountPanel";
-import { createHotel, ingestHotelWebsite, DEPARTMENTS, type Hotel, type PropertyProfile } from "@/talkstay/lib/hotels";
+import { createHotel, ingestHotelWebsite, DEPARTMENTS, type Hotel, type PropertyProfile, type AccessibleProperty, pickAccessibleProperty, readActiveHotelId, writeActiveHotelId } from "@/talkstay/lib/hotels";
 import { talkstayKeys } from "@/talkstay/lib/data";
 import {
   useHotelAccess, usePrefetchHotelData, invalidateOps,
 } from "@/talkstay/hooks/useTalkStayQueries";
 import PropertyProfileFields from "@/talkstay/components/PropertyProfileFields";
+import PropertySwitcher from "@/talkstay/components/PropertySwitcher";
 import { normalizeReferralCode } from "@/talkstay/lib/partners";
 
 const StaffPanel = lazy(() => import("@/talkstay/components/StaffPanel"));
@@ -40,22 +41,36 @@ const NAV = [
   // `admin: true` = owner/manager only. Department staff see Operations + Log order.
   { key: "operations", label: "Operations", icon: Inbox, admin: false, desc: "Live queue — search a room or public area to open tickets fast. Guest-app requests land here automatically." },
   { key: "log_order", label: "Log order", icon: Phone, admin: false, desc: "Only for phone, walk-in or front-desk calls that aren’t already on the board. Use Public QR areas for lobby, bar, restaurant, and walk-ups." },
-  { key: "insights", label: "Insights", icon: BarChart3, admin: true, desc: "Analytics board plus business intelligence — click charts to filter the brief and records." },
+  { key: "insights", label: "Insights", icon: BarChart3, admin: true, desc: "Analytics and business intelligence for this property — or across your portfolio when you own more than one." },
   { key: "rooms", label: "Rooms & QR", icon: QrCode, admin: true, desc: "Add rooms or named units and print the QR guests scan. Mark lobby/bar/spa as Public QR for walk-ins." },
   { key: "branding", label: "Branding", icon: Palette, admin: true, desc: "Logo, colour, property profile (type/address/scale), and the printable poster." },
   { key: "departments", label: "Departments", icon: Building2, admin: true, desc: "Teams, routing rules and per-department notifications." },
   { key: "knowledge", label: "Knowledge", icon: BookOpen, admin: true, desc: "What the assistant knows — website, documents and property info." },
   { key: "staff", label: "Staff", icon: Users, admin: true, desc: "Invite your team and manage their roles and access." },
-  { key: "account", label: "Account", icon: UserRound, admin: false, desc: "Your profile and Direct Support — partner-routed when your property has a referral." },
+  { key: "account", label: "Account", icon: UserRound, admin: false, desc: "Your email, role, Direct Support, and sign out." },
 ] as const;
 type NavKey = (typeof NAV)[number]["key"];
 
-function CreateHotel({ onCreated }: { onCreated: (h: Hotel) => void }) {
+function CreateHotel({
+  onCreated,
+  onCancel,
+  asAdditional,
+  portfolioSize,
+}: {
+  onCreated: (h: Hotel) => void;
+  onCancel?: () => void;
+  /** True when owner already has ≥1 property and is adding another. */
+  asAdditional?: boolean;
+  /** Current owned property count — used to seed the new profile's portfolio size. */
+  portfolioSize?: number;
+}) {
   const [searchParams] = useSearchParams();
   const [name, setName] = useState("");
   const [website, setWebsite] = useState("");
   const [language, setLanguage] = useState("English");
-  const [property, setProperty] = useState<PropertyProfile>({ property_count: 1 });
+  const [property, setProperty] = useState<PropertyProfile>({
+    property_count: asAdditional ? Math.max(2, (portfolioSize ?? 1) + 1) : 1,
+  });
   const [referralCode, setReferralCode] = useState(
     () => normalizeReferralCode(searchParams.get("ref")) ?? "",
   );
@@ -103,7 +118,7 @@ function CreateHotel({ onCreated }: { onCreated: (h: Hotel) => void }) {
           toast.message("Property created. Website scrape didn't finish — you can run it from the Content section.");
         }
       } else {
-        toast.success("Property created");
+        toast.success(asAdditional ? "Property added to your portfolio" : "Property created");
       }
       onCreated(hotel);
     } catch (err: any) {
@@ -118,10 +133,13 @@ function CreateHotel({ onCreated }: { onCreated: (h: Hotel) => void }) {
     <div data-talkstay className="ts-atmosphere flex min-h-screen items-center justify-center px-4 py-10">
       <div className="ts-glass-strong w-full max-w-lg rounded-2xl border p-8">
         <div className="mb-1 text-lg font-semibold">TalkStay</div>
-        <h1 className="text-2xl font-semibold tracking-tight">Create your property</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">
+          {asAdditional ? "Add another property" : "Create your property"}
+        </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Sets up your guest assistant, knowledge base and the standard service departments.
-          A little context on type and scale helps Insights give better business advice.
+          {asAdditional
+            ? "Each property gets its own rooms, QR codes, departments and knowledge. Switch between them in the sidebar; Insights can aggregate across your portfolio."
+            : "Sets up your guest assistant, knowledge base and the standard service departments. A little context on type and scale helps Insights give better business advice."}
         </p>
         <form onSubmit={submit} className="mt-6 space-y-4">
           <div className="space-y-1.5">
@@ -156,9 +174,16 @@ function CreateHotel({ onCreated }: { onCreated: (h: Hotel) => void }) {
               Prefills from a ?ref= link when present. Used to route Support to your partner when one is assigned.
             </p>
           </div>
-          <Button type="submit" disabled={busy} className="w-full">
-            {busy ? (stage || "Creating…") : "Create property"}
-          </Button>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            {onCancel && (
+              <Button type="button" variant="outline" className="sm:flex-1" disabled={busy} onClick={onCancel}>
+                Cancel
+              </Button>
+            )}
+            <Button type="submit" disabled={busy} className={onCancel ? "sm:flex-1" : "w-full"}>
+              {busy ? (stage || "Creating…") : asAdditional ? "Add property" : "Create property"}
+            </Button>
+          </div>
         </form>
       </div>
     </div>
@@ -185,7 +210,7 @@ function NoAccess({ email }: { email?: string | null }) {
   );
 }
 
-function Panel({ active, hotel, onHotel, departmentKey, focusRequestId, onOpenRequest, identity }: {
+function Panel({ active, hotel, onHotel, departmentKey, focusRequestId, onOpenRequest, identity, portfolioHotels }: {
   active: NavKey;
   hotel: Hotel;
   onHotel: (h: Hotel) => void;
@@ -193,6 +218,8 @@ function Panel({ active, hotel, onHotel, departmentKey, focusRequestId, onOpenRe
   focusRequestId?: string | null;
   onOpenRequest?: (requestId: string) => void;
   identity: { email?: string | null; displayName: string; roleLabel: string };
+  /** Other properties the owner can aggregate Insights across. */
+  portfolioHotels?: Hotel[];
 }) {
   const qc = useQueryClient();
   switch (active) {
@@ -212,7 +239,9 @@ function Panel({ active, hotel, onHotel, departmentKey, focusRequestId, onOpenRe
         onOpenRequest={onOpenRequest}
       />
     );
-    case "insights": return <InsightsPanel hotel={hotel} />;
+    case "insights": return (
+      <InsightsPanel hotel={hotel} portfolioHotels={portfolioHotels} />
+    );
     case "rooms": return <RoomsPanel hotel={hotel} onHotel={onHotel} />;
     case "branding": return <BrandingPanel hotel={hotel} onSaved={(b) => onHotel({ ...hotel, branding: b })} />;
     case "departments": return <DepartmentsPanel hotel={hotel} />;
@@ -240,6 +269,8 @@ export default function HotelApp() {
   const { data: access, isPending: loadingHotel, isError, error, refetch: refetchAccess } =
     useHotelAccess(user?.id);
   const [hotel, setHotel] = useState<Hotel | null>(null);
+  const [membership, setMembership] = useState<AccessibleProperty | null>(null);
+  const [addingProperty, setAddingProperty] = useState(false);
   usePrefetchHotelData(hotel?.id);
 
   const tabParam = searchParams.get("tab");
@@ -259,12 +290,25 @@ export default function HotelApp() {
     if (isError && error) toast.error(error.message ?? "Failed to load property");
   }, [isError, error]);
 
-  // Keep local hotel in sync with cached access (create / login), without
-  // wiping in-session edits until access actually changes.
+  // Resolve active property from access list + persisted preference.
   useEffect(() => {
-    if (access?.hotel) setHotel(access.hotel);
-    else if (!loadingHotel) setHotel(null);
-  }, [access?.hotel, loadingHotel]);
+    if (!access) return;
+    const list = access.hotels ?? [];
+    if (!list.length) {
+      if (!loadingHotel) {
+        setHotel(null);
+        setMembership(null);
+      }
+      return;
+    }
+    const preferred = user?.id ? readActiveHotelId(user.id) : null;
+    const picked = pickAccessibleProperty(list, preferred)
+      ?? pickAccessibleProperty(list, access.hotel?.id)
+      ?? list[0];
+    setHotel(picked.hotel);
+    setMembership(picked);
+    if (user?.id) writeActiveHotelId(user.id, picked.hotel.id);
+  }, [access, loadingHotel, user?.id]);
 
   // A password-reset or team-invite link exchanges its code into a real
   // session immediately — but the person hasn't chosen a password yet. Keep
@@ -280,6 +324,34 @@ export default function HotelApp() {
     );
   }
   if (!user) return <AuthPage />;
+
+  const properties = access?.hotels ?? [];
+  const ownsAny = properties.some((p) => p.isOwner);
+
+  if (addingProperty && ownsAny) {
+    return (
+      <CreateHotel
+        asAdditional
+        portfolioSize={properties.filter((p) => p.isOwner).length}
+        onCancel={() => setAddingProperty(false)}
+        onCreated={(h) => {
+          writeActiveHotelId(user.id, h.id);
+          setHotel(h);
+          setMembership({
+            hotel: h,
+            isOwner: true,
+            role: "owner",
+            departmentKey: null,
+            name: null,
+          });
+          setAddingProperty(false);
+          void qc.invalidateQueries({ queryKey: talkstayKeys.access(user.id) });
+          void refetchAccess();
+        }}
+      />
+    );
+  }
+
   // Invited staff without a property → ask manager. Everyone else with no
   // hotel yet (incl. owners who haven't created one) → create-property screen.
   // IMPORTANT: `isOwner: false` alone is NOT "staff" — getMyAccess returns that
@@ -290,7 +362,15 @@ export default function HotelApp() {
     return (
       <CreateHotel
         onCreated={(h) => {
+          writeActiveHotelId(user.id, h.id);
           setHotel(h);
+          setMembership({
+            hotel: h,
+            isOwner: true,
+            role: "owner",
+            departmentKey: null,
+            name: null,
+          });
           void qc.invalidateQueries({ queryKey: talkstayKeys.access(user.id) });
           void refetchAccess();
         }}
@@ -298,17 +378,19 @@ export default function HotelApp() {
     );
   }
 
-  const isAdmin = access?.isOwner || access?.role === "manager" || access?.role === "owner";
+  const isAdmin = !!(membership?.isOwner || membership?.role === "manager" || membership?.role === "owner");
   const visibleNav = NAV.filter((n) => isAdmin || !n.admin);
   // Front Desk / Duty Manager coordinate across teams — same hotel-wide ops view as managers.
-  const staffDept = isAdmin ? null : access?.departmentKey ?? null;
+  const staffDept = isAdmin ? null : membership?.departmentKey ?? null;
   const lockedDepartment =
     staffDept === "front_desk" || staffDept === "duty_manager" ? null : staffDept;
-  const roleLabel = isAdmin
-    ? (access?.isOwner ? "Owner" : "Manager")
-    : (staffDept
-      ? `${DEPARTMENTS.find((d) => d.key === staffDept)?.display_name ?? staffDept} team`
-      : "Staff");
+  const roleLabel = membership?.isOwner || membership?.role === "owner"
+    ? "Owner"
+    : membership?.role === "manager"
+      ? "Manager"
+      : (staffDept
+        ? `${DEPARTMENTS.find((d) => d.key === staffDept)?.display_name ?? staffDept} team`
+        : "Staff");
 
   // A department member should never sit on an admin tab (e.g. after a refresh).
   const effectiveActive: NavKey = visibleNav.some((n) => n.key === active) ? active : "operations";
@@ -325,8 +407,20 @@ export default function HotelApp() {
     }
   };
 
-  const identityName = access?.name || user?.email?.split("@")[0] || "You";
+  const selectProperty = (p: AccessibleProperty) => {
+    if (p.hotel.id === hotel.id) return;
+    writeActiveHotelId(user.id, p.hotel.id);
+    setHotel(p.hotel);
+    setMembership(p);
+    setFocusRequestId(null);
+    setActive("operations");
+    setNavOpen(false);
+    toast.message(`Switched to ${p.hotel.name}`);
+  };
+
+  const identityName = membership?.name || access?.name || user?.email?.split("@")[0] || "You";
   const identityInitial = identityName.trim().charAt(0).toUpperCase() || "?";
+  const portfolioHotels = properties.filter((p) => p.isOwner).map((p) => p.hotel);
 
   const SidebarBody = (
     <div className="flex h-full flex-col bg-[#15111f] text-white/70">
@@ -340,27 +434,57 @@ export default function HotelApp() {
         </button>
       </div>
 
-      <div className="mx-3 mb-2 flex items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5">
-        <div className="min-w-0">
-          <div className="truncate text-sm font-medium text-white">{hotel.name}</div>
-          <div className="text-xs text-white/50">{roleLabel}</div>
-        </div>
-        <ChevronDown className="h-4 w-4 shrink-0 text-white/40" />
-      </div>
+      <PropertySwitcher
+        properties={properties.length ? properties : [{
+          hotel,
+          isOwner: !!membership?.isOwner,
+          role: (membership?.role ?? "owner") as AccessibleProperty["role"],
+          departmentKey: membership?.departmentKey ?? null,
+          name: membership?.name ?? null,
+        }]}
+        activeId={hotel.id}
+        roleLabel={roleLabel}
+        canAdd={ownsAny || !!membership?.isOwner || membership?.role === "owner"}
+        onSelect={selectProperty}
+        onAdd={() => {
+          setNavOpen(false);
+          setAddingProperty(true);
+        }}
+      />
 
       <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3">
-        {visibleNav.map(({ key, label, icon: Icon }) => (
-          <button
-            key={key}
-            onClick={() => go(key)}
-            className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-              effectiveActive === key ? "bg-violet-600 text-white" : "text-white/60 hover:bg-white/5 hover:text-white"
-            }`}
-          >
-            <Icon className="h-4 w-4 shrink-0" />
-            {label}
-          </button>
-        ))}
+        {visibleNav.map(({ key, label, icon: Icon }) => {
+          const isAccount = key === "account";
+          return (
+            <button
+              key={key}
+              onClick={() => go(key)}
+              className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors ${
+                effectiveActive === key ? "bg-violet-600 text-white" : "text-white/60 hover:bg-white/5 hover:text-white"
+              }`}
+            >
+              {isAccount ? (
+                <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
+                  effectiveActive === key ? "bg-white/20 text-white" : "bg-violet-600/30 text-violet-200"
+                }`}>
+                  {identityInitial}
+                </div>
+              ) : (
+                <Icon className="h-4 w-4 shrink-0" />
+              )}
+              <span className="min-w-0 flex-1">
+                <span className="block truncate">{label}</span>
+                {isAccount && user?.email && (
+                  <span className={`block truncate text-[11px] font-normal ${
+                    effectiveActive === key ? "text-white/75" : "text-white/40"
+                  }`}>
+                    {user.email}
+                  </span>
+                )}
+              </span>
+            </button>
+          );
+        })}
       </nav>
 
       <div className="space-y-1 border-t border-white/10 p-3">
@@ -403,37 +527,6 @@ export default function HotelApp() {
             <Bell className="h-4 w-4" /> Enable alert sounds
           </button>
         )}
-        <button
-          type="button"
-          onClick={() => go("account")}
-          className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left transition-colors ${
-            effectiveActive === "account" ? "bg-white/10" : "hover:bg-white/5"
-          }`}
-        >
-          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-violet-600/30 text-xs font-semibold text-violet-200">
-            {identityInitial}
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-medium text-white">{identityName}</div>
-            <div className="truncate text-xs text-white/40">{user?.email}</div>
-          </div>
-          <span
-            role="button"
-            tabIndex={0}
-            onClick={(e) => { e.stopPropagation(); void supabase.auth.signOut(); }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.stopPropagation();
-                void supabase.auth.signOut();
-              }
-            }}
-            aria-label="Sign out"
-            title="Sign out"
-            className="shrink-0"
-          >
-            <LogOut className="h-4 w-4 text-white/40 hover:text-white" />
-          </span>
-        </button>
       </div>
     </div>
   );
@@ -484,6 +577,7 @@ export default function HotelApp() {
               onHotel={setHotel}
               departmentKey={lockedDepartment}
               focusRequestId={focusRequestId}
+              portfolioHotels={portfolioHotels}
               identity={{
                 email: user?.email,
                 displayName: identityName,
