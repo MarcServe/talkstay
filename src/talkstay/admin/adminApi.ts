@@ -323,9 +323,13 @@ function suggestCharge(
 export async function loadUsageSummary(opts: {
   days?: number;
   hotelId?: string;
+  page?: number;
+  pageSize?: number;
 }): Promise<Record<string, unknown>> {
   const days = Math.max(1, Math.min(366, opts.days || 30));
   const hotelId = opts.hotelId?.trim() || "";
+  const page = Math.max(1, Math.floor(opts.page || 1));
+  const pageSize = Math.min(100, Math.max(1, Math.floor(opts.pageSize || 50)));
   const action = hotelId ? "usage_hotel" : "usage_summary";
 
   const until = new Date();
@@ -335,6 +339,8 @@ export async function loadUsageSummary(opts: {
 
   const edge = await tryAdminApi<Record<string, unknown>>(action, {
     days,
+    page,
+    pageSize,
     ...(hotelId ? { hotelId } : {}),
   });
 
@@ -342,7 +348,7 @@ export async function loadUsageSummary(opts: {
   if (edge) {
     payload = { ...edge, via: "edge" };
   } else {
-    payload = await loadUsageSummaryDirect({ days, hotelId, sinceIso, untilIso });
+    payload = await loadUsageSummaryDirect({ days, hotelId, sinceIso, untilIso, page, pageSize });
   }
 
   const hotelList = Array.isArray(payload.hotels) ? (payload.hotels as any[]) : [];
@@ -352,13 +358,84 @@ export async function loadUsageSummary(opts: {
   return enrichUsageWithPartnerCommission(withLlm);
 }
 
+async function enrichUsageWithPartnerCommission(
+  payload: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const settingsRes = await loadPlatformSettings();
+  const partners = applyPartnersSettings(settingsRes.settings.partners);
+  const hotels = Array.isArray(payload.hotels) ? (payload.hotels as any[]) : [];
+
+  // If edge omitted referral_code, fetch for these hotels.
+  const needCodes = hotels.some((h) => h.referral_code === undefined);
+  const codeById = new Map<string, string | null>();
+  if (needCodes && hotels.length) {
+    const ids = hotels.map((h) => h.hotel_id).filter(Boolean);
+    for (let i = 0; i < ids.length; i += 80) {
+      const chunk = ids.slice(i, i + 80);
+      const { data } = await supabase
+        .from("ts_hotels")
+        .select("id, referral_code")
+        .in("id", chunk);
+      for (const row of data ?? []) {
+        codeById.set(row.id, row.referral_code ?? null);
+      }
+    }
+  }
+
+  const enriched = hotels.map((h) => {
+    const referral_code = h.referral_code !== undefined
+      ? h.referral_code
+      : (codeById.get(h.hotel_id) ?? null);
+    const suggested = Number(h.charge?.suggested) || 0;
+    const { pct, amount, partner } = partnerCommissionAmount(suggested, referral_code, partners);
+    return {
+      ...h,
+      referral_code: referral_code ?? null,
+      partner: partner
+        ? { code: String(referral_code), name: partner.name, email: partner.email, commission_pct: pct }
+        : null,
+      partner_commission: {
+        pct,
+        amount,
+        currency: h.charge?.currency ?? (payload.totals as any)?.currency ?? "GBP",
+      },
+    };
+  });
+
+  const partnerTotal = Math.round(
+    enriched.reduce((s, h) => s + (Number(h.partner_commission?.amount) || 0), 0) * 100,
+  ) / 100;
+  const referredHotels = enriched.filter((h) => h.partner).length;
+
+  const totals = {
+    ...((payload.totals as object) ?? {}),
+    partner_commission: partnerTotal,
+    referred_hotels: referredHotels,
+  };
+
+  const hotelId = (payload as any).hotel?.hotel_id;
+  return {
+    ...payload,
+    partners,
+    hotels: enriched,
+    hotel: hotelId
+      ? enriched.find((h) => h.hotel_id === hotelId) ?? (payload as any).hotel
+      : (payload as any).hotel,
+    totals,
+  };
+}
+
 async function loadUsageSummaryDirect(opts: {
   days: number;
   hotelId: string;
   sinceIso: string;
   untilIso: string;
+  page: number;
+  pageSize: number;
 }): Promise<Record<string, unknown>> {
-  const { days, hotelId, sinceIso, untilIso } = opts;
+  const { days, hotelId, sinceIso, untilIso, page, pageSize } = opts;
+  const from = (page - 1) * pageSize;
+  const to = from + pageSize - 1;
 
   const settingsRes = await loadPlatformSettings();
   const billing: BillingCfg = {
@@ -368,24 +445,34 @@ async function loadUsageSummaryDirect(opts: {
 
   let hotelQuery = supabase
     .from("ts_hotels")
-    .select("id, name, slug, is_active, billing_mode, billing_notes, billing_rates, referral_code, created_at")
-    .order("name")
-    .limit(500);
+    .select("id, name, slug, is_active, billing_mode, billing_notes, billing_rates, referral_code, created_at", { count: "exact" })
+    .order("name");
   if (hotelId) hotelQuery = hotelQuery.eq("id", hotelId);
-  else if (!billing.include_inactive_hotels) hotelQuery = hotelQuery.eq("is_active", true);
+  else {
+    if (!billing.include_inactive_hotels) hotelQuery = hotelQuery.eq("is_active", true);
+    hotelQuery = hotelQuery.range(from, to);
+  }
 
-  let { data: hotels, error: hotelsErr } = await hotelQuery;
+  let { data: hotels, error: hotelsErr, count: hotelsTotal } = await hotelQuery;
   if (hotelsErr) {
-    let fb = supabase.from("ts_hotels").select("id, name, slug, is_active, created_at").order("name").limit(500);
+    let fb = supabase
+      .from("ts_hotels")
+      .select("id, name, slug, is_active, created_at", { count: "exact" })
+      .order("name");
     if (hotelId) fb = fb.eq("id", hotelId);
-    else if (!billing.include_inactive_hotels) fb = fb.eq("is_active", true);
+    else {
+      if (!billing.include_inactive_hotels) fb = fb.eq("is_active", true);
+      fb = fb.range(from, to);
+    }
     const retry = await fb;
     if (retry.error) throw new Error(retry.error.message);
     hotels = retry.data as any;
+    hotelsTotal = retry.count;
   }
 
   const hotelList = hotels ?? [];
   const hotelIds = hotelList.map((h: any) => h.id);
+  const needRoomDetail = !!hotelId;
 
   type Agg = { guest_turns: number; sessions: Set<string>; requests: number };
   const byKey = new Map<string, Agg>();
@@ -436,27 +523,43 @@ async function loadUsageSummaryDirect(opts: {
 
   let rooms: any[] = [];
   let tokens: { room_id: string; token: string }[] = [];
-  if (hotelIds.length) {
+  const roomCountByHotel = new Map<string, number>();
+
+  if (hotelIds.length && needRoomDetail) {
     for (const ids of chunk(hotelIds, 80)) {
-      let roomRes = await supabase
+      let roomData: any[] | null = null;
+      const withPublic = await supabase
         .from("ts_rooms")
         .select("id, hotel_id, room_number, is_active, is_public")
         .in("hotel_id", ids)
         .order("room_number");
-      if (roomRes.error) {
-        roomRes = await supabase
+      if (withPublic.error) {
+        const fallback = await supabase
           .from("ts_rooms")
           .select("id, hotel_id, room_number, is_active")
           .in("hotel_id", ids)
           .order("room_number");
+        roomData = fallback.data as any[] | null;
+      } else {
+        roomData = withPublic.data as any[] | null;
       }
       const tokRes = await supabase
         .from("ts_room_tokens")
         .select("room_id, token")
         .in("hotel_id", ids)
         .eq("is_active", true);
-      rooms = rooms.concat(roomRes.data ?? []);
+      rooms = rooms.concat(roomData ?? []);
       tokens = tokens.concat((tokRes.data as any) ?? []);
+    }
+  } else if (hotelIds.length) {
+    for (const ids of chunk(hotelIds, 80)) {
+      const { data: roomIds } = await supabase
+        .from("ts_rooms")
+        .select("hotel_id")
+        .in("hotel_id", ids);
+      for (const r of roomIds ?? []) {
+        roomCountByHotel.set(r.hotel_id, (roomCountByHotel.get(r.hotel_id) ?? 0) + 1);
+      }
     }
   }
 
@@ -480,50 +583,76 @@ async function loadUsageSummaryDirect(opts: {
       rate_guest_turn: Number(o.rate_guest_turn ?? billing.rate_guest_turn) || 0,
       rate_request: Number(o.rate_request ?? billing.rate_request) || 0,
     };
-    const hotelRooms = roomsByHotel.get(h.id) ?? [];
-    const roomRows = hotelRooms.map((room: any) => {
-      const key = `${h.id}::${room.id}`;
-      const agg = byKey.get(key);
-      const guest_turns = agg?.guest_turns ?? 0;
-      const sessions = agg?.sessions.size ?? 0;
-      const requests = agg?.requests ?? 0;
-      const engaged = sessions > 0 || guest_turns > 0 || requests > 0;
-      const token = tokenByRoom.get(room.id) ?? null;
-      return {
-        room_id: room.id,
-        room_number: room.room_number,
-        is_active: room.is_active,
-        is_public: !!room.is_public,
-        has_qr_token: !!token,
-        token_preview: token ? `${token.slice(0, 8)}…` : null,
-        guest_url: token
-          ? `${PUBLIC_BASE}/h/${encodeURIComponent(h.slug)}/r/${room.id}?token=${encodeURIComponent(token)}`
-          : null,
-        guest_turns,
-        sessions,
-        requests,
-        engaged,
-      };
-    });
 
-    // Orphans
-    let orphanTurns = 0, orphanSessions = 0, orphanRequests = 0;
-    for (const [key, agg] of byKey) {
-      if (!key.startsWith(`${h.id}::`)) continue;
-      const rid = key.slice(h.id.length + 2);
-      if (rid && hotelRooms.some((r: any) => r.id === rid)) continue;
-      orphanTurns += agg.guest_turns;
-      orphanSessions += agg.sessions.size;
-      orphanRequests += agg.requests;
+    if (needRoomDetail) {
+      const hotelRooms = roomsByHotel.get(h.id) ?? [];
+      const roomRows = hotelRooms.map((room: any) => {
+        const key = `${h.id}::${room.id}`;
+        const agg = byKey.get(key);
+        const guest_turns = agg?.guest_turns ?? 0;
+        const sessions = agg?.sessions.size ?? 0;
+        const requests = agg?.requests ?? 0;
+        const engaged = sessions > 0 || guest_turns > 0 || requests > 0;
+        const token = tokenByRoom.get(room.id) ?? null;
+        return {
+          room_id: room.id,
+          room_number: room.room_number,
+          is_active: room.is_active,
+          is_public: !!room.is_public,
+          has_qr_token: !!token,
+          token_preview: token ? `${token.slice(0, 8)}…` : null,
+          guest_url: token
+            ? `${PUBLIC_BASE}/h/${encodeURIComponent(h.slug)}/r/${room.id}?token=${encodeURIComponent(token)}`
+            : null,
+          guest_turns,
+          sessions,
+          requests,
+          engaged,
+        };
+      });
+
+      let orphanTurns = 0, orphanSessions = 0, orphanRequests = 0;
+      for (const [key, agg] of byKey) {
+        if (!key.startsWith(`${h.id}::`)) continue;
+        const rid = key.slice(h.id.length + 2);
+        if (rid && hotelRooms.some((r: any) => r.id === rid)) continue;
+        orphanTurns += agg.guest_turns;
+        orphanSessions += agg.sessions.size;
+        orphanRequests += agg.requests;
+      }
+
+      const guest_turns = roomRows.reduce((s: number, r: any) => s + r.guest_turns, 0) + orphanTurns;
+      const sessions = roomRows.reduce((s: number, r: any) => s + r.sessions, 0) + orphanSessions;
+      const requests = roomRows.reduce((s: number, r: any) => s + r.requests, 0) + orphanRequests;
+      const active_qr = roomRows.filter((r: any) => r.engaged).length;
+      const meters = { active_qr, sessions, guest_turns, requests };
+      const charge = suggestCharge(rates, meters);
+
+      return {
+        hotel_id: h.id,
+        name: h.name,
+        slug: h.slug,
+        is_active: h.is_active,
+        billing_mode: h.billing_mode ?? "subscription",
+        billing_notes: h.billing_notes ?? null,
+        rates,
+        meters,
+        charge,
+        room_count: hotelRooms.length,
+        rooms: roomRows,
+      };
     }
 
-    const guest_turns = roomRows.reduce((s: number, r: any) => s + r.guest_turns, 0) + orphanTurns;
-    const sessions = roomRows.reduce((s: number, r: any) => s + r.sessions, 0) + orphanSessions;
-    const requests = roomRows.reduce((s: number, r: any) => s + r.requests, 0) + orphanRequests;
-    const active_qr = roomRows.filter((r: any) => r.engaged).length;
+    let guest_turns = 0, sessions = 0, requests = 0, active_qr = 0;
+    for (const [key, agg] of byKey) {
+      if (!key.startsWith(`${h.id}::`)) continue;
+      guest_turns += agg.guest_turns;
+      sessions += agg.sessions.size;
+      requests += agg.requests;
+      if (agg.sessions.size > 0 || agg.guest_turns > 0 || agg.requests > 0) active_qr += 1;
+    }
     const meters = { active_qr, sessions, guest_turns, requests };
     const charge = suggestCharge(rates, meters);
-
     return {
       hotel_id: h.id,
       name: h.name,
@@ -535,8 +664,8 @@ async function loadUsageSummaryDirect(opts: {
       rates,
       meters,
       charge,
-      room_count: hotelRooms.length,
-      rooms: hotelId ? roomRows : undefined,
+      room_count: roomCountByHotel.get(h.id) ?? 0,
+      rooms: undefined,
     };
   });
 
@@ -552,16 +681,22 @@ async function loadUsageSummaryDirect(opts: {
     { active_qr: 0, sessions: 0, guest_turns: 0, requests: 0, suggested: 0 },
   );
 
+  const totalHotels = hotelId ? hotelSummaries.length : (hotelsTotal ?? hotelSummaries.length);
+
   return {
     since: sinceIso,
     until: untilIso,
     days,
     billing,
+    page: hotelId ? 1 : page,
+    pageSize: hotelId ? 1 : pageSize,
+    total: totalHotels,
+    totals_scope: "page",
     totals: {
       ...totals,
       suggested: money(totals.suggested),
       currency: billing.currency,
-      hotels: hotelSummaries.length,
+      hotels: totalHotels,
     },
     hotels: hotelSummaries,
     hotel: hotelId ? hotelSummaries[0] ?? null : undefined,

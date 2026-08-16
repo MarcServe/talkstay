@@ -1,29 +1,12 @@
-import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Building2, Inbox, Link2, Loader2, DoorOpen, QrCode, Settings, Sparkles, Users } from "lucide-react";
-import { adminApi } from "@/talkstay/admin/adminApi";
-
-type Overview = {
-  hotels: number;
-  activeHotels: number;
-  staff: number;
-  openRequests: number;
-  liveLinks: number;
-  rooms: number;
-};
+import { useAdminOverview } from "@/talkstay/admin/useAdminQueries";
 
 export default function AdminOverview() {
-  const [data, setData] = useState<Overview | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { data, isLoading, isError, error } = useAdminOverview();
 
-  useEffect(() => {
-    adminApi<Overview>("overview")
-      .then(setData)
-      .catch((e) => setError(e.message));
-  }, []);
-
-  if (error) return <p className="text-sm text-rose-600">{error}</p>;
-  if (!data) {
+  if (isError) return <p className="text-sm text-rose-600">{error instanceof Error ? error.message : "Failed to load"}</p>;
+  if (isLoading || !data) {
     return (
       <div className="flex items-center gap-2 text-muted-foreground">
         <Loader2 className="h-4 w-4 animate-spin" /> Loading overview…
@@ -44,7 +27,7 @@ export default function AdminOverview() {
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Overview</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Platform-wide health for TalkStay properties.
+          Platform-wide health for TalkStay properties (count queries only — cached for 60s).
         </p>
       </div>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

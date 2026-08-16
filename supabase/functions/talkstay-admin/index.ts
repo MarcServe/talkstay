@@ -15,6 +15,15 @@ const json = (body: unknown, status = 200) =>
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 
+/** Page params for admin list endpoints (1-based). Default 50, max 100. */
+function parsePage(body: Record<string, unknown> | null | undefined) {
+  const page = Math.max(1, Math.floor(Number(body?.page) || 1));
+  const pageSize = Math.min(100, Math.max(1, Math.floor(Number(body?.pageSize) || 50)));
+  const from = (page - 1) * pageSize;
+  const to = from + pageSize - 1;
+  return { page, pageSize, from, to };
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -66,25 +75,27 @@ serve(async (req) => {
 
     if (action === "list_hotels") {
       const q = String(body?.q ?? "").trim().toLowerCase();
+      const { page, pageSize, from, to } = parsePage(body);
       const selectFull =
         "id, name, slug, is_active, user_id, created_at, branding, default_language, timezone, require_checkin_code, pulse_enabled, billing_mode, billing_notes, billing_rates, max_devices_per_room";
       const selectBase =
         "id, name, slug, is_active, user_id, created_at, branding, default_language, timezone, require_checkin_code, pulse_enabled";
       let query = admin.from("ts_hotels")
-        .select(selectFull)
+        .select(selectFull, { count: "exact" })
         .order("created_at", { ascending: false })
-        .limit(200);
+        .range(from, to);
       if (q) query = query.or(`name.ilike.%${q}%,slug.ilike.%${q}%`);
-      let { data, error } = await query;
+      let { data, error, count } = await query;
       if (error && /billing_mode|billing_rates|max_devices/i.test(error.message)) {
         let fallback = admin.from("ts_hotels")
-          .select(selectBase)
+          .select(selectBase, { count: "exact" })
           .order("created_at", { ascending: false })
-          .limit(200);
+          .range(from, to);
         if (q) fallback = fallback.or(`name.ilike.%${q}%,slug.ilike.%${q}%`);
         const retry = await fallback;
         data = retry.data;
         error = retry.error;
+        count = retry.count;
       }
       if (error) return json({ error: error.message }, 500);
 
@@ -107,7 +118,7 @@ serve(async (req) => {
         ...h,
         owner: profiles[h.user_id] ?? null,
       }));
-      return json({ hotels });
+      return json({ hotels, page, pageSize, total: count ?? hotels.length });
     }
 
     if (action === "hotel_detail") {
@@ -171,25 +182,25 @@ serve(async (req) => {
     }
 
     if (action === "list_live_links") {
-      const { data, error } = await admin.from("ts_hotel_view_tokens")
-        .select("id, hotel_id, token, label, is_active, expires_at, last_seen_at, created_at, ts_hotels(name, slug)")
+      const { page, pageSize, from, to } = parsePage(body);
+      const { data, error, count } = await admin.from("ts_hotel_view_tokens")
+        .select("id, hotel_id, token, label, is_active, expires_at, last_seen_at, created_at, ts_hotels(name, slug)", { count: "exact" })
         .order("created_at", { ascending: false })
-        .limit(200);
+        .range(from, to);
       if (error) return json({ error: error.message }, 500);
-      return json({
-        links: (data ?? []).map((t: any) => ({
-          id: t.id,
-          hotel_id: t.hotel_id,
-          hotel_name: t.ts_hotels?.name ?? "—",
-          hotel_slug: t.ts_hotels?.slug ?? null,
-          label: t.label,
-          is_active: t.is_active,
-          expires_at: t.expires_at,
-          last_seen_at: t.last_seen_at,
-          created_at: t.created_at,
-          url: `${PUBLIC_BASE_URL}/live/${encodeURIComponent(t.token)}`,
-        })),
-      });
+      const links = (data ?? []).map((t: any) => ({
+        id: t.id,
+        hotel_id: t.hotel_id,
+        hotel_name: t.ts_hotels?.name ?? "—",
+        hotel_slug: t.ts_hotels?.slug ?? null,
+        label: t.label,
+        is_active: t.is_active,
+        expires_at: t.expires_at,
+        last_seen_at: t.last_seen_at,
+        created_at: t.created_at,
+        url: `${PUBLIC_BASE_URL}/live/${encodeURIComponent(t.token)}`,
+      }));
+      return json({ links, page, pageSize, total: count ?? links.length });
     }
 
     if (action === "revoke_live_link") {
@@ -205,22 +216,67 @@ serve(async (req) => {
     if (action === "list_users") {
       const TALKSTAY_BASE = "https://talkstay.talkweb.io";
       const TALKWEB_BASE = "https://talkweb.io";
+      const { page, pageSize, from, to } = parsePage(body);
+      const q = String(body?.q ?? "").trim();
+      const product = String(body?.product ?? "all").trim().toLowerCase();
 
-      const [{ data: profiles, error }, { data: adminRoles }] = await Promise.all([
-        admin.from("profiles")
-          .select("user_id, email, first_name, last_name, company_name, website_url, created_at")
-          .order("created_at", { ascending: false })
-          .limit(500),
-        admin.from("user_roles").select("user_id").eq("role", "admin"),
-      ]);
-      if (error) return json({ error: error.message }, 500);
+      const { data: adminRoles } = await admin.from("user_roles").select("user_id").eq("role", "admin");
       const adminSet = new Set((adminRoles ?? []).map((r) => r.user_id));
+      const adminIds = [...adminSet];
+
+      // Optional product pre-filter (ids only — keeps enrichment scoped to the page)
+      let productUserIds: string[] | null = null;
+      if (product === "admin") {
+        productUserIds = adminIds;
+      } else if (product === "talkstay") {
+        const [{ data: owners }, { data: staff }] = await Promise.all([
+          admin.from("ts_hotels").select("user_id").limit(5000),
+          admin.from("ts_staff").select("user_id").eq("status", "active").limit(8000),
+        ]);
+        productUserIds = [...new Set([
+          ...(owners ?? []).map((r) => r.user_id).filter(Boolean),
+          ...(staff ?? []).map((r) => r.user_id).filter(Boolean),
+        ])];
+      } else if (product === "talkweb") {
+        const { data: assistants } = await admin.from("assistants")
+          .select("user_id")
+          .not("user_id", "is", null)
+          .limit(8000);
+        productUserIds = [...new Set((assistants ?? []).map((a) => a.user_id).filter(Boolean))];
+      } else if (product === "none") {
+        // Profiles with no hotels, staff, or assistants — filter after page enrichment.
+        productUserIds = null;
+      }
+
+      let profileQuery = admin.from("profiles")
+        .select("user_id, email, first_name, last_name, company_name, website_url, created_at", { count: "exact" })
+        .order("created_at", { ascending: false });
+
+      if (q) {
+        profileQuery = profileQuery.or(
+          `email.ilike.%${q}%,first_name.ilike.%${q}%,last_name.ilike.%${q}%,company_name.ilike.%${q}%`,
+        );
+      }
+      if (productUserIds) {
+        if (!productUserIds.length) {
+          return json({ users: [], page, pageSize, total: 0, bases: { talkstay: TALKSTAY_BASE, talkweb: TALKWEB_BASE } });
+        }
+        // PostgREST .in() with huge arrays can fail — chunk filter only when small enough
+        if (productUserIds.length <= 200) {
+          profileQuery = profileQuery.in("user_id", productUserIds);
+        } else {
+          // Large sets: fetch page first without product filter, then filter in memory
+          // (product filter accuracy degrades — prefer admin/talkstay with smaller sets).
+          productUserIds = null;
+        }
+      }
+
+      const { data: profiles, error, count } = await profileQuery.range(from, to);
+      if (error) return json({ error: error.message }, 500);
       const userIds = (profiles ?? []).map((p) => p.user_id).filter(Boolean);
 
-      // TalkStay: owned hotels + staff memberships
       const hotelsByOwner = new Map<string, { id: string; name: string; slug: string; is_active: boolean }[]>();
       const staffByUser = new Map<string, { hotel_id: string; role: string; status: string; name: string | null; slug: string | null }[]>();
-      // TalkWeb: assistants owned by user (shared DB parent product)
       const assistantsByUser = new Map<string, {
         id: string; business_name: string; preview_slug: string | null;
         preview_url: string | null; website_url: string | null;
@@ -273,25 +329,24 @@ serve(async (req) => {
         }
       }
 
-      // Hotels already linked via TalkStay assistant_id — avoid double-counting
-      // pure TalkStay assistants as "TalkWeb only" when they only exist for a hotel.
+      // Only resolve TalkStay-linked assistants for this page (not a global 5k scan)
       const talkstayAssistantIds = new Set<string>();
-      {
+      const pageAssistantIds = [...assistantsByUser.values()].flat().map((a) => a.id);
+      if (pageAssistantIds.length) {
         const { data: linked } = await admin.from("ts_hotels")
           .select("assistant_id")
-          .not("assistant_id", "is", null)
-          .limit(5000);
+          .in("assistant_id", pageAssistantIds)
+          .limit(2000);
         for (const row of linked ?? []) {
           if (row.assistant_id) talkstayAssistantIds.add(row.assistant_id);
         }
       }
 
-      const users = (profiles ?? []).map((p) => {
+      let users = (profiles ?? []).map((p) => {
         const owned = hotelsByOwner.get(p.user_id) ?? [];
         const staffed = staffByUser.get(p.user_id) ?? [];
         const allAssistants = assistantsByUser.get(p.user_id) ?? [];
         const talkwebAssistants = allAssistants.filter((a) => !talkstayAssistantIds.has(a.id));
-        // Assistants that power a TalkStay hotel still show as TalkStay context.
         const talkstayAssistants = allAssistants.filter((a) => talkstayAssistantIds.has(a.id));
 
         const products: string[] = [];
@@ -320,7 +375,6 @@ serve(async (req) => {
             role: "dashboard",
           });
         }
-        // Staff memberships on hotels they don't own
         const ownedIds = new Set(owned.map((h) => h.id));
         for (const s of staffed) {
           if (ownedIds.has(s.hotel_id)) continue;
@@ -360,8 +414,18 @@ serve(async (req) => {
         };
       });
 
+      // Post-filter for "none" / "talkweb" when we couldn't pre-filter cheaply
+      if (product === "none") {
+        users = users.filter((u) => (u.products ?? []).includes("none"));
+      } else if (product === "talkweb") {
+        users = users.filter((u) => (u.products ?? []).includes("talkweb"));
+      }
+
       return json({
         users,
+        page,
+        pageSize,
+        total: count ?? users.length,
         bases: { talkstay: TALKSTAY_BASE, talkweb: TALKWEB_BASE },
       });
     }
@@ -582,27 +646,34 @@ serve(async (req) => {
           }
         }
 
-        // Hotels — tolerate missing billing columns (migration not applied yet)
+        // Hotels — paginate platform summary; full detail only for usage_hotel
+        const { page, pageSize, from, to } = parsePage(body);
         let hotels: any[] | null = null;
+        let hotelsTotal = 0;
         {
           let q = admin.from("ts_hotels")
-            .select("id, name, slug, is_active, billing_mode, billing_notes, billing_rates, created_at")
-            .order("name")
-            .limit(500);
+            .select("id, name, slug, is_active, billing_mode, billing_notes, billing_rates, created_at", { count: "exact" })
+            .order("name");
           if (hotelIdFilter) q = q.eq("id", hotelIdFilter);
-          else if (!billing.include_inactive_hotels) q = q.eq("is_active", true);
+          else {
+            if (!billing.include_inactive_hotels) q = q.eq("is_active", true);
+            q = q.range(from, to);
+          }
           let res = await q;
           if (res.error) {
             let q2 = admin.from("ts_hotels")
-              .select("id, name, slug, is_active, created_at")
-              .order("name")
-              .limit(500);
+              .select("id, name, slug, is_active, created_at", { count: "exact" })
+              .order("name");
             if (hotelIdFilter) q2 = q2.eq("id", hotelIdFilter);
-            else if (!billing.include_inactive_hotels) q2 = q2.eq("is_active", true);
+            else {
+              if (!billing.include_inactive_hotels) q2 = q2.eq("is_active", true);
+              q2 = q2.range(from, to);
+            }
             res = await q2;
           }
           if (res.error) return json({ error: res.error.message }, 500);
           hotels = res.data ?? [];
+          hotelsTotal = res.count ?? hotels.length;
         }
 
         type RollRow = {
@@ -705,10 +776,14 @@ serve(async (req) => {
           });
         }
 
+        // Room + token metadata only for single-hotel detail (platform list uses rollup only)
+        const needRoomDetail = action === "usage_hotel" || !!hotelIdFilter;
         const hotelIds = (hotels ?? []).map((h) => h.id);
         let rooms: { id: string; hotel_id: string; room_number: string; is_active: boolean; is_public?: boolean }[] = [];
         let tokens: { room_id: string; token: string; is_active: boolean }[] = [];
-        if (hotelIds.length) {
+        const roomCountByHotel = new Map<string, number>();
+
+        if (hotelIds.length && needRoomDetail) {
           const chunk = <T,>(arr: T[], size: number) => {
             const out: T[][] = [];
             for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
@@ -731,6 +806,21 @@ serve(async (req) => {
               .eq("is_active", true);
             rooms = rooms.concat((roomRes.data as any) ?? []);
             tokens = tokens.concat((tokenRes.data as any) ?? []);
+          }
+        } else if (hotelIds.length) {
+          // Lightweight room counts for the list page only
+          const chunk = <T,>(arr: T[], size: number) => {
+            const out: T[][] = [];
+            for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+            return out;
+          };
+          for (const ids of chunk(hotelIds, 80)) {
+            const { data: roomIds } = await admin.from("ts_rooms")
+              .select("hotel_id")
+              .in("hotel_id", ids);
+            for (const r of roomIds ?? []) {
+              roomCountByHotel.set(r.hotel_id, (roomCountByHotel.get(r.hotel_id) ?? 0) + 1);
+            }
           }
         }
 
@@ -802,42 +892,68 @@ serve(async (req) => {
             });
           }
 
-          const roomRowsOut = hotelRooms.map((room) => {
-            const m = byRoom.get(room.id) ?? { guest_turns: 0, sessions: 0, requests: 0 };
-            const active = m.sessions > 0 || m.guest_turns > 0 || m.requests > 0;
-            const token = tokenByRoom.get(room.id) ?? null;
-            return {
-              room_id: room.id,
-              room_number: room.room_number,
-              is_active: room.is_active,
-              is_public: !!room.is_public,
-              has_qr_token: !!token,
-              token_preview: token ? `${token.slice(0, 8)}…` : null,
-              guest_url: token
-                ? `${PUBLIC_BASE_URL}/h/${encodeURIComponent(h.slug)}/r/${room.id}?token=${encodeURIComponent(token)}`
-                : null,
-              guest_turns: m.guest_turns,
-              sessions: m.sessions,
-              requests: m.requests,
-              engaged: active,
-            };
-          });
+          if (needRoomDetail) {
+            const roomRowsOut = hotelRooms.map((room) => {
+              const m = byRoom.get(room.id) ?? { guest_turns: 0, sessions: 0, requests: 0 };
+              const active = m.sessions > 0 || m.guest_turns > 0 || m.requests > 0;
+              const token = tokenByRoom.get(room.id) ?? null;
+              return {
+                room_id: room.id,
+                room_number: room.room_number,
+                is_active: room.is_active,
+                is_public: !!room.is_public,
+                has_qr_token: !!token,
+                token_preview: token ? `${token.slice(0, 8)}…` : null,
+                guest_url: token
+                  ? `${PUBLIC_BASE_URL}/h/${encodeURIComponent(h.slug)}/r/${room.id}?token=${encodeURIComponent(token)}`
+                  : null,
+                guest_turns: m.guest_turns,
+                sessions: m.sessions,
+                requests: m.requests,
+                engaged: active,
+              };
+            });
 
-          let orphanTurns = 0, orphanSessions = 0, orphanRequests = 0;
-          for (const [rid, m] of byRoom) {
-            if (rid && hotelRooms.some((r) => r.id === rid)) continue;
-            orphanTurns += m.guest_turns;
-            orphanSessions += m.sessions;
-            orphanRequests += m.requests;
+            let orphanTurns = 0, orphanSessions = 0, orphanRequests = 0;
+            for (const [rid, m] of byRoom) {
+              if (rid && hotelRooms.some((r) => r.id === rid)) continue;
+              orphanTurns += m.guest_turns;
+              orphanSessions += m.sessions;
+              orphanRequests += m.requests;
+            }
+
+            const guest_turns = roomRowsOut.reduce((s, r) => s + r.guest_turns, 0) + orphanTurns;
+            const sessions = roomRowsOut.reduce((s, r) => s + r.sessions, 0) + orphanSessions;
+            const requests = roomRowsOut.reduce((s, r) => s + r.requests, 0) + orphanRequests;
+            const active_qr = roomRowsOut.filter((r) => r.engaged).length;
+            const meters = { active_qr, sessions, guest_turns, requests };
+            const charge = suggestCharge(rates, meters);
+
+            return {
+              hotel_id: h.id,
+              name: h.name,
+              slug: h.slug,
+              is_active: h.is_active,
+              billing_mode: h.billing_mode ?? "subscription",
+              billing_notes: h.billing_notes ?? null,
+              rates,
+              meters,
+              charge,
+              room_count: hotelRooms.length,
+              rooms: roomRowsOut,
+            };
           }
 
-          const guest_turns = roomRowsOut.reduce((s, r) => s + r.guest_turns, 0) + orphanTurns;
-          const sessions = roomRowsOut.reduce((s, r) => s + r.sessions, 0) + orphanSessions;
-          const requests = roomRowsOut.reduce((s, r) => s + r.requests, 0) + orphanRequests;
-          const active_qr = roomRowsOut.filter((r) => r.engaged).length;
+          // Platform list: meters from rollup only — no room/token payload
+          let guest_turns = 0, sessions = 0, requests = 0, active_qr = 0;
+          for (const [, m] of byRoom) {
+            guest_turns += m.guest_turns;
+            sessions += m.sessions;
+            requests += m.requests;
+            if (m.sessions > 0 || m.guest_turns > 0 || m.requests > 0) active_qr += 1;
+          }
           const meters = { active_qr, sessions, guest_turns, requests };
           const charge = suggestCharge(rates, meters);
-
           return {
             hotel_id: h.id,
             name: h.name,
@@ -848,12 +964,14 @@ serve(async (req) => {
             rates,
             meters,
             charge,
-            room_count: hotelRooms.length,
-            rooms: action === "usage_hotel" || hotelIdFilter ? roomRowsOut : undefined,
+            room_count: roomCountByHotel.get(h.id) ?? 0,
+            rooms: undefined,
           };
         });
 
-        const totals = hotelSummaries.reduce(
+        // Page totals from visible hotels; when rollup covers the whole platform,
+        // also expose platform_totals for the header cards.
+        const pageTotals = hotelSummaries.reduce(
           (acc, h) => {
             acc.active_qr += h.meters.active_qr;
             acc.sessions += h.meters.sessions;
@@ -865,16 +983,57 @@ serve(async (req) => {
           { active_qr: 0, sessions: 0, guest_turns: 0, requests: 0, suggested: 0 },
         );
 
+        let totals = pageTotals;
+        let totalsScope: "page" | "platform" = hotelIdFilter ? "platform" : "page";
+        if (!hotelIdFilter && rollupReady && rows.length) {
+          // Approximate platform active_qr / sessions / turns / requests from full rollup
+          const platform = { active_qr: 0, sessions: 0, guest_turns: 0, requests: 0, suggested: 0 };
+          const byHotelMeters = new Map<string, { active_qr: number; sessions: number; guest_turns: number; requests: number }>();
+          for (const r of rows) {
+            let m = byHotelMeters.get(r.hotel_id);
+            if (!m) {
+              m = { active_qr: 0, sessions: 0, guest_turns: 0, requests: 0 };
+              byHotelMeters.set(r.hotel_id, m);
+            }
+            m.guest_turns += r.guest_turns;
+            m.sessions += r.sessions;
+            m.requests += r.requests;
+            if (r.sessions > 0 || r.guest_turns > 0 || r.requests > 0) m.active_qr += 1;
+          }
+          for (const m of byHotelMeters.values()) {
+            platform.active_qr += m.active_qr;
+            platform.sessions += m.sessions;
+            platform.guest_turns += m.guest_turns;
+            platform.requests += m.requests;
+          }
+          // Suggested uses default billing rates (hotel overrides ignored on platform card)
+          const defRates = {
+            currency: String(billing.currency ?? "GBP"),
+            rate_active_qr: Number(billing.rate_active_qr) || 0,
+            rate_session: Number(billing.rate_session) || 0,
+            rate_guest_turn: Number(billing.rate_guest_turn) || 0,
+            rate_request: Number(billing.rate_request) || 0,
+            primary_meter: String(billing.primary_meter ?? "active_qr"),
+          };
+          platform.suggested = suggestCharge(defRates, platform).suggested;
+          totals = platform;
+          totalsScope = "platform";
+        }
+
         return json({
           since: sinceIso,
           until: untilIso,
           days,
           billing,
+          page: hotelIdFilter ? 1 : page,
+          pageSize: hotelIdFilter ? 1 : pageSize,
+          total: hotelIdFilter ? hotelSummaries.length : hotelsTotal,
+          totals_scope: totalsScope,
           totals: {
             ...totals,
             suggested: money(totals.suggested),
             currency: String(billing.currency ?? "GBP"),
-            hotels: hotelSummaries.length,
+            hotels: hotelIdFilter ? hotelSummaries.length : hotelsTotal,
           },
           hotels: hotelSummaries,
           hotel: action === "usage_hotel" ? hotelSummaries[0] ?? null : undefined,
