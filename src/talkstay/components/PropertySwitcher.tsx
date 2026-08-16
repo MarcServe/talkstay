@@ -74,10 +74,10 @@ export default function PropertySwitcher({
               const on = p.hotel.id === activeId;
               const label = (() => {
                 if (p.isOwner) return "Owner";
-                if (p.departmentKey === "duty_manager") return "Duty Manager";
                 if (p.role === "manager" && !p.departmentKey) return "Property manager";
+                if (p.departmentKey === "duty_manager") return "Duty Manager";
                 if (p.role === "manager" && p.departmentKey) return "Department manager";
-                if (p.role === "manager") return "Manager";
+                if (p.departmentKey === "front_desk") return "Front Desk";
                 return "Staff";
               })();
               return (

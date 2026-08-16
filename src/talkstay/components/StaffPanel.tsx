@@ -276,7 +276,7 @@ export default function StaffPanel({
         email: email.trim(),
         name: name.trim() || null,
         departmentKey: deptScoped ? scopedDepartment : (dept === ALL_DEPTS ? null : dept),
-        role: deptScoped ? "staff" : role,
+        role: (deptScoped || dept === "duty_manager" || dept === "front_desk") ? "staff" : role,
       });
       const res = data as any;
       if (res?.emailSent || res?.invited) {
@@ -441,7 +441,14 @@ export default function StaffPanel({
         </div>
         <div>
           <label className="mb-1 block text-xs text-muted-foreground">Department</label>
-          <Select value={dept} onValueChange={setDept} disabled={deptScoped}>
+          <Select
+            value={dept}
+            onValueChange={(v) => {
+              setDept(v);
+              if (v === "duty_manager" || v === "front_desk") setRole("staff");
+            }}
+            disabled={deptScoped}
+          >
             <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
             <SelectContent>
               {!deptScoped && <SelectItem value={ALL_DEPTS}>All departments</SelectItem>}
@@ -451,7 +458,11 @@ export default function StaffPanel({
         </div>
         <div>
           <label className="mb-1 block text-xs text-muted-foreground">Role</label>
-          <Select value={deptScoped ? "staff" : role} onValueChange={setRole} disabled={deptScoped}>
+          <Select
+            value={deptScoped || dept === "duty_manager" || dept === "front_desk" ? "staff" : role}
+            onValueChange={setRole}
+            disabled={deptScoped || dept === "duty_manager" || dept === "front_desk"}
+          >
             <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="staff">Staff</SelectItem>
@@ -665,18 +676,21 @@ export default function StaffPanel({
       )}
 
       <div className="rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">
-        <p><strong className="text-foreground">Staff</strong> see only their department's live queue (Front Desk sees every team’s queue).</p>
+        <p><strong className="text-foreground">Staff</strong> see only their department's live queue.</p>
+        <p className="mt-1">
+          <strong className="text-foreground">Front Desk</strong> and{" "}
+          <strong className="text-foreground">Duty Manager</strong> — assign that department (usually role Staff).
+          They see every team's live queue for the shift, but not Insights or property setup.
+          Property managers and owners assign Duty Managers from this Staff screen.
+        </p>
         <p className="mt-1">
           <strong className="text-foreground">Department manager</strong> — role Manager + one department
-          (e.g. Housekeeping). Runs that team’s queue and can open Insights for the property.
+          (e.g. Housekeeping). Runs that team's queue, Insights, and can invite Staff for their team.
         </p>
         <p className="mt-1">
           <strong className="text-foreground">Property manager</strong> — role Manager + All departments.
-          Full access to every queue, Insights, rooms, branding, knowledge and staff for this property.
-        </p>
-        <p className="mt-1">
-          <strong className="text-foreground">Duty Manager</strong> — assign the Duty Manager department
-          (Staff or Manager). They get the same dashboard access as the owner for this property while on duty.
+          Full access for this property (queues, Insights, rooms, branding, knowledge, staff) — including
+          assigning Duty Managers and department managers.
         </p>
         <p className="mt-1">
           <strong className="text-foreground">Bulk import</strong> and single invites send each person a login email

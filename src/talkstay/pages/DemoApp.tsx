@@ -44,8 +44,8 @@ type DemoRole =
 
 const ROLE_OPTIONS: { id: string; label: string; role: DemoRole }[] = [
   { id: "owner", label: "Owner (full property)", role: { kind: "owner" } },
-  { id: "manager", label: "Property manager (all departments)", role: { kind: "manager" } },
-  { id: "duty", label: "Duty Manager (full property)", role: { kind: "duty_manager" } },
+  { id: "manager", label: "Property manager (full property)", role: { kind: "manager" } },
+  { id: "duty", label: "Duty Manager (all queues only)", role: { kind: "duty_manager" } },
   ...DEPARTMENTS.filter((d) => d.key !== "duty_manager").map((d) => ({
     id: `dept-mgr-${d.key}`,
     label: `${d.display_name} manager`,
@@ -60,8 +60,8 @@ const ROLE_OPTIONS: { id: string; label: string; role: DemoRole }[] = [
 
 function roleLabel(role: DemoRole): string {
   if (role.kind === "owner") return "Owner · full property";
-  if (role.kind === "manager") return "Property manager · all departments";
-  if (role.kind === "duty_manager") return "Duty Manager · full property (as owner)";
+  if (role.kind === "manager") return "Property manager · full property";
+  if (role.kind === "duty_manager") return "Duty Manager · all queues (ops only)";
   if (role.kind === "dept_manager") {
     const dept = DEPARTMENTS.find((d) => d.key === role.department)?.display_name ?? role.department;
     return `${dept} manager · team queue + Insights/Staff`;
@@ -91,13 +91,14 @@ function DemoDashboard() {
     return { isOwner: false, role: "staff" as const, departmentKey: demoRole.department };
   })();
   const isAdmin = membership.isOwner || membership.role === "owner"
-    || membership.departmentKey === "duty_manager"
     || (membership.role === "manager" && !membership.departmentKey);
   const isDeptMgr = membership.role === "manager" && !!membership.departmentKey
-    && membership.departmentKey !== "duty_manager";
-  const lockedDepartment = isAdmin
+    && membership.departmentKey !== "duty_manager"
+    && membership.departmentKey !== "front_desk";
+  const isDuty = membership.departmentKey === "duty_manager";
+  const lockedDepartment = isAdmin || isDuty || membership.departmentKey === "front_desk"
     ? null
-    : (membership.departmentKey === "front_desk" ? null : membership.departmentKey);
+    : membership.departmentKey;
   const visibleNav = NAV.filter((n) => {
     if (!n.adminOnly) return true;
     if (isAdmin) return true;
@@ -219,7 +220,19 @@ function DemoDashboard() {
             <div className="mb-6 min-w-0">
               <h1 className="text-2xl font-bold tracking-tight">{activeNav.label}</h1>
               <p className="mt-1 text-sm text-muted-foreground">{activeNav.desc}</p>
-              {!isAdmin && !isDeptMgr && (
+              {isDuty && (
+                <p className="mt-2 text-xs text-amber-800">
+                  Viewing as Duty Manager — all department queues, no Insights or setup (same as a real Duty Manager invite).{" "}
+                  <button
+                    type="button"
+                    className="font-semibold underline underline-offset-2 hover:text-amber-950"
+                    onClick={() => setRoleId("manager")}
+                  >
+                    Switch to Property manager
+                  </button>
+                </p>
+              )}
+              {!isAdmin && !isDeptMgr && !isDuty && (
                 <p className="mt-2 text-xs text-amber-800">
                   Viewing as department staff — Insights and setup tabs are hidden, matching a real invite.{" "}
                   <button

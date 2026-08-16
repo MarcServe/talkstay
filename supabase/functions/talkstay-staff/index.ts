@@ -163,18 +163,21 @@ serve(async (req) => {
       callerStaff = me ?? null;
     }
     const isDutyManager = callerStaff?.department_key === "duty_manager";
+    const isFrontDesk = callerStaff?.department_key === "front_desk";
+    // Property manager = Manager + All departments (not Duty Manager).
     const isPropertyManager = !!callerStaff && (
       callerStaff.role === "owner"
       || (callerStaff.role === "manager" && !callerStaff.department_key)
-      || isDutyManager
     );
     const isDeptManager = !!callerStaff
       && callerStaff.role === "manager"
       && !!callerStaff.department_key
-      && !isDutyManager;
-    // Property managers / duty managers / owners manage the roster. Department managers may invite within their team.
+      && !isDutyManager
+      && !isFrontDesk;
+    // Owners + property managers manage the full roster. Department managers invite within their team.
+    // Duty Manager does not manage staff — they only work the queues.
     const canManageStaff = isOwner || isPropertyManager || isDeptManager;
-    // Department staff can log orders and coordinate on tickets; invite/edit stay manager/owner/duty (+ dept managers).
+    // Department staff can log orders and coordinate on tickets; invite/edit stay owner/property/dept manager.
     const OPS_STAFF_ACTIONS = new Set([
       "create_request",
       "open_for_room",
@@ -192,7 +195,7 @@ serve(async (req) => {
       if (isOwner || isPropertyManager) return true;
       if (!callerStaff) return false;
       if (!callerStaff.department_key) return true;
-      if (callerStaff.department_key === "front_desk") return true;
+      if (isFrontDesk || isDutyManager) return true;
       if (isDeptManager) return callerStaff.department_key === deptKey;
       return callerStaff.department_key === deptKey;
     };
@@ -745,9 +748,7 @@ serve(async (req) => {
       // Department staff may only log to their own team.
       // Owners / property managers / Duty Manager / Front Desk may pick any team.
       if (!isOwner && !isPropertyManager) {
-        const coord =
-          !callerStaff?.department_key
-          || callerStaff.department_key === "front_desk";
+        const coord = isFrontDesk || isDutyManager || !callerStaff?.department_key;
         if (!coord && callerStaff?.department_key) {
           dept = callerStaff.department_key;
         }
