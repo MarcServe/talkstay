@@ -47,9 +47,14 @@ const NAV = [
   { key: "departments", label: "Departments", icon: Building2, admin: true, desc: "Teams, routing rules and per-department notifications." },
   { key: "knowledge", label: "Knowledge", icon: BookOpen, admin: true, desc: "What the assistant knows — website, documents and property info." },
   { key: "staff", label: "Staff", icon: Users, admin: true, desc: "Invite your team and manage their roles and access." },
-  { key: "account", label: "Account", icon: UserRound, admin: false, desc: "Your email, role, Direct Support, and sign out." },
 ] as const;
-type NavKey = (typeof NAV)[number]["key"];
+/** Account lives in the footer with Support — not in the main menu (menu ends at Staff). */
+type NavKey = (typeof NAV)[number]["key"] | "account";
+const ACCOUNT_META = {
+  key: "account" as const,
+  label: "Account",
+  desc: "Your email, role, Direct Support, and sign out.",
+};
 
 function CreateHotel({
   onCreated,
@@ -393,8 +398,11 @@ export default function HotelApp() {
         : "Staff");
 
   // A department member should never sit on an admin tab (e.g. after a refresh).
-  const effectiveActive: NavKey = visibleNav.some((n) => n.key === active) ? active : "operations";
-  const activeNav = NAV.find((n) => n.key === effectiveActive);
+  const effectiveActive: NavKey =
+    active === "account" || visibleNav.some((n) => n.key === active) ? active : "operations";
+  const activeNav = effectiveActive === "account"
+    ? ACCOUNT_META
+    : NAV.find((n) => n.key === effectiveActive);
   const activeLabel = activeNav?.label ?? "";
   const activeDesc = activeNav?.desc ?? "";
   const go = (k: NavKey) => {
@@ -453,38 +461,18 @@ export default function HotelApp() {
       />
 
       <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3">
-        {visibleNav.map(({ key, label, icon: Icon }) => {
-          const isAccount = key === "account";
-          return (
-            <button
-              key={key}
-              onClick={() => go(key)}
-              className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors ${
-                effectiveActive === key ? "bg-violet-600 text-white" : "text-white/60 hover:bg-white/5 hover:text-white"
-              }`}
-            >
-              {isAccount ? (
-                <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
-                  effectiveActive === key ? "bg-white/20 text-white" : "bg-violet-600/30 text-violet-200"
-                }`}>
-                  {identityInitial}
-                </div>
-              ) : (
-                <Icon className="h-4 w-4 shrink-0" />
-              )}
-              <span className="min-w-0 flex-1">
-                <span className="block truncate">{label}</span>
-                {isAccount && user?.email && (
-                  <span className={`block truncate text-[11px] font-normal ${
-                    effectiveActive === key ? "text-white/75" : "text-white/40"
-                  }`}>
-                    {user.email}
-                  </span>
-                )}
-              </span>
-            </button>
-          );
-        })}
+        {visibleNav.map(({ key, label, icon: Icon }) => (
+          <button
+            key={key}
+            onClick={() => go(key)}
+            className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+              effectiveActive === key ? "bg-violet-600 text-white" : "text-white/60 hover:bg-white/5 hover:text-white"
+            }`}
+          >
+            <Icon className="h-4 w-4 shrink-0" />
+            {label}
+          </button>
+        ))}
       </nav>
 
       <div className="space-y-1 border-t border-white/10 p-3">
@@ -496,6 +484,35 @@ export default function HotelApp() {
         >
           <LifeBuoy className="h-4 w-4" /> Support & FAQ
         </a>
+        <button
+          type="button"
+          onClick={() => go("account")}
+          className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left transition-colors ${
+            effectiveActive === "account"
+              ? "bg-violet-600 text-white"
+              : "text-white/60 hover:bg-white/5 hover:text-white"
+          }`}
+        >
+          <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
+            effectiveActive === "account" ? "bg-white/20 text-white" : "bg-violet-600/30 text-violet-200"
+          }`}>
+            {identityInitial}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className={`truncate text-sm font-medium ${
+              effectiveActive === "account" ? "text-white" : "text-white/80"
+            }`}>
+              Account
+            </div>
+            {user?.email && (
+              <div className={`truncate text-[11px] ${
+                effectiveActive === "account" ? "text-white/75" : "text-white/40"
+              }`}>
+                {user.email}
+              </div>
+            )}
+          </div>
+        </button>
         {(pushSupported() || notificationPermission() !== "unsupported") && (
           <button
             onClick={async () => {
