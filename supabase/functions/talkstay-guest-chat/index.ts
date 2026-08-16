@@ -39,6 +39,9 @@ interface RoomCtx {
   pulseEnabled: boolean;
   /** Public QR (lobby/bar/spa…) — walk-in / non-resident location. */
   isPublic: boolean;
+  /** Start of the CURRENT stay — the folio boundary, so a new browser session
+   *  still sees this stay's bill and never a previous guest's. */
+  checkedInAt: string | null;
 }
 
 // Built-in deterministic keyword routing (safety net + works when OpenAI is down).
@@ -158,7 +161,7 @@ async function resolveRoom(
   let room: any = null;
   {
     const withPublic = await admin.from("ts_rooms")
-      .select("id, room_number, occupancy_status, is_public")
+      .select("id, room_number, occupancy_status, is_public, checked_in_at")
       .eq("id", roomId).maybeSingle();
     if (withPublic.error) {
       const base = await admin.from("ts_rooms")
@@ -196,6 +199,7 @@ async function resolveRoom(
     branding: (hotel as any).branding || {},
     pulseEnabled: (hotel as any).pulse_enabled !== false,
     isPublic,
+    checkedInAt: (room as any).checked_in_at ?? null,
   };
 }
 
@@ -672,6 +676,7 @@ async function handleMarketingDemo(body: any, OPENAI_API_KEY: string) {
     branding: { primary_color: "#4c2bb8" },
     pulseEnabled: false,
     isPublic: false,
+    checkedInAt: null,
   };
 
   const createdRequests: any[] = [];
@@ -882,20 +887,32 @@ serve(async (req) => {
       let data: any[] | null = null;
       let error: { message?: string } | null = null;
       {
-        const full = await admin
-          .from("ts_service_requests")
-          .select("id, department_key, summary, status, is_complaint, created_at, is_chargeable, price, currency, payment_status")
-          .eq("hotel_id", ctx.hotelId).eq("session_id", sessionId || "")
-          .neq("status", "cancelled")
+        // A private room's folio is the ROOM's bill for the current stay, not one
+        // browser's. Scoping it to session_id meant a guest who reopened the QR
+        // (new tab, cleared storage, second device) saw "Nothing to pay" while
+        // staff saw the charge. Bounded by checked_in_at so a previous guest's
+        // orders can never appear. Public areas stay session-scoped — a bar tab
+        // belongs to whoever ordered it, not to everyone who scans that QR.
+        const scopeToRoom = !ctx.isPublic && !!ctx.checkedInAt;
+        const cols = "id, department_key, summary, status, is_complaint, created_at, is_chargeable, price, currency, payment_status";
+        let q = admin.from("ts_service_requests").select(cols).eq("hotel_id", ctx.hotelId);
+        q = scopeToRoom
+          ? q.eq("room_id", ctx.roomId).gte("created_at", ctx.checkedInAt as string)
+          : q.eq("session_id", sessionId || "");
+        const full = await q.neq("status", "cancelled")
           .order("created_at", { ascending: false }).limit(50);
         data = full.data as any[] | null;
         error = full.error;
       }
       if (error?.message?.includes("payment_status") || error?.message?.includes("is_chargeable") || error?.message?.includes("price")) {
-        const legacy = await admin
-          .from("ts_service_requests")
+        const scopeToRoom = !ctx.isPublic && !!ctx.checkedInAt;
+        let lq = admin.from("ts_service_requests")
           .select("id, department_key, summary, status, is_complaint, created_at")
-          .eq("hotel_id", ctx.hotelId).eq("session_id", sessionId || "")
+          .eq("hotel_id", ctx.hotelId);
+        lq = scopeToRoom
+          ? lq.eq("room_id", ctx.roomId).gte("created_at", ctx.checkedInAt as string)
+          : lq.eq("session_id", sessionId || "");
+        const legacy = await lq
           .neq("status", "cancelled")
           .order("created_at", { ascending: false }).limit(50);
         data = legacy.data as any[] | null;
@@ -1703,7 +1720,12 @@ Only call create_service_request for something genuinely new that isn't already 
 DEPARTMENTS available (use exactly these keys): ${deptListForPrompt(ctx.departmentMeta, activeDepts)}.
 Routing guide: ${routingGuideFor(ctx.departmentMeta)}.
 Mark is_chargeable true for room service food, drinks, laundry, minibar, late checkout, spa. Towels, cleaning, maintenance, wifi help and complaints are free.
-When is_chargeable is true and you know the price from hotel knowledge/menus (e.g. "Club sandwich £14"), set the numeric price field. Never invent or guess a price — leave price unset if unsure.
+PRICING — a guest should see what an order costs at the moment they order it, not discover it at checkout.
+Before you create a CHARGEABLE request (food, drinks, minibar, laundry, spa…), if you do not already know the
+price from this conversation, call answer_from_knowledge FIRST to look the item up on the menu, then pass the
+numeric price (unit price × quantity) on create_service_request. Never invent or guess a price — if the menu
+doesn't have it, leave price unset and don't mention a figure; staff will add it.
+When you do set a price, state the total back to the guest in your reply (e.g. "that's £20 for the two").
 Keep replies to 1–3 short sentences.
 
 CONVERSATION STYLE: don't just answer and stop — that reads as cold. Close each reply by keeping things

@@ -63,7 +63,9 @@ export default function GuestCheckOut() {
       setPaymentTimingState(payload.paymentTiming);
       setBillingRoomNumber(payload.billingRoomNumber ?? null);
     } catch {
-      setReqs([]);
+      // Keep whatever we last showed. Blanking the folio on a transient network
+      // blip renders "Nothing to pay" over a real balance, which is the one
+      // wrong answer a bill must never give.
     } finally {
       setFolioLoading(false);
     }
@@ -113,6 +115,23 @@ export default function GuestCheckOut() {
     claim(codeHint || undefined);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hotelSlug, roomId, token]);
+
+  // Staff price an order minutes after it's delivered, so a folio the guest is
+  // actively looking at has to keep up on its own — the balance is the thing
+  // they're deciding to pay. Refresh while the page is visible, and immediately
+  // on re-focus so a backgrounded tab is never stale when they look again.
+  useEffect(() => {
+    if (!ready) return;
+    const tick = () => { if (!document.hidden) void loadFolio(); };
+    const iv = setInterval(tick, 15000);
+    document.addEventListener("visibilitychange", tick);
+    window.addEventListener("focus", tick);
+    return () => {
+      clearInterval(iv);
+      document.removeEventListener("visibilitychange", tick);
+      window.removeEventListener("focus", tick);
+    };
+  }, [ready, loadFolio]);
 
   const payNow = async () => {
     setPayBusy(true);
