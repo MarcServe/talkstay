@@ -1,4 +1,8 @@
 import { supabase } from "@/integrations/supabase/client";
+import {
+  applyPartnersSettings,
+  partnerCommissionAmount,
+} from "@/talkstay/lib/partners";
 
 /** Invoke talkstay-admin and surface the function's JSON `error` when status is non-2xx. */
 export async function adminApi<T = unknown>(action: string, body: Record<string, unknown> = {}): Promise<T> {
@@ -344,7 +348,8 @@ export async function loadUsageSummary(opts: {
   const hotelList = Array.isArray(payload.hotels) ? (payload.hotels as any[]) : [];
   const hotelIds = hotelList.map((h) => h.hotel_id).filter(Boolean);
   const llm = await loadLlmCostByHotelRoom({ sinceIso: String(payload.since ?? sinceIso), untilIso: String(payload.until ?? untilIso), hotelIds });
-  return enrichUsageWithLlmCosts(payload, llm);
+  const withLlm = enrichUsageWithLlmCosts(payload, llm);
+  return enrichUsageWithPartnerCommission(withLlm);
 }
 
 async function loadUsageSummaryDirect(opts: {
@@ -363,7 +368,7 @@ async function loadUsageSummaryDirect(opts: {
 
   let hotelQuery = supabase
     .from("ts_hotels")
-    .select("id, name, slug, is_active, billing_mode, billing_notes, billing_rates, created_at")
+    .select("id, name, slug, is_active, billing_mode, billing_notes, billing_rates, referral_code, created_at")
     .order("name")
     .limit(500);
   if (hotelId) hotelQuery = hotelQuery.eq("id", hotelId);
@@ -526,6 +531,7 @@ async function loadUsageSummaryDirect(opts: {
       is_active: h.is_active,
       billing_mode: h.billing_mode ?? "subscription",
       billing_notes: h.billing_notes ?? null,
+      referral_code: h.referral_code ?? null,
       rates,
       meters,
       charge,

@@ -43,6 +43,7 @@ type HotelUsage = {
   is_active: boolean;
   billing_mode: string;
   billing_notes: string | null;
+  referral_code?: string | null;
   rates: Record<string, unknown>;
   meters: {
     active_qr: number;
@@ -56,6 +57,8 @@ type HotelUsage = {
     ai_calls?: number;
   };
   charge: Charge;
+  partner?: { code: string; name: string; email: string; commission_pct: number } | null;
+  partner_commission?: { pct: number; amount: number; currency: string };
   room_count: number;
   rooms?: RoomUsage[];
 };
@@ -65,6 +68,7 @@ type UsagePayload = {
   until: string;
   days: number;
   billing: Record<string, unknown>;
+  partners?: { default_commission_pct: number };
   totals: {
     active_qr: number;
     sessions: number;
@@ -77,6 +81,8 @@ type UsagePayload = {
     prompt_tokens?: number;
     completion_tokens?: number;
     ai_calls?: number;
+    partner_commission?: number;
+    referred_hotels?: number;
   };
   hotels: HotelUsage[];
   hotel?: HotelUsage | null;
@@ -203,11 +209,15 @@ export default function AdminUsage() {
     if (!data) return;
     const currency = data.totals.currency;
     const rows: string[][] = [
-      ["hotel", "slug", "billing_mode", "active_qr", "sessions", "guest_turns", "requests", "suggested_charge", "ai_cost_usd", "prompt_tokens", "completion_tokens", "currency", "period_start", "period_end"],
+      ["hotel", "slug", "billing_mode", "referral", "partner", "active_qr", "sessions", "guest_turns", "requests", "suggested_charge", "partner_commission_pct", "partner_commission", "ai_cost_usd", "prompt_tokens", "completion_tokens", "currency", "period_start", "period_end"],
       ...data.hotels.map((h) => [
         h.name, h.slug, h.billing_mode,
+        h.referral_code ?? "", h.partner?.name ?? "",
         h.meters.active_qr, h.meters.sessions, h.meters.guest_turns, h.meters.requests,
-        h.charge.suggested, h.meters.ai_cost_usd ?? 0, h.meters.prompt_tokens ?? 0, h.meters.completion_tokens ?? 0,
+        h.charge.suggested,
+        h.partner_commission?.pct ?? "",
+        h.partner_commission?.amount ?? 0,
+        h.meters.ai_cost_usd ?? 0, h.meters.prompt_tokens ?? 0, h.meters.completion_tokens ?? 0,
         currency, data.since, data.until,
       ].map(String)),
     ];
@@ -294,6 +304,11 @@ export default function AdminUsage() {
                   : `${Number(data.totals.ai_calls) || 0} calls · OpenAI USD`
               }
             />
+            <Stat
+              label="Partner commission"
+              value={money(Number(data.totals.partner_commission) || 0, data.totals.currency)}
+              hint={`${Number(data.totals.referred_hotels) || 0} referred · default ${data.partners?.default_commission_pct ?? 20}%`}
+            />
           </div>
 
           {data.llm_cost_missing_table && (
@@ -329,7 +344,7 @@ export default function AdminUsage() {
                     }
                     const currency = data.totals.currency;
                     const rows: string[][] = [
-                      ["invoice_line", "hotel", "slug", "billing_mode", "meter", "units", "rate", "amount", "currency", "period_start", "period_end"],
+                      ["invoice_line", "hotel", "slug", "billing_mode", "meter", "units", "rate", "amount", "partner", "partner_pct", "partner_commission", "currency", "period_start", "period_end"],
                       ...billable.map((h, i) => [
                         String(i + 1),
                         h.name,
@@ -339,6 +354,9 @@ export default function AdminUsage() {
                         String(h.charge.units),
                         String(h.charge.rate),
                         String(h.charge.suggested),
+                        h.partner?.name ?? "",
+                        String(h.partner_commission?.pct ?? ""),
+                        String(h.partner_commission?.amount ?? 0),
                         currency,
                         data.since,
                         data.until,
@@ -360,6 +378,7 @@ export default function AdminUsage() {
                       <th className="px-3 py-2 font-medium">Meter</th>
                       <th className="px-3 py-2 font-medium">Units</th>
                       <th className="px-3 py-2 font-medium">Amount</th>
+                      <th className="px-3 py-2 font-medium">Partner</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -376,11 +395,23 @@ export default function AdminUsage() {
                           <td className="px-3 py-2 font-medium">
                             {money(h.charge.suggested, h.charge.currency)}
                           </td>
+                          <td className="px-3 py-2 text-sm">
+                            {h.partner ? (
+                              <>
+                                <div className="font-medium">{h.partner.name}</div>
+                                <div className="text-xs text-muted-foreground">
+                                  {h.partner_commission?.pct}% · {money(h.partner_commission?.amount ?? 0, h.charge.currency)}
+                                </div>
+                              </>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </td>
                         </tr>
                       ))}
                     {data.hotels.filter((h) => h.billing_mode === "pilot" || h.billing_mode === "usage").length === 0 && (
                       <tr>
-                        <td colSpan={5} className="px-3 py-6 text-center text-sm text-muted-foreground">
+                        <td colSpan={6} className="px-3 py-6 text-center text-sm text-muted-foreground">
                           No pilot/usage properties yet. Open a hotel → set billing mode to{" "}
                           <strong>pilot</strong> or <strong>usage</strong>, then refresh.
                         </td>
@@ -406,6 +437,21 @@ export default function AdminUsage() {
                     {" · "}
                     {moneyUsd(Number(detail.meters.ai_cost_usd) || 0)} est. AI
                     {" "}({Number(detail.meters.prompt_tokens) || 0} in / {Number(detail.meters.completion_tokens) || 0} out tokens)
+                    {detail.partner && (
+                      <>
+                        {" · "}
+                        <span className="text-violet-800">
+                          {detail.partner.name} {detail.partner_commission?.pct}%
+                          {" = "}
+                          {money(detail.partner_commission?.amount ?? 0, detail.charge.currency)}
+                        </span>
+                      </>
+                    )}
+                    {!detail.partner && detail.referral_code && (
+                      <span className="text-amber-800">
+                        {" · "}referral <code className="text-xs">{detail.referral_code}</code> (not a known partner — no commission)
+                      </span>
+                    )}
                     {roomRows.length > 0 && roomsSuggestedTotal !== detail.charge.suggested && (
                       <span>
                         {" · "}room lines sum {money(roomsSuggestedTotal, detail.charge.currency)}
@@ -557,6 +603,7 @@ export default function AdminUsage() {
                       <th className="hidden px-4 py-3 font-medium lg:table-cell">Turns</th>
                       <th className="px-4 py-3 font-medium">Suggested</th>
                       <th className="px-4 py-3 font-medium">AI cost</th>
+                      <th className="px-4 py-3 font-medium">Partner</th>
                       <th className="px-4 py-3 font-medium" />
                     </tr>
                   </thead>
@@ -579,6 +626,20 @@ export default function AdminUsage() {
                         <td className="px-4 py-3 tabular-nums">
                           {moneyUsd(Number(h.meters.ai_cost_usd) || 0)}
                         </td>
+                        <td className="px-4 py-3 text-sm">
+                          {h.partner ? (
+                            <>
+                              <div className="font-medium">{h.partner.name}</div>
+                              <div className="text-xs text-muted-foreground">
+                                {h.partner_commission?.pct}% · {money(h.partner_commission?.amount ?? 0, h.charge.currency)}
+                              </div>
+                            </>
+                          ) : h.referral_code ? (
+                            <span className="text-xs text-muted-foreground font-mono">{h.referral_code}</span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </td>
                         <td className="px-4 py-3 text-right">
                           <Button
                             size="sm"
@@ -597,7 +658,7 @@ export default function AdminUsage() {
                     ))}
                     {hotels.length === 0 && (
                       <tr>
-                        <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
+                        <td colSpan={9} className="px-4 py-10 text-center text-muted-foreground">
                           No usage in this period.
                         </td>
                       </tr>
@@ -613,6 +674,7 @@ export default function AdminUsage() {
             Rates come from{" "}
             <Link to="/admin/settings" className="underline hover:text-foreground">System settings</Link>
             {" "}(or per-hotel overrides). Suggested charge = customer draft (primary meter; room Suggested breaks it down per QR). Est. AI cost = attributed OpenAI USD from guest QR calls (not PostHog).
+            Partner commission = suggested × partner % (default {data.partners?.default_commission_pct ?? 20}%) for hotels with a known referral code — manage codes under Settings.
           </p>
         </>
       ) : null}

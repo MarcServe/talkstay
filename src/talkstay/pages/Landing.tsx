@@ -10,11 +10,8 @@ import {
 } from "lucide-react";
 import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
 import { useAuth } from "@/hooks/useAuth";
-<<<<<<< HEAD
 import { GUEST_ACCESS_MARKETING } from "@/talkstay/lib/guestAccessCopy";
-=======
 import { captureReferralFromSearch, ensurePartnersLoaded } from "@/talkstay/lib/partners";
->>>>>>> origin/cursor/partner-referral-signup-c398
 
 const DEMO_VIDEO_ID = "83u9qLpVlQ8";
 

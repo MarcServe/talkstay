@@ -8,13 +8,12 @@ import { toast } from "sonner";
 import { Copy, Loader2, Plus, Save, Trash2 } from "lucide-react";
 import { loadPlatformSettings, savePlatformSetting } from "@/talkstay/admin/adminApi";
 import {
+  DEFAULT_PARTNER_COMMISSION_PCT,
   PARTNER_SUPPORT,
+  applyPartnersSettings,
   emptyPartnersSettings,
-  invalidatePartnersCache,
   normalizeReferralCode,
   partnerSignupPath,
-  partnersCodesFromSettings,
-  setDynamicPartners,
   type PartnerInfo,
   type PartnersSettings,
 } from "@/talkstay/lib/partners";
@@ -93,6 +92,7 @@ export default function AdminSettings() {
   const [newCode, setNewCode] = useState("");
   const [newName, setNewName] = useState("");
   const [newEmail, setNewEmail] = useState("");
+  const [newPct, setNewPct] = useState(String(DEFAULT_PARTNER_COMMISSION_PCT));
   const [saving, setSaving] = useState<string | null>(null);
   const [missingTable, setMissingTable] = useState(false);
 
@@ -106,9 +106,7 @@ export default function AdminSettings() {
       setDefaults({ ...DEFAULTS_DEFAULT, ...(s.defaults as object) });
       setFeatures({ ...FEATURES_DEFAULT, ...(s.features as object) });
       setSupport({ ...SUPPORT_DEFAULT, ...(s.support as object) });
-      const codes = partnersCodesFromSettings(s.partners);
-      setPartners({ codes });
-      setDynamicPartners(codes);
+      setPartners(applyPartnersSettings(s.partners));
     } catch (e: any) {
       toast.error(e.message);
     } finally {
@@ -122,10 +120,7 @@ export default function AdminSettings() {
     setSaving(key);
     try {
       await savePlatformSetting(key, value);
-      if (key === "partners") {
-        invalidatePartnersCache();
-        setDynamicPartners(partnersCodesFromSettings(value));
-      }
+      if (key === "partners") applyPartnersSettings(value);
       toast.success("Saved");
       setMissingTable(false);
     } catch (e: any) {
@@ -139,32 +134,33 @@ export default function AdminSettings() {
     const code = normalizeReferralCode(newCode);
     const name = newName.trim();
     const email = newEmail.trim();
-    if (!code) {
-      toast.error("Enter a referral code");
-      return;
-    }
-    if (PARTNER_SUPPORT[code]) {
-      toast.error("That code is reserved for a built-in partner");
-      return;
-    }
-    if (!name || !email) {
-      toast.error("Name and support email are required");
-      return;
-    }
-    if (partners.codes[code]) {
-      toast.error("That code already exists — edit the row instead");
-      return;
-    }
-    setPartners({ codes: { ...partners.codes, [code]: { name, email } } });
+    if (!code) { toast.error("Enter a referral code"); return; }
+    if (PARTNER_SUPPORT[code]) { toast.error("That code is reserved for a built-in partner"); return; }
+    if (!name || !email) { toast.error("Name and support email are required"); return; }
+    if (partners.codes[code]) { toast.error("That code already exists"); return; }
+    const pct = Number(newPct);
+    setPartners({
+      ...partners,
+      codes: {
+        ...partners.codes,
+        [code]: {
+          name,
+          email,
+          commission_pct: Number.isFinite(pct) ? pct : partners.default_commission_pct,
+        },
+      },
+    });
     setNewCode("");
     setNewName("");
     setNewEmail("");
+    setNewPct(String(partners.default_commission_pct));
   };
 
   const updatePartner = (code: string, patch: Partial<PartnerInfo>) => {
     const cur = partners.codes[code];
     if (!cur) return;
     setPartners({
+      ...partners,
       codes: { ...partners.codes, [code]: { ...cur, ...patch } },
     });
   };
@@ -172,13 +168,12 @@ export default function AdminSettings() {
   const removePartner = (code: string) => {
     const next = { ...partners.codes };
     delete next[code];
-    setPartners({ codes: next });
+    setPartners({ ...partners, codes: next });
   };
 
   const copySignupLink = async (code: string) => {
     const base = (support.public_base_url || "https://talkstay.talkweb.io").replace(/\/$/, "");
-    const path = partnerSignupPath(code);
-    const url = `${base}${path}`;
+    const url = `${base}${partnerSignupPath(code)}`;
     try {
       await navigator.clipboard.writeText(url);
       toast.success("Signup link copied");
@@ -195,15 +190,12 @@ export default function AdminSettings() {
     );
   }
 
-  const customCodes = Object.entries(partners.codes).sort(([a], [b]) => a.localeCompare(b));
-
   return (
     <div className="space-y-8">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">System settings</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Platform-wide controls for pilot billing rates, partner referral codes, property defaults, feature flags, and support contacts.
-          Change these here instead of asking engineering to patch config.
+          Platform-wide controls for pilot billing rates, partner referral commissions, property defaults, feature flags, and support contacts.
         </p>
         {missingTable && (
           <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
@@ -220,17 +212,41 @@ export default function AdminSettings() {
           <div>
             <h2 className="text-base font-semibold">Partner referral codes</h2>
             <p className="text-sm text-muted-foreground">
-              Create a code per partner. Share <code className="text-xs">/app?ref=code</code> — it prefills on hotel signup and routes Support to that partner.
+              Create a code per partner. Hotels that sign up with <code className="text-xs">?ref=code</code> (or enter it on create)
+              get Support routed to that partner. Usage billing auto-calculates partner commission from the property’s suggested charge
+              (default <strong>{DEFAULT_PARTNER_COMMISSION_PCT}%</strong>).
             </p>
           </div>
           <Button
             size="sm"
             disabled={saving === "partners"}
-            onClick={() => void save("partners", { codes: partners.codes })}
+            onClick={() => void save("partners", {
+              default_commission_pct: partners.default_commission_pct,
+              codes: partners.codes,
+            })}
           >
             {saving === "partners" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Save className="mr-1.5 h-3.5 w-3.5" />}
             Save partners
           </Button>
+        </div>
+
+        <div className="max-w-xs">
+          <Field label="Default commission %">
+            <Input
+              type="number"
+              min={0}
+              max={100}
+              step={0.1}
+              value={partners.default_commission_pct}
+              onChange={(e) => setPartners({
+                ...partners,
+                default_commission_pct: Number(e.target.value),
+              })}
+            />
+          </Field>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Applied to referred properties’ suggested usage charge unless a partner overrides it.
+          </p>
         </div>
 
         <div className="rounded-xl border bg-muted/20 p-3">
@@ -242,7 +258,9 @@ export default function AdminSettings() {
                   <span className="font-mono text-xs">{code}</span>
                   <span className="mx-2 text-muted-foreground">·</span>
                   {info.name}
-                  <span className="ml-2 text-xs text-muted-foreground">{info.email}</span>
+                  <span className="ml-2 text-xs text-muted-foreground">
+                    {partners.default_commission_pct}% · {info.email}
+                  </span>
                 </span>
                 <Button type="button" size="sm" variant="ghost" onClick={() => void copySignupLink(code)}>
                   <Copy className="mr-1 h-3.5 w-3.5" /> Copy link
@@ -254,25 +272,28 @@ export default function AdminSettings() {
 
         <div className="space-y-3">
           <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Custom partners</div>
-          {customCodes.length === 0 && (
+          {Object.keys(partners.codes).length === 0 && (
             <p className="text-sm text-muted-foreground">No custom codes yet — add one below.</p>
           )}
-          {customCodes.map(([code, info]) => (
-            <div key={code} className="grid gap-2 rounded-xl border p-3 sm:grid-cols-[1fr_1fr_1.2fr_auto]">
+          {Object.entries(partners.codes).sort(([a], [b]) => a.localeCompare(b)).map(([code, info]) => (
+            <div key={code} className="grid gap-2 rounded-xl border p-3 sm:grid-cols-[1fr_1fr_1.2fr_5rem_auto]">
               <Field label="Code">
                 <Input value={code} readOnly className="font-mono text-sm" />
               </Field>
               <Field label="Partner name">
-                <Input
-                  value={info.name}
-                  onChange={(e) => updatePartner(code, { name: e.target.value })}
-                />
+                <Input value={info.name} onChange={(e) => updatePartner(code, { name: e.target.value })} />
               </Field>
               <Field label="Support email">
+                <Input type="email" value={info.email} onChange={(e) => updatePartner(code, { email: e.target.value })} />
+              </Field>
+              <Field label="Comm %">
                 <Input
-                  type="email"
-                  value={info.email}
-                  onChange={(e) => updatePartner(code, { email: e.target.value })}
+                  type="number"
+                  min={0}
+                  max={100}
+                  step={0.1}
+                  value={info.commission_pct ?? partners.default_commission_pct}
+                  onChange={(e) => updatePartner(code, { commission_pct: Number(e.target.value) })}
                 />
               </Field>
               <div className="flex items-end gap-1">
@@ -287,21 +308,18 @@ export default function AdminSettings() {
           ))}
         </div>
 
-        <div className="grid gap-2 rounded-xl border border-dashed p-3 sm:grid-cols-[1fr_1fr_1.2fr_auto]">
+        <div className="grid gap-2 rounded-xl border border-dashed p-3 sm:grid-cols-[1fr_1fr_1.2fr_5rem_auto]">
           <Field label="New code">
-            <Input
-              value={newCode}
-              onChange={(e) => setNewCode(e.target.value)}
-              placeholder="acme"
-              className="font-mono text-sm"
-              autoComplete="off"
-            />
+            <Input value={newCode} onChange={(e) => setNewCode(e.target.value)} placeholder="acme" className="font-mono text-sm" autoComplete="off" />
           </Field>
           <Field label="Partner name">
             <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Acme Hospitality" />
           </Field>
           <Field label="Support email">
             <Input type="email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} placeholder="partners+acme@talkweb.io" />
+          </Field>
+          <Field label="Comm %">
+            <Input type="number" min={0} max={100} step={0.1} value={newPct} onChange={(e) => setNewPct(e.target.value)} />
           </Field>
           <div className="flex items-end">
             <Button type="button" variant="secondary" onClick={addPartner}>
