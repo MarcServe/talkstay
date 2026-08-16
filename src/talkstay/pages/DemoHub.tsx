@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
 import NoIndexMeta from "@/talkstay/components/NoIndexMeta";
+import { GUEST_ACCESS_MARKETING } from "@/talkstay/lib/guestAccessCopy";
 
 const GUEST_IMG = {
   jpg: "/marketing/role-guest.jpg",
@@ -45,8 +46,8 @@ export default function DemoHub() {
             Experience TalkStay
           </h1>
           <p className="mx-auto mt-3 max-w-xl text-muted-foreground">
-            Pick a side. See exactly what guests do after scanning a room QR —
-            and what hotel staff see when requests come in.
+            Pick a side. {GUEST_ACCESS_MARKETING.replace(/^No app to download\.\s*/i, "")}{" "}
+            See what hotel staff see when requests come in.
           </p>
         </div>
 

@@ -20,6 +20,7 @@ import { OCCUPANCY_STYLE, formatMoney } from "@/talkstay/lib/statusStyles";
 import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
 import { supabase } from "@/integrations/supabase/client";
 import { guestStayUrl, type GuestStaySurface } from "@/talkstay/lib/guestUrls";
+import GuestAccessTip from "@/talkstay/components/GuestAccessTip";
 
 type RoomStatusFilter = "all" | "occupied" | "vacant" | "public";
 type RoomsView = "card" | "list";
@@ -309,6 +310,7 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
 
   return (
     <div className="space-y-5">
+      <GuestAccessTip />
       <form onSubmit={onAdd} className="flex flex-wrap items-end gap-3">
         <div>
           <label className="mb-1 block text-xs text-muted-foreground">Name or number</label>
@@ -745,7 +747,8 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
           <div className="w-full max-w-xs rounded-2xl bg-card p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
             <h3 className="mb-1 font-semibold">Email the code — {formatRoomLabel(emailFor.room_number)}</h3>
             <p className="mb-4 text-xs text-muted-foreground">
-              Sends the check-in code, a direct link to open the room's assistant, and short instructions — handy for a busy guest who'd rather not wait.
+              Sends the check-in code, a direct Room Assistant link, and short instructions.
+              Guests can open that link from anywhere — not only by scanning the QR in the room.
             </p>
             <label className="mb-1 block text-xs text-muted-foreground">Guest's email</label>
             <Input

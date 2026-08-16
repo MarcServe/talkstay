@@ -9,6 +9,7 @@ import {
 } from "@/talkstay/lib/partners";
 import { SUPPORT_EMAIL, SUPPORT_PHONE, TEL_SUPPORT } from "@/config/contact";
 import { supabase } from "@/integrations/supabase/client";
+import GuestAccessTip from "@/talkstay/components/GuestAccessTip";
 
 /** Authenticated profile — Direct Support (partner-aware) + FAQ entry. */
 export default function AccountPanel({
@@ -37,6 +38,7 @@ export default function AccountPanel({
 
   return (
     <div className="mx-auto max-w-lg space-y-4">
+      <GuestAccessTip compact />
       <div className="rounded-2xl border bg-card p-5 shadow-sm">
         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Profile</p>
         <h2 className="mt-1 text-xl font-semibold tracking-tight">{displayName}</h2>

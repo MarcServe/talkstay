@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
 import { useAuth } from "@/hooks/useAuth";
+import { GUEST_ACCESS_MARKETING } from "@/talkstay/lib/guestAccessCopy";
 
 const DEMO_VIDEO_ID = "83u9qLpVlQ8";
 
@@ -495,7 +496,7 @@ export default function Landing() {
           <div className="text-center">
             <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">How it works</h2>
             <p className="mx-auto mt-4 max-w-2xl text-base font-semibold leading-snug tracking-tight text-foreground sm:text-lg">
-              No app to download. Guests scan the room QR, speak, and it’s done — from their phone to your team.
+              {GUEST_ACCESS_MARKETING}
             </p>
           </div>
           <Photo
@@ -685,8 +686,9 @@ export default function Landing() {
             <div className="text-center lg:text-left">
               <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">Ready when your guests are.</h2>
               <p className="mx-auto mt-4 max-w-md text-muted-foreground lg:mx-0">
-                Set up your property in minutes, print your room QR codes, and turn every guest
-                request into a trackable task automatically — by voice or chat, in any language.
+                Set up your property in minutes, print room QR codes (and email Room Assistant links),
+                and turn every guest request into a trackable task automatically — by voice or chat,
+                in any language, from anywhere.
               </p>
               <div className="mt-8 flex flex-wrap items-center justify-center gap-3 lg:justify-start">
                 <Button asChild size="lg" className="bg-violet-600 hover:bg-violet-700">

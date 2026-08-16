@@ -21,6 +21,7 @@ import { getPublicBaseUrl } from "@/config/environment";
 import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
 import { cn } from "@/lib/utils";
 import { KB_SCOPE_CARD, KB_SCOPE_STYLE, OCCUPANCY_STYLE } from "@/talkstay/lib/statusStyles";
+import GuestAccessTip from "@/talkstay/components/GuestAccessTip";
 
 const deptLabel = (k: string | null) =>
   !k ? "All departments" : DEPARTMENTS.find((d) => d.key === k)?.display_name ?? k;
@@ -141,6 +142,7 @@ export function DemoRoomsPanel() {
 
   return (
     <div className="space-y-5">
+      <GuestAccessTip />
       <form
         className="flex flex-wrap items-end gap-3"
         onSubmit={(e) => { e.preventDefault(); add(); }}

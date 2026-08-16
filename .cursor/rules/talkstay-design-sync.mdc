@@ -1,0 +1,31 @@
+---
+description: Keep TalkStay marketing and app chrome on the latest shared design
+globs:
+  - src/talkstay/pages/Landing.tsx
+  - src/talkstay/pages/DemoHub.tsx
+  - src/talkstay/pages/Demo*.tsx
+  - src/talkstay/pages/GuestApp.tsx
+  - src/talkstay/pages/HotelApp.tsx
+  - src/talkstay/pages/AuthPage.tsx
+  - public/marketing/**
+  - index.html
+  - vite.config.ts
+alwaysApply: false
+---
+
+# TalkStay design sync
+
+## Canonical sources
+- **Marketing (mobile + desktop):** `src/talkstay/pages/Landing.tsx` on latest `main` — one responsive hero, not separate mobile/desktop pages.
+- **Demo hub art/CTAs:** `src/talkstay/pages/DemoHub.tsx` + `public/marketing/role-*` (labels under images; no text baked into art).
+- **Guest phone UI:** keep `GuestApp.tsx` and `DemoGuestApp.tsx` shells aligned when changing chrome.
+- **Staff shell:** keep `HotelApp.tsx` and `DemoApp.tsx` aligned when changing nav/sidebar.
+- **Guest access wording:** use `src/talkstay/lib/guestAccessCopy.ts` — do not invent parallel QR-only copy.
+
+## Always
+- Branch from **latest `main`**. Do not continue superseded hero branches (`hero-message-journey-*`, `manager-guest-demo-images-*`) — those regress the current design.
+- Ignore unused TalkWeb leftovers (`src/pages/Index.tsx`, `src/components/HeroSection.tsx`) — they are not routed.
+- After landing copy/layout changes, check DemoHub + meta in `index.html` so mobile home-screen / social previews match.
+
+## Hero intent (current)
+Voice-first badge · guest-in-bed promo · “Handled *beautifully.* / from anywhere” · value line with Ask/Request journey · image-first on mobile · role graphics without overlays.
