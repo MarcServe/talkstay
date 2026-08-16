@@ -29,6 +29,11 @@ type RoomUsage = {
   sessions: number;
   requests: number;
   engaged: boolean;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  ai_cost_usd?: number;
+  ai_calls?: number;
 };
 
 type HotelUsage = {
@@ -39,7 +44,17 @@ type HotelUsage = {
   billing_mode: string;
   billing_notes: string | null;
   rates: Record<string, unknown>;
-  meters: { active_qr: number; sessions: number; guest_turns: number; requests: number };
+  meters: {
+    active_qr: number;
+    sessions: number;
+    guest_turns: number;
+    requests: number;
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+    ai_cost_usd?: number;
+    ai_calls?: number;
+  };
   charge: Charge;
   room_count: number;
   rooms?: RoomUsage[];
@@ -58,10 +73,16 @@ type UsagePayload = {
     suggested: number;
     currency: string;
     hotels: number;
+    ai_cost_usd?: number;
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    ai_calls?: number;
   };
   hotels: HotelUsage[];
   hotel?: HotelUsage | null;
   rollup_ready?: boolean;
+  llm_cost_ready?: boolean;
+  llm_cost_missing_table?: boolean;
 };
 
 const PERIODS = [
@@ -77,6 +98,15 @@ function money(n: number, currency: string) {
   } catch {
     return `${currency} ${n.toFixed(2)}`;
   }
+}
+
+function moneyUsd(n: number) {
+  return new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4,
+  }).format(n);
 }
 
 function csvEscape(v: unknown) {
@@ -140,11 +170,12 @@ export default function AdminUsage() {
     if (!data) return;
     const currency = data.totals.currency;
     const rows: string[][] = [
-      ["hotel", "slug", "billing_mode", "active_qr", "sessions", "guest_turns", "requests", "suggested_charge", "currency", "period_start", "period_end"],
+      ["hotel", "slug", "billing_mode", "active_qr", "sessions", "guest_turns", "requests", "suggested_charge", "ai_cost_usd", "prompt_tokens", "completion_tokens", "currency", "period_start", "period_end"],
       ...data.hotels.map((h) => [
         h.name, h.slug, h.billing_mode,
         h.meters.active_qr, h.meters.sessions, h.meters.guest_turns, h.meters.requests,
-        h.charge.suggested, currency, data.since, data.until,
+        h.charge.suggested, h.meters.ai_cost_usd ?? 0, h.meters.prompt_tokens ?? 0, h.meters.completion_tokens ?? 0,
+        currency, data.since, data.until,
       ].map(String)),
     ];
     downloadCsv(`talkstay-usage-hotels-${days}d.csv`, rows);
@@ -153,10 +184,11 @@ export default function AdminUsage() {
   const exportRooms = () => {
     if (!detail?.rooms) return;
     const rows: string[][] = [
-      ["hotel", "room", "public", "engaged", "sessions", "guest_turns", "requests", "token_preview", "period_start", "period_end"],
+      ["hotel", "room", "public", "engaged", "sessions", "guest_turns", "requests", "ai_cost_usd", "prompt_tokens", "completion_tokens", "token_preview", "period_start", "period_end"],
       ...detail.rooms.map((r) => [
         detail.name, r.room_number, r.is_public ? "yes" : "no", r.engaged ? "yes" : "no",
-        r.sessions, r.guest_turns, r.requests, r.token_preview ?? "", data!.since, data!.until,
+        r.sessions, r.guest_turns, r.requests, r.ai_cost_usd ?? 0, r.prompt_tokens ?? 0, r.completion_tokens ?? 0,
+        r.token_preview ?? "", data!.since, data!.until,
       ].map(String)),
     ];
     downloadCsv(`talkstay-usage-${detail.slug}-rooms-${days}d.csv`, rows);
@@ -168,7 +200,8 @@ export default function AdminUsage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Usage & pilot billing</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Per-property and per-QR engagement meters for usage-based or pilot charges — instead of bulk subscription.
+            Engagement meters for customer charges, plus estimated OpenAI cost per property / QR
+            (OpenAI’s dashboard cannot split spend by room — we attribute it on each call).
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -205,17 +238,35 @@ export default function AdminUsage() {
         </div>
       ) : data ? (
         <>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
             <Stat label="Properties" value={data.totals.hotels} />
             <Stat label="Active QRs" value={data.totals.active_qr} hint="Rooms with ≥1 interaction" />
             <Stat label="Guest sessions" value={data.totals.sessions} />
             <Stat label="Guest turns" value={data.totals.guest_turns} />
             <Stat
-              label="Suggested total"
+              label="Suggested charge"
               value={money(data.totals.suggested, data.totals.currency)}
-              hint={`Primary meter: ${String(data.billing.primary_meter ?? "active_qr")}`}
+              hint={`Customer draft · ${String(data.billing.primary_meter ?? "active_qr")}`}
+            />
+            <Stat
+              label="Est. AI cost"
+              value={moneyUsd(Number(data.totals.ai_cost_usd) || 0)}
+              hint={
+                data.llm_cost_missing_table
+                  ? "Apply ts_llm_calls migration"
+                  : `${Number(data.totals.ai_calls) || 0} calls · OpenAI USD`
+              }
             />
           </div>
+
+          {data.llm_cost_missing_table && (
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              Per-QR AI cost needs migration{" "}
+              <code className="text-xs">20260816000004_talkstay_llm_calls.sql</code>
+              {" "}and a redeploy of <code className="text-xs">talkstay-guest-chat</code>.
+              Engagement meters above still work.
+            </p>
+          )}
 
           {!hotelId && (
             <section className="rounded-2xl border border-violet-200 bg-violet-50/50 p-5">
@@ -315,6 +366,9 @@ export default function AdminUsage() {
                   <p className="text-sm text-muted-foreground">
                     {detail.slug} · {detail.billing_mode} · {money(detail.charge.suggested, detail.charge.currency)} suggested
                     {" "}({detail.charge.units} × {detail.charge.rate} {detail.charge.primary_meter.replace(/_/g, " ")})
+                    {" · "}
+                    {moneyUsd(Number(detail.meters.ai_cost_usd) || 0)} est. AI
+                    {" "}({Number(detail.meters.prompt_tokens) || 0} in / {Number(detail.meters.completion_tokens) || 0} out tokens)
                   </p>
                 </div>
                 <div className="flex gap-2">
@@ -336,6 +390,7 @@ export default function AdminUsage() {
                       <th className="px-4 py-2 font-medium">Sessions</th>
                       <th className="px-4 py-2 font-medium">Turns</th>
                       <th className="px-4 py-2 font-medium">Requests</th>
+                      <th className="px-4 py-2 font-medium">AI cost</th>
                       <th className="px-4 py-2 font-medium">Status</th>
                     </tr>
                   </thead>
@@ -354,6 +409,12 @@ export default function AdminUsage() {
                         <td className="px-4 py-2">{r.sessions}</td>
                         <td className="px-4 py-2">{r.guest_turns}</td>
                         <td className="px-4 py-2">{r.requests}</td>
+                        <td className="px-4 py-2 tabular-nums">
+                          {moneyUsd(Number(r.ai_cost_usd) || 0)}
+                          <div className="text-[10px] text-muted-foreground">
+                            {(Number(r.prompt_tokens) || 0) + (Number(r.completion_tokens) || 0)} tok
+                          </div>
+                        </td>
                         <td className="px-4 py-2">
                           {r.engaged ? (
                             <Badge className="border border-emerald-200 bg-emerald-50 text-emerald-800">Engaged</Badge>
@@ -365,7 +426,7 @@ export default function AdminUsage() {
                     ))}
                     {(detail.rooms ?? []).length === 0 && (
                       <tr>
-                        <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">No rooms</td>
+                        <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">No rooms</td>
                       </tr>
                     )}
                   </tbody>
@@ -392,6 +453,7 @@ export default function AdminUsage() {
                       <th className="hidden px-4 py-3 font-medium md:table-cell">Sessions</th>
                       <th className="hidden px-4 py-3 font-medium lg:table-cell">Turns</th>
                       <th className="px-4 py-3 font-medium">Suggested</th>
+                      <th className="px-4 py-3 font-medium">AI cost</th>
                       <th className="px-4 py-3 font-medium" />
                     </tr>
                   </thead>
@@ -411,6 +473,9 @@ export default function AdminUsage() {
                         <td className="px-4 py-3 font-medium">
                           {money(h.charge.suggested, h.charge.currency)}
                         </td>
+                        <td className="px-4 py-3 tabular-nums">
+                          {moneyUsd(Number(h.meters.ai_cost_usd) || 0)}
+                        </td>
                         <td className="px-4 py-3 text-right">
                           <Button
                             size="sm"
@@ -429,7 +494,7 @@ export default function AdminUsage() {
                     ))}
                     {hotels.length === 0 && (
                       <tr>
-                        <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
+                        <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
                           No usage in this period.
                         </td>
                       </tr>
@@ -444,7 +509,7 @@ export default function AdminUsage() {
             Period {new Date(data.since).toLocaleString()} → {new Date(data.until).toLocaleString()}.
             Rates come from{" "}
             <Link to="/admin/settings" className="underline hover:text-foreground">System settings</Link>
-            {" "}(or per-hotel overrides on the hotel page). Suggested charge uses the primary meter only.
+            {" "}(or per-hotel overrides). Suggested charge = customer draft (primary meter). Est. AI cost = attributed OpenAI USD from guest QR calls (not PostHog).
           </p>
         </>
       ) : null}
