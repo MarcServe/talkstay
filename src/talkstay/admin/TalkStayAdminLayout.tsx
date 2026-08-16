@@ -2,7 +2,7 @@ import { Link, Navigate, NavLink, Outlet } from "react-router-dom";
 import { useAdminAuth } from "@/hooks/useAdminAuth";
 import { Button } from "@/components/ui/button";
 import {
-  Building2, LayoutDashboard, Link2, Loader2, LogOut, QrCode, Settings, Shield, Users,
+  Building2, LayoutDashboard, Link2, Loader2, LogOut, QrCode, Settings, Shield, Sparkles, Users,
 } from "lucide-react";
 import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
 import { supabase } from "@/integrations/supabase/client";
@@ -11,6 +11,7 @@ const NAV = [
   { to: "/admin", end: true, label: "Overview", icon: LayoutDashboard },
   { to: "/admin/hotels", end: false, label: "Hotels", icon: Building2 },
   { to: "/admin/usage", end: false, label: "Usage", icon: QrCode },
+  { to: "/admin/ai", end: false, label: "AI performance", icon: Sparkles },
   { to: "/admin/live-links", end: false, label: "Live links", icon: Link2 },
   { to: "/admin/users", end: false, label: "Users", icon: Users },
   { to: "/admin/settings", end: false, label: "Settings", icon: Settings },

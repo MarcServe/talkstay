@@ -185,11 +185,9 @@ export default function AdminHotelDetail() {
       try {
         await adminApi("rotate_room_token", { roomId });
       } catch {
-        // Direct fallback when edge function isn't redeployed yet
-        const { data: room, error: roomErr } = await (await import("@/integrations/supabase/client")).supabase
+        const { data: room, error: roomErr } = await supabase
           .from("ts_rooms").select("id, hotel_id").eq("id", roomId).maybeSingle();
         if (roomErr || !room) throw roomErr ?? new Error("Room not found");
-        const { supabase } = await import("@/integrations/supabase/client");
         await supabase.from("ts_room_tokens")
           .update({ is_active: false, rotated_at: new Date().toISOString() })
           .eq("room_id", roomId)
