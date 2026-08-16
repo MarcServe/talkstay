@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
 import { Eye, EyeOff, Linkedin, Lock, Mail } from "lucide-react";
 import type { Provider } from "@supabase/supabase-js";
+import { captureReferralFromSearch, ensurePartnersLoaded } from "@/talkstay/lib/partners";
 
 const SIDE_PHOTO = "/marketing/auth-side.jpg";
 
@@ -277,6 +278,11 @@ export default function AuthPage() {
 
   const [showForgot, setShowForgot] = useState(false);
   const [forgotEmail, setForgotEmail] = useState("");
+
+  useEffect(() => {
+    captureReferralFromSearch(window.location.search);
+    void ensurePartnersLoaded();
+  }, []);
 
   useEffect(() => {
     const setup = isPasswordSetupUrl();

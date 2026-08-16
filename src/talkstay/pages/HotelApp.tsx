@@ -33,7 +33,14 @@ import {
 } from "@/talkstay/hooks/useTalkStayQueries";
 import PropertyProfileFields from "@/talkstay/components/PropertyProfileFields";
 import PropertySwitcher from "@/talkstay/components/PropertySwitcher";
-import { normalizeReferralCode } from "@/talkstay/lib/partners";
+import {
+  normalizeReferralCode,
+  partnerForReferral,
+  resolveSignupReferral,
+  captureReferralFromSearch,
+  clearStoredReferral,
+  ensurePartnersLoaded,
+} from "@/talkstay/lib/partners";
 
 const StaffPanel = lazy(() => import("@/talkstay/components/StaffPanel"));
 
@@ -56,6 +63,7 @@ function CreateHotel({
   onCancel,
   asAdditional,
   portfolioSize,
+  inheritReferral,
 }: {
   onCreated: (h: Hotel) => void;
   onCancel?: () => void;
@@ -63,6 +71,8 @@ function CreateHotel({
   asAdditional?: boolean;
   /** Current owned property count — used to seed the new profile's portfolio size. */
   portfolioSize?: number;
+  /** Referral from an existing owned property (portfolio add). */
+  inheritReferral?: string | null;
 }) {
   const [searchParams] = useSearchParams();
   const [name, setName] = useState("");
@@ -71,11 +81,22 @@ function CreateHotel({
   const [property, setProperty] = useState<PropertyProfile>({
     property_count: asAdditional ? Math.max(2, (portfolioSize ?? 1) + 1) : 1,
   });
-  const [referralCode, setReferralCode] = useState(
-    () => normalizeReferralCode(searchParams.get("ref")) ?? "",
-  );
+  const resolved = resolveSignupReferral({
+    searchParams,
+    inheritFrom: inheritReferral ?? null,
+  });
+  const [referralCode, setReferralCode] = useState(() => resolved.code ?? "");
+  const [partnersReady, setPartnersReady] = useState(false);
+  const partner = partnerForReferral(referralCode);
+  void partnersReady; // re-render after public partner map loads
+  const partnerLocked = resolved.source === "url" || resolved.source === "stored" || resolved.source === "inherit";
   const [busy, setBusy] = useState(false);
   const [stage, setStage] = useState("");
+
+  useEffect(() => {
+    captureReferralFromSearch(searchParams);
+    void ensurePartnersLoaded().then(() => setPartnersReady(true));
+  }, [searchParams]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -83,11 +104,12 @@ function CreateHotel({
     setBusy(true);
     try {
       setStage("Creating your property…");
+      const code = normalizeReferralCode(referralCode);
       const hotel = await createHotel({
         name: name.trim(),
         website_url: website.trim() || undefined,
         default_language: language,
-        referral_code: referralCode.trim() || null,
+        referral_code: code,
         property: {
           ...property,
           type: property.type || undefined,
@@ -120,6 +142,7 @@ function CreateHotel({
       } else {
         toast.success(asAdditional ? "Property added to your portfolio" : "Property created");
       }
+      if (code) clearStoredReferral();
       onCreated(hotel);
     } catch (err: any) {
       toast.error(err?.message ?? "Failed to create property");
@@ -161,19 +184,49 @@ function CreateHotel({
             <div className="mb-3 text-sm font-medium">Property profile</div>
             <PropertyProfileFields value={property} onChange={setProperty} compact />
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="hotel-ref">Referral code (optional)</Label>
-            <Input
-              id="hotel-ref"
-              value={referralCode}
-              onChange={(e) => setReferralCode(e.target.value)}
-              placeholder="Partner code"
-              autoComplete="off"
-            />
-            <p className="text-xs text-muted-foreground">
-              Prefills from a ?ref= link when present. Used to route Support to your partner when one is assigned.
-            </p>
-          </div>
+
+          {partner || referralCode ? (
+            <div className="space-y-1.5 rounded-xl border border-violet-200 bg-violet-50/60 p-4">
+              <Label htmlFor="hotel-ref">Partner referral</Label>
+              {partner ? (
+                <p className="text-sm font-medium text-violet-950">
+                  Linked to <span className="text-violet-800">{partner.name}</span>
+                  <span className="ml-1.5 font-mono text-xs font-normal text-violet-700/80">({referralCode})</span>
+                </p>
+              ) : (
+                <Input
+                  id="hotel-ref"
+                  value={referralCode}
+                  onChange={(e) => setReferralCode(e.target.value)}
+                  placeholder="Partner code"
+                  autoComplete="off"
+                  readOnly={partnerLocked && !!resolved.source}
+                />
+              )}
+              <p className="text-xs text-violet-900/70">
+                {partner
+                  ? resolved.source === "inherit"
+                    ? "Carried over from your portfolio so Support stays with the same partner."
+                    : "Support for this property routes to your partner. Applied automatically from your signup link."
+                  : "Code will be saved on this property for partner tracking and Support routing."}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              <Label htmlFor="hotel-ref">Referral code (optional)</Label>
+              <Input
+                id="hotel-ref"
+                value={referralCode}
+                onChange={(e) => setReferralCode(e.target.value)}
+                placeholder="Partner code"
+                autoComplete="off"
+              />
+              <p className="text-xs text-muted-foreground">
+                If you were invited by a partner, use their link (<code className="text-[11px]">?ref=code</code>) — it applies automatically.
+              </p>
+            </div>
+          )}
+
           <div className="flex flex-col gap-2 sm:flex-row">
             {onCancel && (
               <Button type="button" variant="outline" className="sm:flex-1" disabled={busy} onClick={onCancel}>
@@ -287,6 +340,11 @@ export default function HotelApp() {
   }, [tabParam]);
 
   useEffect(() => {
+    captureReferralFromSearch(searchParams);
+    void ensurePartnersLoaded();
+  }, [searchParams]);
+
+  useEffect(() => {
     if (isError && error) toast.error(error.message ?? "Failed to load property");
   }, [isError, error]);
 
@@ -329,10 +387,18 @@ export default function HotelApp() {
   const ownsAny = properties.some((p) => p.isOwner);
 
   if (addingProperty && ownsAny) {
+    const owned = properties.filter((p) => p.isOwner);
+    const inheritReferral =
+      (hotel?.referral_code && owned.some((p) => p.hotel.id === hotel.id)
+        ? hotel.referral_code
+        : null) ||
+      owned.find((p) => p.hotel.referral_code)?.hotel.referral_code ||
+      null;
     return (
       <CreateHotel
         asAdditional
-        portfolioSize={properties.filter((p) => p.isOwner).length}
+        portfolioSize={owned.length}
+        inheritReferral={inheritReferral}
         onCancel={() => setAddingProperty(false)}
         onCreated={(h) => {
           writeActiveHotelId(user.id, h.id);

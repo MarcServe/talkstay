@@ -5,8 +5,19 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Loader2, Save } from "lucide-react";
+import { Copy, Loader2, Plus, Save, Trash2 } from "lucide-react";
 import { loadPlatformSettings, savePlatformSetting } from "@/talkstay/admin/adminApi";
+import {
+  PARTNER_SUPPORT,
+  emptyPartnersSettings,
+  invalidatePartnersCache,
+  normalizeReferralCode,
+  partnerSignupPath,
+  partnersCodesFromSettings,
+  setDynamicPartners,
+  type PartnerInfo,
+  type PartnersSettings,
+} from "@/talkstay/lib/partners";
 
 type BillingSettings = {
   currency: string;
@@ -78,6 +89,10 @@ export default function AdminSettings() {
   const [defaults, setDefaults] = useState<DefaultsSettings>(DEFAULTS_DEFAULT);
   const [features, setFeatures] = useState<FeaturesSettings>(FEATURES_DEFAULT);
   const [support, setSupport] = useState<SupportSettings>(SUPPORT_DEFAULT);
+  const [partners, setPartners] = useState<PartnersSettings>(emptyPartnersSettings());
+  const [newCode, setNewCode] = useState("");
+  const [newName, setNewName] = useState("");
+  const [newEmail, setNewEmail] = useState("");
   const [saving, setSaving] = useState<string | null>(null);
   const [missingTable, setMissingTable] = useState(false);
 
@@ -91,6 +106,9 @@ export default function AdminSettings() {
       setDefaults({ ...DEFAULTS_DEFAULT, ...(s.defaults as object) });
       setFeatures({ ...FEATURES_DEFAULT, ...(s.features as object) });
       setSupport({ ...SUPPORT_DEFAULT, ...(s.support as object) });
+      const codes = partnersCodesFromSettings(s.partners);
+      setPartners({ codes });
+      setDynamicPartners(codes);
     } catch (e: any) {
       toast.error(e.message);
     } finally {
@@ -104,12 +122,68 @@ export default function AdminSettings() {
     setSaving(key);
     try {
       await savePlatformSetting(key, value);
+      if (key === "partners") {
+        invalidatePartnersCache();
+        setDynamicPartners(partnersCodesFromSettings(value));
+      }
       toast.success("Saved");
       setMissingTable(false);
     } catch (e: any) {
       toast.error(e.message);
     } finally {
       setSaving(null);
+    }
+  };
+
+  const addPartner = () => {
+    const code = normalizeReferralCode(newCode);
+    const name = newName.trim();
+    const email = newEmail.trim();
+    if (!code) {
+      toast.error("Enter a referral code");
+      return;
+    }
+    if (PARTNER_SUPPORT[code]) {
+      toast.error("That code is reserved for a built-in partner");
+      return;
+    }
+    if (!name || !email) {
+      toast.error("Name and support email are required");
+      return;
+    }
+    if (partners.codes[code]) {
+      toast.error("That code already exists — edit the row instead");
+      return;
+    }
+    setPartners({ codes: { ...partners.codes, [code]: { name, email } } });
+    setNewCode("");
+    setNewName("");
+    setNewEmail("");
+  };
+
+  const updatePartner = (code: string, patch: Partial<PartnerInfo>) => {
+    const cur = partners.codes[code];
+    if (!cur) return;
+    setPartners({
+      codes: { ...partners.codes, [code]: { ...cur, ...patch } },
+    });
+  };
+
+  const removePartner = (code: string) => {
+    const next = { ...partners.codes };
+    delete next[code];
+    setPartners({ codes: next });
+  };
+
+  const copySignupLink = async (code: string) => {
+    const base = (support.public_base_url || "https://talkstay.talkweb.io").replace(/\/$/, "");
+    const path = partnerSignupPath(code);
+    const url = `${base}${path}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success("Signup link copied");
+    } catch {
+      toast.message(url);
     }
   };
 
@@ -121,12 +195,14 @@ export default function AdminSettings() {
     );
   }
 
+  const customCodes = Object.entries(partners.codes).sort(([a], [b]) => a.localeCompare(b));
+
   return (
     <div className="space-y-8">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">System settings</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Platform-wide controls for pilot billing rates, property defaults, feature flags, and support contacts.
+          Platform-wide controls for pilot billing rates, partner referral codes, property defaults, feature flags, and support contacts.
           Change these here instead of asking engineering to patch config.
         </p>
         {missingTable && (
@@ -137,6 +213,103 @@ export default function AdminSettings() {
           </p>
         )}
       </div>
+
+      {/* Partners */}
+      <section className="space-y-4 rounded-2xl border bg-card p-5 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold">Partner referral codes</h2>
+            <p className="text-sm text-muted-foreground">
+              Create a code per partner. Share <code className="text-xs">/app?ref=code</code> — it prefills on hotel signup and routes Support to that partner.
+            </p>
+          </div>
+          <Button
+            size="sm"
+            disabled={saving === "partners"}
+            onClick={() => void save("partners", { codes: partners.codes })}
+          >
+            {saving === "partners" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Save className="mr-1.5 h-3.5 w-3.5" />}
+            Save partners
+          </Button>
+        </div>
+
+        <div className="rounded-xl border bg-muted/20 p-3">
+          <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Built-in</div>
+          <ul className="space-y-1.5 text-sm">
+            {Object.entries(PARTNER_SUPPORT).map(([code, info]) => (
+              <li key={code} className="flex flex-wrap items-center justify-between gap-2">
+                <span>
+                  <span className="font-mono text-xs">{code}</span>
+                  <span className="mx-2 text-muted-foreground">·</span>
+                  {info.name}
+                  <span className="ml-2 text-xs text-muted-foreground">{info.email}</span>
+                </span>
+                <Button type="button" size="sm" variant="ghost" onClick={() => void copySignupLink(code)}>
+                  <Copy className="mr-1 h-3.5 w-3.5" /> Copy link
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="space-y-3">
+          <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Custom partners</div>
+          {customCodes.length === 0 && (
+            <p className="text-sm text-muted-foreground">No custom codes yet — add one below.</p>
+          )}
+          {customCodes.map(([code, info]) => (
+            <div key={code} className="grid gap-2 rounded-xl border p-3 sm:grid-cols-[1fr_1fr_1.2fr_auto]">
+              <Field label="Code">
+                <Input value={code} readOnly className="font-mono text-sm" />
+              </Field>
+              <Field label="Partner name">
+                <Input
+                  value={info.name}
+                  onChange={(e) => updatePartner(code, { name: e.target.value })}
+                />
+              </Field>
+              <Field label="Support email">
+                <Input
+                  type="email"
+                  value={info.email}
+                  onChange={(e) => updatePartner(code, { email: e.target.value })}
+                />
+              </Field>
+              <div className="flex items-end gap-1">
+                <Button type="button" size="icon" variant="outline" onClick={() => void copySignupLink(code)} title="Copy signup link">
+                  <Copy className="h-4 w-4" />
+                </Button>
+                <Button type="button" size="icon" variant="outline" onClick={() => removePartner(code)} title="Remove">
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="grid gap-2 rounded-xl border border-dashed p-3 sm:grid-cols-[1fr_1fr_1.2fr_auto]">
+          <Field label="New code">
+            <Input
+              value={newCode}
+              onChange={(e) => setNewCode(e.target.value)}
+              placeholder="acme"
+              className="font-mono text-sm"
+              autoComplete="off"
+            />
+          </Field>
+          <Field label="Partner name">
+            <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Acme Hospitality" />
+          </Field>
+          <Field label="Support email">
+            <Input type="email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} placeholder="partners+acme@talkweb.io" />
+          </Field>
+          <div className="flex items-end">
+            <Button type="button" variant="secondary" onClick={addPartner}>
+              <Plus className="mr-1.5 h-4 w-4" /> Add
+            </Button>
+          </div>
+        </div>
+      </section>
 
       {/* Billing */}
       <section className="space-y-4 rounded-2xl border bg-card p-5 shadow-sm">
