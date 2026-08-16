@@ -215,7 +215,7 @@ function NoAccess({ email }: { email?: string | null }) {
   );
 }
 
-function Panel({ active, hotel, onHotel, departmentKey, focusRequestId, onOpenRequest, identity, portfolioHotels }: {
+function Panel({ active, hotel, onHotel, departmentKey, focusRequestId, onOpenRequest, identity, portfolioHotels, canAddProperty, onAddProperty }: {
   active: NavKey;
   hotel: Hotel;
   onHotel: (h: Hotel) => void;
@@ -225,6 +225,8 @@ function Panel({ active, hotel, onHotel, departmentKey, focusRequestId, onOpenRe
   identity: { email?: string | null; displayName: string; roleLabel: string };
   /** Other properties the owner can aggregate Insights across. */
   portfolioHotels?: Hotel[];
+  canAddProperty?: boolean;
+  onAddProperty?: () => void;
 }) {
   const qc = useQueryClient();
   switch (active) {
@@ -262,6 +264,8 @@ function Panel({ active, hotel, onHotel, departmentKey, focusRequestId, onOpenRe
         email={identity.email}
         displayName={identity.displayName}
         roleLabel={identity.roleLabel}
+        canAddProperty={canAddProperty}
+        onAddProperty={onAddProperty}
       />
     );
   }
@@ -596,6 +600,8 @@ export default function HotelApp() {
               departmentKey={lockedDepartment}
               focusRequestId={focusRequestId}
               portfolioHotels={portfolioHotels}
+              canAddProperty={ownsAny || !!membership?.isOwner || membership?.role === "owner"}
+              onAddProperty={() => setAddingProperty(true)}
               identity={{
                 email: user?.email,
                 displayName: identityName,

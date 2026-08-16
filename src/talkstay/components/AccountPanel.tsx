@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { LifeBuoy, Mail, BookOpen, LogOut, ExternalLink } from "lucide-react";
+import { Building2, LifeBuoy, Mail, BookOpen, LogOut, ExternalLink, Plus } from "lucide-react";
 import type { Hotel } from "@/talkstay/lib/hotels";
 import {
   directSupportMailto,
@@ -16,11 +16,16 @@ export default function AccountPanel({
   email,
   displayName,
   roleLabel,
+  canAddProperty,
+  onAddProperty,
 }: {
   hotel: Hotel;
   email?: string | null;
   displayName: string;
   roleLabel: string;
+  /** Owners can add another property from Account (easier than sidebar-only). */
+  canAddProperty?: boolean;
+  onAddProperty?: () => void;
 }) {
   const partner = partnerForReferral(hotel.referral_code);
   const supportHref = directSupportMailto({
@@ -53,6 +58,24 @@ export default function AccountPanel({
           )}
         </dl>
       </div>
+
+      {canAddProperty && onAddProperty && (
+        <div className="rounded-2xl border bg-card p-5 shadow-sm">
+          <div className="flex items-start gap-3">
+            <Building2 className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" />
+            <div className="min-w-0 flex-1">
+              <h3 className="text-sm font-semibold">Portfolio</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Add another hotel, serviced apartment, or short-let under the same owner account. Also available as{" "}
+                <span className="font-medium text-foreground">+ Add property</span> under the property name in the sidebar.
+              </p>
+              <Button type="button" className="mt-3 bg-violet-600 hover:bg-violet-700" onClick={onAddProperty}>
+                <Plus className="mr-1.5 h-4 w-4" /> Add property
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="rounded-2xl border border-violet-200/80 bg-violet-50/50 p-5 shadow-sm">
         <div className="flex items-start gap-3">
