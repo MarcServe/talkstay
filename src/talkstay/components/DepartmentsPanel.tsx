@@ -94,14 +94,38 @@ export default function DepartmentsPanel({ hotel }: { hotel: Hotel }) {
     const label = newDept.trim();
     if (!label) return;
     setAdding(true);
+    const key = deptKeyFromName(label);
     const { error } = await supabase.from("ts_departments").insert({
-      hotel_id: hotel.id, key: deptKeyFromName(label), display_name: label, is_active: true,
+      hotel_id: hotel.id, key, display_name: label, is_active: true,
+    });
+    if (error) {
+      setAdding(false);
+      toast.error(error.message);
+      return;
+    }
+    // Seed keyword routing so guest asks like “spa massage” / “security” hit this team.
+    const seedHints: Record<string, string[]> = {
+      spa: ["spa", "massage", "facial", "treatment", "sauna", "wellness"],
+      security: ["security", "lockout", "locked out", "suspicious", "theft", "stolen"],
+      pool: ["pool", "swimming", "swim", "pool towel"],
+      gym: ["gym", "fitness", "workout"],
+      parking: ["parking", "valet", "car park"],
+    };
+    const keywords = [
+      ...(seedHints[key] ?? []),
+      label.toLowerCase(),
+      key.replace(/_/g, " "),
+    ].filter((k, i, arr) => k && arr.indexOf(k) === i);
+    await supabase.from("ts_routing_rules").insert({
+      hotel_id: hotel.id,
+      department_key: key,
+      keywords,
+      is_active: true,
     });
     setAdding(false);
-    if (error) { toast.error(error.message); return; }
     setNewDept("");
     refresh();
-    toast.success(`Added ${label}`);
+    toast.success(`Added ${label} — guest requests for this team will route here.`);
   };
 
   const delDept = async (d: Dept) => {

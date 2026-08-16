@@ -9,11 +9,12 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { ChevronDown, Loader2, Phone, AlertTriangle, X } from "lucide-react";
-import { DEPARTMENTS, listRooms, type Hotel, type Room } from "@/talkstay/lib/hotels";
+import { listRooms, type Hotel, type Room } from "@/talkstay/lib/hotels";
 import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
 import { useDemo } from "@/talkstay/demo/DemoContext";
 import { OPEN_STATUSES } from "@/talkstay/lib/data";
 import { useOpsQueue } from "@/talkstay/hooks/useTalkStayQueries";
+import { useHotelDepartments } from "@/talkstay/hooks/useHotelDepartments";
 import { statusBadge, statusLabel } from "@/talkstay/lib/statusStyles";
 import { logOrderChargeableLabel } from "@/talkstay/lib/locationOrders";
 
@@ -50,10 +51,6 @@ function sourceLabel(s?: string | null) {
   return "Guest app";
 }
 
-function deptLabel(k: string) {
-  return DEPARTMENTS.find((d) => d.key === k)?.display_name ?? k;
-}
-
 /** Staff bookkeeping: log a phone / walk-in / front-desk order so it appears in the
  *  queue. Guest-app tickets already land on Operations — search there first. */
 export default function LogOrderDialog({
@@ -74,6 +71,7 @@ export default function LogOrderDialog({
   onOpenRequest?: (requestId: string) => void;
 }) {
   const demo = useDemo();
+  const { departments: hotelDepts, deptLabel } = useHotelDepartments(hotel.id);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [roomId, setRoomId] = useState("");
   const [dept, setDept] = useState(lockedDepartment || "housekeeping");
@@ -372,7 +370,7 @@ export default function LogOrderDialog({
               <Select value={dept} onValueChange={setDept}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {DEPARTMENTS.map((d) => (
+                  {hotelDepts.map((d) => (
                     <SelectItem key={d.key} value={d.key}>{d.display_name}</SelectItem>
                   ))}
                 </SelectContent>
@@ -382,7 +380,7 @@ export default function LogOrderDialog({
             <div className="space-y-1.5">
               <Label>Department</Label>
               <Input
-                value={DEPARTMENTS.find((d) => d.key === lockedDepartment)?.display_name ?? lockedDepartment}
+                value={deptLabel(lockedDepartment)}
                 disabled
               />
             </div>
@@ -454,7 +452,7 @@ export default function LogOrderDialog({
                 const body = (
                   <>
                     <span className="font-medium">
-                      {DEPARTMENTS.find((d) => d.key === o.department_key)?.display_name ?? o.department_key}
+                      {deptLabel(o.department_key)}
                     </span>
                     {" · "}
                     <span className="capitalize">{o.status.replace(/_/g, " ")}</span>

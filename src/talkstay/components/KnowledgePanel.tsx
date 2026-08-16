@@ -20,6 +20,7 @@ import type { GuestCard } from "@/talkstay/lib/guest";
 import { cn } from "@/lib/utils";
 import { KB_SCOPE_CARD, KB_SCOPE_STYLE } from "@/talkstay/lib/statusStyles";
 import { useDemo } from "@/talkstay/demo/DemoContext";
+import { useHotelDepartments } from "@/talkstay/hooks/useHotelDepartments";
 
 // "site" = the hotel's website & uploaded documents (TalkWeb Content section);
 // the other three are TalkStay's layered, access-controlled entries.
@@ -28,11 +29,49 @@ type Media = NonNullable<GuestCard> & { sections?: { title: string; items: strin
 interface Entry {
   id: string; title: string | null; content: string; scope: string;
   department_key: string | null; room_id: string | null; media?: Media | null;
+  created_at?: string | null;
+  updated_at?: string | null;
 }
 
 const SCOPE_LABEL: Record<Scope, string> = {
   site: "Website & docs", general: "General", department: "Department", room: "Room",
 };
+
+type DayBucket = "today" | "yesterday" | "week" | "older" | "unknown";
+const DAY_BUCKET_LABEL: Record<DayBucket, string> = {
+  today: "Added today",
+  yesterday: "Added yesterday",
+  week: "Added this week",
+  older: "Older",
+  unknown: "Undated",
+};
+const DAY_BUCKET_ORDER: DayBucket[] = ["today", "yesterday", "week", "older", "unknown"];
+
+function startOfLocalDay(d = new Date()) {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+}
+
+function knowledgeDayBucket(iso: string | null | undefined): DayBucket {
+  if (!iso) return "unknown";
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return "unknown";
+  const today = startOfLocalDay();
+  const day = startOfLocalDay(new Date(t));
+  const diffDays = Math.round((today - day) / 86_400_000);
+  if (diffDays <= 0) return "today";
+  if (diffDays === 1) return "yesterday";
+  if (diffDays < 7) return "week";
+  return "older";
+}
+
+function formatAddedWhen(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString(undefined, {
+    month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+  });
+}
 
 const emptyMedia = (): Media => ({ sections: [{ title: "", items: [] }], links: [], images: [] });
 
@@ -422,6 +461,7 @@ function MediaEditor({
 
 export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
   const demo = useDemo();
+  const { departments: hotelDepts } = useHotelDepartments(hotel.id);
   const [scope, setScope] = useState<Scope>("site");
   const [dept, setDept] = useState(DEPARTMENTS[0].key);
   const [rooms, setRooms] = useState<Room[]>([]);
@@ -443,6 +483,7 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
   const [replaceWith, setReplaceWith] = useState("");
   const [replaceOpen, setReplaceOpen] = useState(false);
   const [replaceBusy, setReplaceBusy] = useState(false);
+  const [pendingReview, setPendingReview] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const scanCameraRef = useRef<HTMLInputElement>(null);
   const scanGalleryRef = useRef<HTMLInputElement>(null);
@@ -468,6 +509,8 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
           department_key: k.department_key,
           room_id: null,
           media: null,
+          created_at: (k as { created_at?: string }).created_at ?? null,
+          updated_at: null,
         })),
       );
       setLoading(false);
@@ -476,14 +519,14 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
     setLoading(true);
     const { data, error } = await supabase
       .from("ts_knowledge")
-      .select("id, title, content, scope, department_key, room_id, media")
+      .select("id, title, content, scope, department_key, room_id, media, created_at, updated_at")
       .eq("hotel_id", hotel.id)
       .order("created_at", { ascending: false });
     if (error) {
       // Older DBs without media column — fall back.
       const retry = await supabase
         .from("ts_knowledge")
-        .select("id, title, content, scope, department_key, room_id")
+        .select("id, title, content, scope, department_key, room_id, created_at, updated_at")
         .eq("hotel_id", hotel.id)
         .order("created_at", { ascending: false });
       if (retry.error) toast.error(retry.error.message);
@@ -513,6 +556,18 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
     if (!q) return 0;
     return filtered.reduce((n, e) => n + countOccurrences(entrySearchBlob(e), q), 0);
   }, [filtered, search]);
+
+  const groupedFiltered = useMemo(() => {
+    const buckets: Record<DayBucket, Entry[]> = {
+      today: [], yesterday: [], week: [], older: [], unknown: [],
+    };
+    for (const e of filtered) {
+      buckets[knowledgeDayBucket(e.created_at)].push(e);
+    }
+    return DAY_BUCKET_ORDER
+      .map((key) => ({ key, label: DAY_BUCKET_LABEL[key], entries: buckets[key] }))
+      .filter((g) => g.entries.length > 0);
+  }, [filtered]);
 
   const targetPayload = () => ({
     hotelId: hotel.id, scope,
@@ -544,19 +599,18 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
     }
   };
 
-  /** Camera / gallery → OCR → save organised guest card in one step. */
-  const scanAndSave = async (file: File) => {
+  /** Camera / gallery → OCR → draft for review (does not save until Add card). */
+  const scanAndDraft = async (file: File) => {
     if (scope === "room" && !roomId) { toast.error("Add a room first."); return; }
     if (demo) {
       setScanBusy(true);
       const label = file.name.replace(/\.[^.]+$/, "") || "From photo";
-      demo.addKnowledge(label, `Photo scan saved in demo — “${file.name}”. OCR runs on live accounts.`, {
-        scope: scope === "site" ? "general" : scope,
-        department_key: scope === "department" ? dept : null,
-        kind: "FAQ",
-      });
+      setTitle(label);
+      setContent(`Photo scan draft (demo) — “${file.name}”. OCR runs on live accounts.`);
+      setMedia(emptyMedia());
+      setPendingReview(true);
       setScanBusy(false);
-      toast.success(`Saved “${label}” (demo).`);
+      toast.message("Review the draft below, then tap Add card.");
       return;
     }
     setScanBusy(true);
@@ -578,30 +632,23 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
       const bodyContent = flattenMediaToContent(scannedTitle, scannedMedia, scannedSummary);
       if (!bodyContent) throw new Error("Couldn't read useful text from that photo — try a clearer shot.");
 
-      const { data: saved, error: saveErr } = await supabase.functions.invoke("talkstay-knowledge", {
-        body: {
-          action: "upsert",
-          title: scannedTitle,
-          content: bodyContent,
-          media: {
-            sections: (scannedMedia.sections ?? []).filter((s) => s.title.trim() || s.items.length),
-            links: scannedMedia.links ?? [],
-            images: scannedMedia.images ?? [],
-          },
-          ...targetPayload(),
-        },
-      });
-      if (saveErr) throw new Error(await invokeErrorMessage(saveErr, saved));
-      if ((saved as any)?.error) throw new Error((saved as any).error);
-
-      setTitle(""); setContent(""); setMedia(emptyMedia());
-      await load();
-      toast.success(`Saved “${scannedTitle}” from your photo — tap it below to tweak anything.`);
+      setTitle(scannedTitle);
+      setContent(scannedSummary || stripCardMeta(bodyContent));
+      setMedia(scannedMedia);
+      setPendingReview(true);
+      toast.message("Review the extracted card below, then tap Add card to publish.");
     } catch (e: any) {
       toast.error(e?.message ?? "Couldn't scan that photo");
     } finally {
       setScanBusy(false);
     }
+  };
+
+  const discardDraft = () => {
+    setTitle("");
+    setContent("");
+    setMedia(emptyMedia());
+    setPendingReview(false);
   };
 
   const addEntry = async () => {
@@ -616,6 +663,7 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
         kind: "FAQ",
       });
       setTitle(""); setContent(""); setMedia(emptyMedia());
+      setPendingReview(false);
       setBusy(false);
       toast.success("Saved (demo).");
       return;
@@ -638,6 +686,7 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
       if (error) throw new Error(await invokeErrorMessage(error, data));
       if ((data as any)?.error) throw new Error((data as any).error);
       setTitle(""); setContent(""); setMedia(emptyMedia());
+      setPendingReview(false);
       await load();
       toast.success("Saved — guests will see this as an organised card.");
     } catch (e: any) { toast.error(e?.message ?? "Failed to save"); }
@@ -651,13 +700,12 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
     if (scope === "room" && !roomId) { toast.error("Add a room first."); return; }
     if (demo) {
       setBusy(true);
-      demo.addKnowledge(file.name.replace(/\.[^.]+$/, ""), `Document indexed in demo — “${file.name}”. Full parsing runs on live accounts.`, {
-        scope: scope === "site" ? "general" : scope,
-        department_key: scope === "department" ? dept : null,
-        kind: "Document",
-      });
+      setTitle(file.name.replace(/\.[^.]+$/, ""));
+      setContent(`Document draft (demo) — “${file.name}”. Full parsing runs on live accounts.`);
+      setMedia(emptyMedia());
+      setPendingReview(true);
       setBusy(false);
-      toast.success(`Indexed “${file.name}” (demo).`);
+      toast.message("Review the draft below, then tap Add card.");
       return;
     }
     setBusy(true);
@@ -676,13 +724,11 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
         text = ((parsed?.pages ?? []) as any[]).map((p) => p.content || "").join("\n\n").trim();
       }
       if (text.length < 20) throw new Error("No readable text found in that file.");
-      const { data, error } = await supabase.functions.invoke("talkstay-knowledge", {
-        body: { action: "upsert", title: file.name.replace(/\.[^.]+$/, ""), content: text, ...targetPayload() },
-      });
-      if (error) throw new Error(await invokeErrorMessage(error, data));
-      if ((data as any)?.error) throw new Error((data as any).error);
-      await load();
-      toast.success(`Indexed “${file.name}”. Tip: edit it to add photos & view links.`);
+      setTitle(file.name.replace(/\.[^.]+$/, ""));
+      setContent(text);
+      setMedia(emptyMedia());
+      setPendingReview(true);
+      toast.message("Review the extracted text below, then tap Add card to publish.");
     } catch (e: any) { toast.error(e?.message ?? "Upload failed"); }
     finally { setBusy(false); }
   };
@@ -826,7 +872,7 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
         {scope === "department" && (
           <Select value={dept} onValueChange={setDept}>
             <SelectTrigger className="h-8 w-44"><SelectValue /></SelectTrigger>
-            <SelectContent>{DEPARTMENTS.map((d) => <SelectItem key={d.key} value={d.key}>{d.display_name}</SelectItem>)}</SelectContent>
+            <SelectContent>{hotelDepts.map((d) => <SelectItem key={d.key} value={d.key}>{d.display_name}</SelectItem>)}</SelectContent>
           </Select>
         )}
         {scope === "room" && (
@@ -857,7 +903,7 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
           onChange={(e) => {
             const f = e.target.files?.[0];
             e.target.value = "";
-            if (f) void scanAndSave(f);
+            if (f) void scanAndDraft(f);
           }}
         />
         <input
@@ -868,7 +914,7 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
           onChange={(e) => {
             const f = e.target.files?.[0];
             e.target.value = "";
-            if (f) void scanAndSave(f);
+            if (f) void scanAndDraft(f);
           }}
         />
         <div className="grid gap-2 sm:grid-cols-2">
@@ -883,7 +929,7 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
             </div>
             <div className="min-w-0">
               <p className="text-sm font-medium">{scanBusy ? "Reading your photo…" : "Take photo"}</p>
-              <p className="text-[11px] text-muted-foreground">Opens the camera on phones</p>
+              <p className="text-[11px] text-muted-foreground">Opens the camera on phones — review draft before indexing</p>
             </div>
           </button>
           <button
@@ -897,12 +943,12 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
             </div>
             <div className="min-w-0">
               <p className="text-sm font-medium">{scanBusy ? "Reading your photo…" : "Choose from device"}</p>
-              <p className="text-[11px] text-muted-foreground">Pick an existing photo or screenshot</p>
+              <p className="text-[11px] text-muted-foreground">Pick a photo — review text, then Add card</p>
             </div>
           </button>
         </div>
         <p className="text-[11px] text-muted-foreground">
-          Point at a menu, hours board, or notice — we extract the text and save a guest card automatically.
+          Point at a menu, hours board, or notice — we extract the text into a draft for review before it goes live.
         </p>
 
         <div className="relative py-1 text-center text-[10px] uppercase tracking-wide text-muted-foreground">
@@ -910,12 +956,26 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
           <span className="absolute inset-x-0 top-1/2 border-t" />
         </div>
 
+        {pendingReview && (
+          <div className="flex flex-wrap items-start justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50/90 px-3 py-2.5 text-sm text-amber-950">
+            <div className="min-w-0">
+              <p className="font-medium">Review before publishing</p>
+              <p className="text-xs text-amber-900/80">
+                Edit the title or text if needed, then tap Add card. Nothing is live for guests until you confirm.
+              </p>
+            </div>
+            <Button type="button" size="sm" variant="ghost" className="shrink-0 text-amber-900" onClick={discardDraft}>
+              Discard
+            </Button>
+          </div>
+        )}
+
         <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Card title (e.g. Breakfast menu)" />
         <Textarea
           value={content}
           onChange={(e) => setContent(e.target.value)}
           placeholder="Main info guests should hear (hours, what’s included…). One idea per line is fine."
-          rows={4}
+          rows={pendingReview ? 8 : 4}
         />
         <MediaEditor
           media={media}
@@ -934,7 +994,8 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
             disabled={busy || scanBusy || !flattenMediaToContent(title, media, content)}
             onClick={addEntry}
           >
-            {busy ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Plus className="mr-1 h-4 w-4" />} Add card
+            {busy ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Plus className="mr-1 h-4 w-4" />}
+            {pendingReview ? "Confirm & add card" : "Add card"}
           </Button>
         </div>
       </div>
@@ -1000,67 +1061,85 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
           {filtered.length === 0 ? (
             <p className="text-sm text-muted-foreground">No cards match "{search}".</p>
           ) : (
-            <div className={`divide-y rounded-2xl border ${KB_SCOPE_CARD[scope] ?? ""}`}>
-              {filtered.map((e) => {
-                const extras = storedMedia(e);
-                const preview = stripCardMeta(e.content);
-                const q = search.trim();
-                return (
-                <div key={e.id} className="px-4 py-3">
-                  {editingId === e.id ? (
-                    <div className="space-y-2">
-                      <Input value={editTitle} onChange={(ev) => setEditTitle(ev.target.value)} placeholder="Title" />
-                      <Textarea value={editContent} onChange={(ev) => setEditContent(ev.target.value)} rows={3} placeholder="Main info" />
-                      <MediaEditor
-                        media={editMedia}
-                        onChange={setEditMedia}
-                        hotelId={hotel.id}
-                        uploading={imgBusy}
-                        defaultOpen={mediaHasExtras(editMedia)}
-                        onUpload={(f) => uploadImage(f, (url) => setEditMedia((m) => ({ ...m, images: [...(m.images ?? []), { url, alt: "" }] })))}
-                      />
-                      <div className="flex justify-end gap-2">
-                        <Button size="sm" variant="ghost" disabled={editBusy} onClick={cancelEdit}>
-                          <X className="mr-1 h-4 w-4" /> Cancel
-                        </Button>
-                        <Button size="sm" disabled={editBusy || !flattenMediaToContent(editTitle, editMedia, editContent)} onClick={saveEdit}>
-                          {editBusy ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null} Save card
-                        </Button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex items-start gap-3">
-                      <button className="min-w-0 flex-1 text-left" onClick={() => startEdit(e)} title="Click to edit">
-                        <div className="mb-1 flex flex-wrap items-center gap-1.5">
-                          <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${KB_SCOPE_STYLE[e.scope] ?? KB_SCOPE_STYLE.general}`}>
-                            {SCOPE_LABEL[e.scope as Scope] ?? e.scope}
-                          </span>
-                        </div>
-                        {e.title && (
-                          <div className="text-sm font-medium">{highlightText(e.title, q)}</div>
-                        )}
-                        <div className="line-clamp-2 text-sm text-muted-foreground">{highlightText(preview, q)}</div>
-                        {extras ? (
-                          <div className="mt-1 flex flex-wrap gap-1.5 text-[10px] text-muted-foreground">
-                            {extras.sections?.some((s) => s.title || s.items.length) && <span className="rounded bg-white/70 px-1.5 py-0.5">sections</span>}
-                            {!!extras.images?.length && <span className="rounded bg-white/70 px-1.5 py-0.5">{extras.images.length} photo{extras.images.length === 1 ? "" : "s"}</span>}
-                            {!!extras.links?.length && <span className="rounded bg-white/70 px-1.5 py-0.5">{extras.links.length} link{extras.links.length === 1 ? "" : "s"}</span>}
+            <div className="space-y-4">
+              {groupedFiltered.map((group) => (
+                <div key={group.key} className="space-y-2">
+                  <div className="flex items-baseline justify-between gap-2 px-0.5">
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      {group.label}
+                    </h3>
+                    <span className="text-[11px] text-muted-foreground">
+                      {group.entries.length} card{group.entries.length === 1 ? "" : "s"}
+                    </span>
+                  </div>
+                  <div className={`divide-y rounded-2xl border ${KB_SCOPE_CARD[scope] ?? ""}`}>
+                    {group.entries.map((e) => {
+                      const extras = storedMedia(e);
+                      const preview = stripCardMeta(e.content);
+                      const q = search.trim();
+                      const when = formatAddedWhen(e.created_at);
+                      return (
+                      <div key={e.id} className="px-4 py-3">
+                        {editingId === e.id ? (
+                          <div className="space-y-2">
+                            <Input value={editTitle} onChange={(ev) => setEditTitle(ev.target.value)} placeholder="Title" />
+                            <Textarea value={editContent} onChange={(ev) => setEditContent(ev.target.value)} rows={3} placeholder="Main info" />
+                            <MediaEditor
+                              media={editMedia}
+                              onChange={setEditMedia}
+                              hotelId={hotel.id}
+                              uploading={imgBusy}
+                              defaultOpen={mediaHasExtras(editMedia)}
+                              onUpload={(f) => uploadImage(f, (url) => setEditMedia((m) => ({ ...m, images: [...(m.images ?? []), { url, alt: "" }] })))}
+                            />
+                            <div className="flex justify-end gap-2">
+                              <Button size="sm" variant="ghost" disabled={editBusy} onClick={cancelEdit}>
+                                <X className="mr-1 h-4 w-4" /> Cancel
+                              </Button>
+                              <Button size="sm" disabled={editBusy || !flattenMediaToContent(editTitle, editMedia, editContent)} onClick={saveEdit}>
+                                {editBusy ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null} Save card
+                              </Button>
+                            </div>
                           </div>
-                        ) : null}
-                      </button>
-                      <div className="flex shrink-0 gap-1">
-                        <Button size="icon" variant="ghost" className="h-9 w-9" onClick={() => startEdit(e)} title="Edit">
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button size="icon" variant="ghost" className="h-9 w-9" onClick={() => del(e.id)} title="Delete">
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
+                        ) : (
+                          <div className="flex items-start gap-3">
+                            <button className="min-w-0 flex-1 text-left" onClick={() => startEdit(e)} title="Click to edit">
+                              <div className="mb-1 flex flex-wrap items-center gap-1.5">
+                                <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${KB_SCOPE_STYLE[e.scope] ?? KB_SCOPE_STYLE.general}`}>
+                                  {SCOPE_LABEL[e.scope as Scope] ?? e.scope}
+                                </span>
+                                {when && (
+                                  <span className="text-[10px] text-muted-foreground">{when}</span>
+                                )}
+                              </div>
+                              {e.title && (
+                                <div className="text-sm font-medium">{highlightText(e.title, q)}</div>
+                              )}
+                              <div className="line-clamp-2 text-sm text-muted-foreground">{highlightText(preview, q)}</div>
+                              {extras ? (
+                                <div className="mt-1 flex flex-wrap gap-1.5 text-[10px] text-muted-foreground">
+                                  {extras.sections?.some((s) => s.title || s.items.length) && <span className="rounded bg-white/70 px-1.5 py-0.5">sections</span>}
+                                  {!!extras.images?.length && <span className="rounded bg-white/70 px-1.5 py-0.5">{extras.images.length} photo{extras.images.length === 1 ? "" : "s"}</span>}
+                                  {!!extras.links?.length && <span className="rounded bg-white/70 px-1.5 py-0.5">{extras.links.length} link{extras.links.length === 1 ? "" : "s"}</span>}
+                                </div>
+                              ) : null}
+                            </button>
+                            <div className="flex shrink-0 gap-1">
+                              <Button size="icon" variant="ghost" className="h-9 w-9" onClick={() => startEdit(e)} title="Edit">
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                              <Button size="icon" variant="ghost" className="h-9 w-9" onClick={() => del(e.id)} title="Delete">
+                                <Trash2 className="h-4 w-4 text-destructive" />
+                              </Button>
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  )}
+                      );
+                    })}
+                  </div>
                 </div>
-                );
-              })}
+              ))}
             </div>
           )}
         </>

@@ -97,7 +97,9 @@ export default function ContentPanel({ hotel }: { hotel: Hotel }) {
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium">Property website</p>
             <p className="mt-1 text-xs text-muted-foreground">
-              Paste your website and scan — TalkStay indexes answers for the guest assistant.
+              Paste your website to crawl pages, or upload menus / house rules as PDF or images.
+              TalkStay extracts answers for the guest assistant. Document uploads open a review
+              draft first — nothing is indexed until you confirm.
             </p>
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <div className="relative min-w-[200px] flex-1">
@@ -164,7 +166,8 @@ export default function ContentPanel({ hotel }: { hotel: Hotel }) {
                     assistantId={assistantId}
                     websiteUrl={hasRealWebsite ? savedUrl : ""}
                     variant="simple"
-                    onUploadComplete={() => toast.success("Document indexed.")}
+                    reviewBeforeIndex
+                    onUploadComplete={() => toast.success("Document indexed after review.")}
                   />
                 </React.Suspense>
               </div>
