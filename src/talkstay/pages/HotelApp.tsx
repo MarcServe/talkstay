@@ -28,7 +28,6 @@ import AlertSoundPicker from "@/talkstay/components/AlertSoundPicker";
 import {
   createHotel,
   ingestHotelWebsite,
-  DEPARTMENTS,
   type Hotel,
   type PropertyProfile,
   type AccessibleProperty,

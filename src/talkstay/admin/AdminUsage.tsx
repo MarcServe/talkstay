@@ -109,6 +109,26 @@ function moneyUsd(n: number) {
   }).format(n);
 }
 
+/** Per-room suggested charge using the hotel's primary meter + rate. */
+function roomCharge(
+  hotel: HotelUsage,
+  room: RoomUsage,
+): { units: number; rate: number; suggested: number; meter: string } {
+  const meter = hotel.charge.primary_meter || "active_qr";
+  const rate = Number(hotel.charge.rate) || 0;
+  let units = 0;
+  if (meter === "session") units = room.sessions;
+  else if (meter === "guest_turn") units = room.guest_turns;
+  else if (meter === "request") units = room.requests;
+  else units = room.engaged ? 1 : 0; // active_qr
+  return {
+    units,
+    rate,
+    suggested: Math.round(units * rate * 100) / 100,
+    meter,
+  };
+}
+
 function csvEscape(v: unknown) {
   const s = String(v ?? "");
   if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
@@ -166,6 +186,19 @@ export default function AdminUsage() {
 
   const detail = hotelId ? (data?.hotel ?? data?.hotels?.[0] ?? null) : null;
 
+  const roomRows = useMemo(() => {
+    if (!detail?.rooms?.length) return [];
+    return detail.rooms.map((r) => ({
+      room: r,
+      charge: roomCharge(detail, r),
+    }));
+  }, [detail]);
+
+  const roomsSuggestedTotal = useMemo(
+    () => Math.round(roomRows.reduce((s, r) => s + r.charge.suggested, 0) * 100) / 100,
+    [roomRows],
+  );
+
   const exportHotels = () => {
     if (!data) return;
     const currency = data.totals.currency;
@@ -182,14 +215,18 @@ export default function AdminUsage() {
   };
 
   const exportRooms = () => {
-    if (!detail?.rooms) return;
+    if (!detail || !roomRows.length) return;
+    const currency = detail.charge.currency;
+    const meter = detail.charge.primary_meter;
     const rows: string[][] = [
-      ["hotel", "room", "public", "engaged", "sessions", "guest_turns", "requests", "ai_cost_usd", "prompt_tokens", "completion_tokens", "token_preview", "period_start", "period_end"],
-      ...detail.rooms.map((r) => [
+      ["hotel", "room", "public", "engaged", "sessions", "guest_turns", "requests", "meter", "units", "rate", "suggested", "currency", "ai_cost_usd", "prompt_tokens", "completion_tokens", "token_preview", "period_start", "period_end"],
+      ...roomRows.map(({ room: r, charge: c }) => [
         detail.name, r.room_number, r.is_public ? "yes" : "no", r.engaged ? "yes" : "no",
-        r.sessions, r.guest_turns, r.requests, r.ai_cost_usd ?? 0, r.prompt_tokens ?? 0, r.completion_tokens ?? 0,
+        r.sessions, r.guest_turns, r.requests, meter, c.units, c.rate, c.suggested, currency,
+        r.ai_cost_usd ?? 0, r.prompt_tokens ?? 0, r.completion_tokens ?? 0,
         r.token_preview ?? "", data!.since, data!.until,
       ].map(String)),
+      ["TOTAL", "", "", "", "", "", "", meter, roomRows.reduce((s, r) => s + r.charge.units, 0), detail.charge.rate, roomsSuggestedTotal, currency, "", "", "", "", data!.since, data!.until].map(String),
     ];
     downloadCsv(`talkstay-usage-${detail.slug}-rooms-${days}d.csv`, rows);
   };
@@ -364,18 +401,24 @@ export default function AdminUsage() {
                   </Link>
                   <h2 className="mt-1 text-lg font-semibold">{detail.name}</h2>
                   <p className="text-sm text-muted-foreground">
-                    {detail.slug} · {detail.billing_mode} · {money(detail.charge.suggested, detail.charge.currency)} suggested
+                    {detail.slug} · {detail.billing_mode} ·                     {money(detail.charge.suggested, detail.charge.currency)} suggested
                     {" "}({detail.charge.units} × {detail.charge.rate} {detail.charge.primary_meter.replace(/_/g, " ")})
                     {" · "}
                     {moneyUsd(Number(detail.meters.ai_cost_usd) || 0)} est. AI
                     {" "}({Number(detail.meters.prompt_tokens) || 0} in / {Number(detail.meters.completion_tokens) || 0} out tokens)
+                    {roomRows.length > 0 && roomsSuggestedTotal !== detail.charge.suggested && (
+                      <span>
+                        {" · "}room lines sum {money(roomsSuggestedTotal, detail.charge.currency)}
+                        {" "}(orphans / unassigned may explain the gap)
+                      </span>
+                    )}
                   </p>
                 </div>
                 <div className="flex gap-2">
                   <Button asChild variant="outline" size="sm">
                     <Link to={`/admin/hotels/${detail.hotel_id}`}>Hotel controls</Link>
                   </Button>
-                  <Button variant="outline" size="sm" onClick={exportRooms} disabled={!detail.rooms?.length}>
+                  <Button variant="outline" size="sm" onClick={exportRooms} disabled={!roomRows.length}>
                     <Download className="mr-1.5 h-3.5 w-3.5" /> CSV rooms
                   </Button>
                 </div>
@@ -391,11 +434,12 @@ export default function AdminUsage() {
                       <th className="px-4 py-2 font-medium">Turns</th>
                       <th className="px-4 py-2 font-medium">Requests</th>
                       <th className="px-4 py-2 font-medium">AI cost</th>
+                      <th className="px-4 py-2 font-medium">Suggested</th>
                       <th className="px-4 py-2 font-medium">Status</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {(detail.rooms ?? []).map((r) => (
+                    {roomRows.map(({ room: r, charge: c }) => (
                       <tr key={r.room_id} className="border-t">
                         <td className="px-4 py-2 font-medium">
                           {r.guest_url ? (
@@ -441,6 +485,14 @@ export default function AdminUsage() {
                           </div>
                         </td>
                         <td className="px-4 py-2">
+                          <div className="font-medium tabular-nums">
+                            {money(c.suggested, detail.charge.currency)}
+                          </div>
+                          <div className="text-[10px] text-muted-foreground">
+                            {c.units} × {c.rate} {c.meter.replace(/_/g, " ")}
+                          </div>
+                        </td>
+                        <td className="px-4 py-2">
                           {r.engaged ? (
                             <Badge className="border border-emerald-200 bg-emerald-50 text-emerald-800">Engaged</Badge>
                           ) : (
@@ -449,9 +501,35 @@ export default function AdminUsage() {
                         </td>
                       </tr>
                     ))}
-                    {(detail.rooms ?? []).length === 0 && (
+                    {roomRows.length > 0 && (
+                      <tr className="border-t bg-muted/30">
+                        <td className="px-4 py-2 font-semibold" colSpan={2}>
+                          Room total
+                        </td>
+                        <td className="px-4 py-2 font-semibold tabular-nums">
+                          {roomRows.reduce((s, r) => s + r.room.sessions, 0)}
+                        </td>
+                        <td className="px-4 py-2 font-semibold tabular-nums">
+                          {roomRows.reduce((s, r) => s + r.room.guest_turns, 0)}
+                        </td>
+                        <td className="px-4 py-2 font-semibold tabular-nums">
+                          {roomRows.reduce((s, r) => s + r.room.requests, 0)}
+                        </td>
+                        <td className="px-4 py-2 font-semibold tabular-nums">
+                          {moneyUsd(roomRows.reduce((s, r) => s + (Number(r.room.ai_cost_usd) || 0), 0))}
+                        </td>
+                        <td className="px-4 py-2 font-semibold tabular-nums">
+                          {money(roomsSuggestedTotal, detail.charge.currency)}
+                          <div className="text-[10px] font-normal text-muted-foreground">
+                            Property suggested {money(detail.charge.suggested, detail.charge.currency)}
+                          </div>
+                        </td>
+                        <td className="px-4 py-2" />
+                      </tr>
+                    )}
+                    {roomRows.length === 0 && (
                       <tr>
-                        <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">No rooms</td>
+                        <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">No rooms</td>
                       </tr>
                     )}
                   </tbody>
@@ -534,7 +612,7 @@ export default function AdminUsage() {
             Period {new Date(data.since).toLocaleString()} → {new Date(data.until).toLocaleString()}.
             Rates come from{" "}
             <Link to="/admin/settings" className="underline hover:text-foreground">System settings</Link>
-            {" "}(or per-hotel overrides). Suggested charge = customer draft (primary meter). Est. AI cost = attributed OpenAI USD from guest QR calls (not PostHog).
+            {" "}(or per-hotel overrides). Suggested charge = customer draft (primary meter; room Suggested breaks it down per QR). Est. AI cost = attributed OpenAI USD from guest QR calls (not PostHog).
           </p>
         </>
       ) : null}
