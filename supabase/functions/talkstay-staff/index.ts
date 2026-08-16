@@ -155,16 +155,29 @@ serve(async (req) => {
     const nd = (raw: unknown) => normalizeDept(raw, hotelDeptKeys);
 
     const isOwner = hotel.user_id === caller.id;
-    let isManager = false;
     let callerStaff: { role: string; status: string; name: string | null; department_key: string | null } | null = null;
     {
       const { data: me } = await admin
         .from("ts_staff").select("role, status, name, department_key")
         .eq("hotel_id", hotelId).eq("user_id", caller.id).eq("status", "active").maybeSingle();
       callerStaff = me ?? null;
-      isManager = me?.role === "manager" || me?.role === "owner";
     }
-    // Department staff can log orders and coordinate on tickets; invite/edit stay manager/owner.
+    const isDutyManager = callerStaff?.department_key === "duty_manager";
+    const isFrontDesk = callerStaff?.department_key === "front_desk";
+    // Property manager = Manager + All departments (not Duty Manager).
+    const isPropertyManager = !!callerStaff && (
+      callerStaff.role === "owner"
+      || (callerStaff.role === "manager" && !callerStaff.department_key)
+    );
+    const isDeptManager = !!callerStaff
+      && callerStaff.role === "manager"
+      && !!callerStaff.department_key
+      && !isDutyManager
+      && !isFrontDesk;
+    // Owners + property managers manage the full roster. Department managers invite within their team.
+    // Duty Manager does not manage staff — they only work the queues.
+    const canManageStaff = isOwner || isPropertyManager || isDeptManager;
+    // Department staff can log orders and coordinate on tickets; invite/edit stay owner/property/dept manager.
     const OPS_STAFF_ACTIONS = new Set([
       "create_request",
       "open_for_room",
@@ -174,15 +187,16 @@ serve(async (req) => {
       "list_handlers",
     ]);
     const isActiveStaff = isOwner || !!callerStaff;
-    if (!isOwner && !isManager && !(isActiveStaff && OPS_STAFF_ACTIONS.has(String(action)))) {
+    if (!canManageStaff && !(isActiveStaff && OPS_STAFF_ACTIONS.has(String(action)))) {
       return json({ error: "Forbidden" }, 403);
     }
 
     const canAccessRequestDept = (deptKey: string) => {
-      if (isOwner || isManager) return true;
+      if (isOwner || isPropertyManager) return true;
       if (!callerStaff) return false;
       if (!callerStaff.department_key) return true;
-      if (["front_desk", "duty_manager"].includes(callerStaff.department_key)) return true;
+      if (isFrontDesk || isDutyManager) return true;
+      if (isDeptManager) return callerStaff.department_key === deptKey;
       return callerStaff.department_key === deptKey;
     };
     const actorLabel = () => callerStaff?.name || caller.email || "staff";
@@ -405,11 +419,15 @@ serve(async (req) => {
 
     // ------- list -------
     if (action === "list") {
-      const { data: staff } = await admin
+      let q = admin
         .from("ts_staff")
         .select("id, user_id, department_key, role, status, name, created_at")
         .eq("hotel_id", hotelId)
         .order("created_at", { ascending: true });
+      if (isDeptManager && callerStaff?.department_key) {
+        q = q.eq("department_key", callerStaff.department_key);
+      }
+      const { data: staff } = await q;
 
       const rowsOut = await Promise.all(
         (staff ?? []).map(async (s: any) => {
@@ -423,7 +441,13 @@ serve(async (req) => {
     // ------- invite (single) -------
     if (action === "invite") {
       if (!email) return json({ error: "email required" }, 400);
-      const result = await inviteOne({ email, name, departmentKey, role });
+      let inviteDept = departmentKey;
+      let inviteRole = role;
+      if (isDeptManager) {
+        inviteDept = callerStaff!.department_key;
+        inviteRole = "staff";
+      }
+      const result = await inviteOne({ email, name, departmentKey: inviteDept, role: inviteRole });
       if (!result.ok) return json({ error: result.error ?? "Failed" }, 400);
       return json({
         ok: true,
@@ -470,6 +494,9 @@ serve(async (req) => {
 
     // ------- invite_bulk -------
     if (action === "invite_bulk") {
+      if (isDeptManager) {
+        return json({ error: "Department managers invite one person at a time for their own team." }, 403);
+      }
       if (!Array.isArray(rows) || rows.length === 0) {
         return json({ error: "rows required (array of { name?, email, departmentKey?, role? })" }, 400);
       }
@@ -719,12 +746,9 @@ serve(async (req) => {
       if (!summary) return json({ error: "summary required" }, 400);
 
       // Department staff may only log to their own team.
-      // Managers/owners, and Front Desk / Duty Manager (hotel-wide ops), may pick any team.
-      if (!isOwner && !isManager) {
-        const coord =
-          !callerStaff?.department_key
-          || callerStaff.department_key === "front_desk"
-          || callerStaff.department_key === "duty_manager";
+      // Owners / property managers / Duty Manager / Front Desk may pick any team.
+      if (!isOwner && !isPropertyManager) {
+        const coord = isFrontDesk || isDutyManager || !callerStaff?.department_key;
         if (!coord && callerStaff?.department_key) {
           dept = callerStaff.department_key;
         }
@@ -828,6 +852,20 @@ serve(async (req) => {
     if (action === "update") {
       if (!staffId) return json({ error: "staffId required" }, 400);
       if (!isOwner && (await isOwnerRow(staffId))) return json({ error: "Only the owner can edit the owner." }, 403);
+      if (isDeptManager) {
+        const { data: target } = await admin.from("ts_staff")
+          .select("department_key, role")
+          .eq("id", staffId).eq("hotel_id", hotelId).maybeSingle();
+        if (!target || target.department_key !== callerStaff?.department_key) {
+          return json({ error: "You can only edit staff in your department." }, 403);
+        }
+        if (role !== undefined && normalizeRole(role) !== "staff") {
+          return json({ error: "Department managers can only keep teammates as Staff." }, 403);
+        }
+        if (departmentKey !== undefined && departmentKey !== callerStaff?.department_key) {
+          return json({ error: "Department managers cannot move people to another department." }, 403);
+        }
+      }
       const patch: Record<string, unknown> = {};
       if (name !== undefined) patch.name = (String(name).trim() || null);
       if (role !== undefined) patch.role = normalizeRole(role);
@@ -846,6 +884,14 @@ serve(async (req) => {
     if (action === "remove") {
       if (!staffId) return json({ error: "staffId required" }, 400);
       if (await isOwnerRow(staffId)) return json({ error: "The owner can't be removed." }, 403);
+      if (isDeptManager) {
+        const { data: target } = await admin.from("ts_staff")
+          .select("department_key")
+          .eq("id", staffId).eq("hotel_id", hotelId).maybeSingle();
+        if (!target || target.department_key !== callerStaff?.department_key) {
+          return json({ error: "You can only remove staff in your department." }, 403);
+        }
+      }
       const { error } = await admin.from("ts_staff").delete().eq("id", staffId).eq("hotel_id", hotelId);
       if (error) return json({ error: error.message }, 400);
       return json({ ok: true });

@@ -331,10 +331,86 @@ export interface HotelAccess {
   name: string | null;
 }
 
+/** Duty Manager: hotel-wide live queues for the shift — not property setup / Insights. */
+export const DUTY_MANAGER_DEPT = "duty_manager";
+/** Front Desk coordinates across teams on the live queue, but is not full property admin. */
+export const FRONT_DESK_DEPT = "front_desk";
+
+/** Departments that see every team's queue without getting property-admin tabs. */
+export const QUEUE_COORDINATOR_DEPTS = new Set([FRONT_DESK_DEPT, DUTY_MANAGER_DEPT]);
+
+type AccessMember = Pick<AccessibleProperty, "isOwner" | "role" | "departmentKey">;
+
+/** Owner or property manager (Manager + All departments). Duty Manager is not included. */
+export function isPropertyAdmin(m: AccessMember | null | undefined): boolean {
+  if (!m) return false;
+  if (m.isOwner || m.role === "owner") return true;
+  // Manager scoped to Duty Manager is still a floor coordinator, not property admin.
+  if (m.role === "manager" && !m.departmentKey) return true;
+  return false;
+}
+
+/** Manager assigned to one operational department (e.g. Housekeeping manager). */
+export function isDepartmentManager(m: AccessMember | null | undefined): boolean {
+  if (!m) return false;
+  if (m.role !== "manager" || !m.departmentKey) return false;
+  if (QUEUE_COORDINATOR_DEPTS.has(m.departmentKey)) return false;
+  return true;
+}
+
+/** Front Desk / Duty Manager — all queues, Operations + Log order only. */
+export function isQueueCoordinator(m: AccessMember | null | undefined): boolean {
+  if (!m?.departmentKey) return false;
+  if (isPropertyAdmin(m)) return false;
+  return QUEUE_COORDINATOR_DEPTS.has(m.departmentKey);
+}
+
+/**
+ * Which department queue is hard-locked in Operations.
+ * null = can see every team (owner / property manager / duty manager / front desk).
+ */
+export function resolveLockedDepartment(m: AccessMember | null | undefined): string | null {
+  if (!m || isPropertyAdmin(m)) return null;
+  if (isQueueCoordinator(m)) return null;
+  return m.departmentKey;
+}
+
+/** Admin nav keys department managers may open (in addition to Operations / Log order). */
+export const DEPT_MANAGER_ADMIN_NAV = new Set(["insights", "staff"]);
+
+export function canSeeNavItem(
+  m: AccessMember | null | undefined,
+  opts: { admin?: boolean; key: string },
+): boolean {
+  if (!opts.admin) return true;
+  if (isPropertyAdmin(m)) return true;
+  if (isDepartmentManager(m) && DEPT_MANAGER_ADMIN_NAV.has(opts.key)) return true;
+  return false;
+}
+
+export function membershipRoleLabel(m: AccessMember | null | undefined): string {
+  if (!m) return "Staff";
+  if (m.isOwner || m.role === "owner") return "Owner";
+  if (m.role === "manager" && !m.departmentKey) return "Property manager";
+  if (m.departmentKey === DUTY_MANAGER_DEPT) return "Duty Manager";
+  if (m.role === "manager" && m.departmentKey) {
+    const dept = DEPARTMENTS.find((d) => d.key === m.departmentKey)?.display_name
+      ?? m.departmentKey.replace(/_/g, " ");
+    return `${dept} manager`;
+  }
+  if (m.departmentKey === FRONT_DESK_DEPT) return "Front Desk";
+  if (m.departmentKey) {
+    const dept = DEPARTMENTS.find((d) => d.key === m.departmentKey)?.display_name
+      ?? m.departmentKey.replace(/_/g, " ");
+    return `${dept} team`;
+  }
+  return "Staff";
+}
+
 /**
  * Resolve the current user's hotels AND what they may see.
- * Owners get every hotel they own; staff get each membership (managers see
- * everything at that property; department staff are scoped to their team).
+ * Owners + property managers (Manager + All departments) get full property access.
+ * Department managers run one team; Duty Manager / Front Desk see all queues only.
  */
 export async function getMyAccess(): Promise<HotelAccess> {
   const none: HotelAccess = {
@@ -380,18 +456,33 @@ export async function getMyAccess(): Promise<HotelAccess> {
     for (const hotelId of staffHotelIds) {
       const hotel = hotelMap.get(hotelId);
       const forHotel = rows.filter((r) => r.hotel_id === hotelId);
-      const manager = forHotel.find((r) => r.role === "manager" || r.role === "owner");
-      const chosen = manager ?? forHotel[0];
-      if (!hotel) {
+      // Prefer property manager, then department manager, then duty/front desk, then first row.
+      const propertyManager = forHotel.find(
+        (r) => (r.role === "manager" || r.role === "owner") && !r.department_key,
+      );
+      const deptManager = forHotel.find(
+        (r) => (r.role === "manager" || r.role === "owner")
+          && r.department_key
+          && !QUEUE_COORDINATOR_DEPTS.has(r.department_key),
+      );
+      const duty = forHotel.find((r) => r.department_key === DUTY_MANAGER_DEPT);
+      const frontDesk = forHotel.find((r) => r.department_key === FRONT_DESK_DEPT);
+      const chosen = propertyManager ?? deptManager ?? duty ?? frontDesk ?? forHotel[0];
+      if (!hotel || !chosen) {
         // Membership exists but the property row is missing — skip for switcher.
         continue;
       }
-      const depts = forHotel.map((r) => r.department_key);
-      const departmentKey = manager || depts.length !== 1 ? null : depts[0];
+      const role = (chosen.role as AccessibleProperty["role"]) ?? "staff";
+      // Preserve department for department managers / coordinators / staff.
+      let departmentKey: string | null = chosen.department_key ?? null;
+      if (!(role === "manager" || role === "owner") && forHotel.length !== 1) {
+        const depts = forHotel.map((r) => r.department_key);
+        departmentKey = depts.length === 1 ? depts[0] : chosen.department_key;
+      }
       byId.set(hotelId, {
         hotel,
         isOwner: false,
-        role: (chosen.role as AccessibleProperty["role"]) ?? "staff",
+        role,
         departmentKey,
         name: chosen.name ?? null,
       });

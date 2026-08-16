@@ -31,8 +31,9 @@ type BulkRow = { name?: string; email: string; departmentKey?: string | null; ro
 const ALL_DEPTS = "__all__";
 const SAMPLE_CSV = `name,email,department,role
 Sarah Campbell,sarah@hotel.com,bar,staff
-Helen Park,helen@hotel.com,housekeeping,staff
-James Wright,james@hotel.com,front_desk,manager
+Helen Park,helen@hotel.com,housekeeping,manager
+James Wright,james@hotel.com,,manager
+Priya Nair,priya@hotel.com,duty_manager,staff
 `;
 
 const FALLBACK_DEPT_KEYS = new Set(DEPARTMENTS.map((d) => d.key));
@@ -173,13 +174,20 @@ function parseStaffRoster(raw: string): { rows: BulkRow[]; errors: string[] } {
   return { rows, errors };
 }
 
-export default function StaffPanel({ hotel }: { hotel: Hotel }) {
+export default function StaffPanel({
+  hotel,
+  scopedDepartment = null,
+}: {
+  hotel: Hotel;
+  /** When set (department managers), invites stay on this team only. */
+  scopedDepartment?: string | null;
+}) {
   const [staff, setStaff] = useState<StaffRow[]>([]);
   const [depts, setDepts] = useState<HotelDept[]>([]);
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [dept, setDept] = useState<string>(ALL_DEPTS);
+  const [dept, setDept] = useState<string>(scopedDepartment || ALL_DEPTS);
   const [role, setRole] = useState("staff");
   const [busy, setBusy] = useState(false);
 
@@ -188,6 +196,11 @@ export default function StaffPanel({ hotel }: { hotel: Hotel }) {
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkReport, setBulkReport] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const deptScoped = !!scopedDepartment;
+
+  useEffect(() => {
+    if (scopedDepartment) setDept(scopedDepartment);
+  }, [scopedDepartment]);
 
   const call = async (body: Record<string, unknown>) => {
     const { data, error } = await supabase.functions.invoke("talkstay-staff", {
@@ -262,8 +275,8 @@ export default function StaffPanel({ hotel }: { hotel: Hotel }) {
         action: "invite",
         email: email.trim(),
         name: name.trim() || null,
-        departmentKey: dept === ALL_DEPTS ? null : dept,
-        role,
+        departmentKey: deptScoped ? scopedDepartment : (dept === ALL_DEPTS ? null : dept),
+        role: (deptScoped || dept === "duty_manager" || dept === "front_desk") ? "staff" : role,
       });
       const res = data as any;
       if (res?.emailSent || res?.invited) {
@@ -428,17 +441,28 @@ export default function StaffPanel({ hotel }: { hotel: Hotel }) {
         </div>
         <div>
           <label className="mb-1 block text-xs text-muted-foreground">Department</label>
-          <Select value={dept} onValueChange={setDept}>
+          <Select
+            value={dept}
+            onValueChange={(v) => {
+              setDept(v);
+              if (v === "duty_manager" || v === "front_desk") setRole("staff");
+            }}
+            disabled={deptScoped}
+          >
             <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value={ALL_DEPTS}>All departments</SelectItem>
+              {!deptScoped && <SelectItem value={ALL_DEPTS}>All departments</SelectItem>}
               {deptOptions.map((d) => <SelectItem key={d.key} value={d.key}>{d.display_name}</SelectItem>)}
             </SelectContent>
           </Select>
         </div>
         <div>
           <label className="mb-1 block text-xs text-muted-foreground">Role</label>
-          <Select value={role} onValueChange={setRole}>
+          <Select
+            value={deptScoped || dept === "duty_manager" || dept === "front_desk" ? "staff" : role}
+            onValueChange={setRole}
+            disabled={deptScoped || dept === "duty_manager" || dept === "front_desk"}
+          >
             <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="staff">Staff</SelectItem>
@@ -450,8 +474,14 @@ export default function StaffPanel({ hotel }: { hotel: Hotel }) {
           {busy ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <UserPlus className="mr-1 h-4 w-4" />}
           Invite staff
         </Button>
+        {deptScoped && (
+          <p className="w-full text-xs text-muted-foreground">
+            As department manager you invite Staff for your team only.
+          </p>
+        )}
       </form>
 
+      {!deptScoped && (
       <div className="rounded-2xl border border-dashed bg-muted/20 p-4">
         <div className="flex flex-wrap items-center gap-3">
           <FileSpreadsheet className="h-5 w-5 shrink-0 text-violet-600" />
@@ -538,6 +568,7 @@ export default function StaffPanel({ hotel }: { hotel: Hotel }) {
           </div>
         )}
       </div>
+      )}
 
       {loading ? (
         <div className="flex items-center gap-2 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</div>
@@ -577,12 +608,12 @@ export default function StaffPanel({ hotel }: { hotel: Hotel }) {
                   <td className="px-4 py-3">
                     <Select
                       value={s.department_key ?? ALL_DEPTS}
-                      disabled={isOwner || s.role === "manager" || savingId === s.id}
+                      disabled={isOwner || deptScoped || savingId === s.id}
                       onValueChange={(v) => update(s, { departmentKey: v === ALL_DEPTS ? null : v })}
                     >
                       <SelectTrigger className="h-8 w-44"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value={ALL_DEPTS}>All departments</SelectItem>
+                        {!deptScoped && <SelectItem value={ALL_DEPTS}>All departments</SelectItem>}
                         {deptOptions.map((d) => <SelectItem key={d.key} value={d.key}>{d.display_name}</SelectItem>)}
                       </SelectContent>
                     </Select>
@@ -591,7 +622,11 @@ export default function StaffPanel({ hotel }: { hotel: Hotel }) {
                     {isOwner ? (
                       <span className="capitalize text-muted-foreground">Owner</span>
                     ) : (
-                      <Select value={s.role} disabled={savingId === s.id} onValueChange={(v) => update(s, { role: v })}>
+                      <Select
+                        value={s.role}
+                        disabled={deptScoped || savingId === s.id}
+                        onValueChange={(v) => update(s, { role: v })}
+                      >
                         <SelectTrigger className="h-8 w-32"><SelectValue /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="staff">Staff</SelectItem>
@@ -643,10 +678,19 @@ export default function StaffPanel({ hotel }: { hotel: Hotel }) {
       <div className="rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">
         <p><strong className="text-foreground">Staff</strong> see only their department's live queue.</p>
         <p className="mt-1">
-          <strong className="text-foreground">Manager</strong> is your sub-manager: full access to every
-          department's queue and Insights, so they can coordinate the floor while you're away and you can
-          check in whenever you like. Promote anyone (e.g. front desk) by switching their role to Manager —
-          it takes effect the next time they open the app.
+          <strong className="text-foreground">Front Desk</strong> and{" "}
+          <strong className="text-foreground">Duty Manager</strong> — assign that department (usually role Staff).
+          They see every team's live queue for the shift, but not Insights or property setup.
+          Property managers and owners assign Duty Managers from this Staff screen.
+        </p>
+        <p className="mt-1">
+          <strong className="text-foreground">Department manager</strong> — role Manager + one department
+          (e.g. Housekeeping). Runs that team's queue, Insights, and can invite Staff for their team.
+        </p>
+        <p className="mt-1">
+          <strong className="text-foreground">Property manager</strong> — role Manager + All departments.
+          Full access for this property (queues, Insights, rooms, branding, knowledge, staff) — including
+          assigning Duty Managers and department managers.
         </p>
         <p className="mt-1">
           <strong className="text-foreground">Bulk import</strong> and single invites send each person a login email
