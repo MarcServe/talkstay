@@ -108,7 +108,9 @@ serve(async (req) => {
       const amountLine = owedTotal != null
         ? `${owedTotal.toFixed(2)} ${currency}`
         : `${unpaid.length} item${unpaid.length === 1 ? "" : "s"} (amounts confirmed at the desk)`;
-      const timingLine = timing === "at_checkout"
+      const timingLine = timing === "charge_to_room"
+        ? "You've chosen to charge these items to your room."
+        : timing === "at_checkout"
         ? (room?.is_public
           ? "You've chosen to settle at the counter."
           : "You've chosen to settle at checkout / charge to room.")
@@ -117,7 +119,7 @@ serve(async (req) => {
             ? "You've asked the team to collect payment at your location."
             : "You've asked the team to collect payment in your room.")
           : (room?.is_public
-            ? "Open My requests to pay now or settle at the counter."
+            ? "Open My requests to pay now, pay at the counter, or charge to your room with your check-in code."
             : "Open My requests in chat to pay now (someone collects in your room) or settle at checkout.");
       balanceHtml = `
             <div style="margin:14px 0 0;padding:12px 14px;border-radius:10px;background:#fffbeb;border:1px solid #fcd34d;">

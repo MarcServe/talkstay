@@ -14,6 +14,7 @@ import {
   getSessionId,
   requestPaymentNow,
   setPaymentTiming,
+  chargeToRoomWithCode,
   type GuestBranding,
   type GuestPaymentTiming,
   type GuestRequest,
@@ -45,6 +46,7 @@ export default function GuestCheckOut() {
   const [ready, setReady] = useState(false);
   const [reqs, setReqs] = useState<GuestRequest[]>([]);
   const [paymentTiming, setPaymentTimingState] = useState<GuestPaymentTiming | null>(null);
+  const [billingRoomNumber, setBillingRoomNumber] = useState<string | null>(null);
   const [payBusy, setPayBusy] = useState(false);
 
   const brand = branding?.primary_color || "#0f766e";
@@ -59,6 +61,7 @@ export default function GuestCheckOut() {
       const payload = await fetchMyRequests(hotelSlug, roomId, token, sid);
       setReqs(payload.requests);
       setPaymentTimingState(payload.paymentTiming);
+      setBillingRoomNumber(payload.billingRoomNumber ?? null);
     } catch {
       setReqs([]);
     } finally {
@@ -116,6 +119,7 @@ export default function GuestCheckOut() {
     try {
       await requestPaymentNow({ hotelSlug, roomId, token, sessionId: sid });
       setPaymentTimingState("pay_now");
+      setBillingRoomNumber(null);
       toast.success(payCopy.payNowToast);
       await loadFolio();
     } catch (e: any) {
@@ -137,9 +141,35 @@ export default function GuestCheckOut() {
     try {
       await setPaymentTiming({ hotelSlug, roomId, token, sessionId: sid, timing: "at_checkout" });
       setPaymentTimingState("at_checkout");
+      setBillingRoomNumber(null);
       toast.success(payCopy.deferToast);
     } catch {
       toast.error("Couldn't save that preference. Please try again.");
+    } finally {
+      setPayBusy(false);
+    }
+  };
+
+  const chargeToRoom = async (code: string) => {
+    setPayBusy(true);
+    try {
+      const out = await chargeToRoomWithCode({ hotelSlug, roomId, token, sessionId: sid, code });
+      setPaymentTimingState("charge_to_room");
+      setBillingRoomNumber(out.billingRoomNumber);
+      toast.success(`${payCopy.chargeRoomToast} ${formatRoomLabel(out.billingRoomNumber)}`);
+      await loadFolio();
+    } catch (e: any) {
+      const msg = String(e?.message ?? e?.code ?? "");
+      toast.error(
+        msg.includes("locked")
+          ? payCopy.codeLocked
+          : msg.includes("bad_code") || msg.includes("need_code")
+            ? payCopy.codeBad
+            : msg.includes("billing_link_unavailable")
+              ? "Room charge verification isn’t available yet — pay at the counter or ask reception."
+              : "Couldn't verify that code. Please try again.",
+      );
+      throw e;
     } finally {
       setPayBusy(false);
     }
@@ -232,12 +262,14 @@ export default function GuestCheckOut() {
                   payBusy={payBusy}
                   onPayNow={() => void payNow()}
                   onPayAtCheckout={() => void payAtCheckout()}
+                  onChargeToRoom={isPublic ? (c) => chargeToRoom(c) : undefined}
                   isPublic={isPublic}
+                  billingRoomNumber={billingRoomNumber}
                   variant="page"
                 />
                 <p className="text-[11px] leading-relaxed text-slate-500">
                   {isPublic
-                    ? "Pay now asks someone to collect at this location. Pay at counter settles when you visit the desk — room charge isn’t available for walk-ins."
+                    ? "Charge to room only works with your room’s check-in code from an active stay — we never accept a room number alone. Otherwise pay now or at the counter."
                     : "Front desk still completes checkout in Rooms & QR. Use Pay now if you’d like someone to collect in the room first."}
                 </p>
                 <div className="grid gap-2 sm:grid-cols-2">

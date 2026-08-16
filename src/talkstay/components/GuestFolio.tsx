@@ -1,4 +1,6 @@
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Loader2, Banknote } from "lucide-react";
 import {
   formatMoney,
@@ -10,6 +12,7 @@ import {
 } from "@/talkstay/lib/statusStyles";
 import type { GuestPaymentTiming, GuestRequest } from "@/talkstay/lib/guest";
 import { folioPayCopy, orderLocationKind } from "@/talkstay/lib/locationOrders";
+import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
 
 export function unpaidChargeables(reqs: GuestRequest[]) {
   return reqs.filter(
@@ -33,8 +36,10 @@ export function GuestFolio({
   payBusy,
   onPayNow,
   onPayAtCheckout,
+  onChargeToRoom,
   variant = "page",
   isPublic = false,
+  billingRoomNumber = null,
 }: {
   requests: GuestRequest[];
   paymentTiming: GuestPaymentTiming | null;
@@ -42,9 +47,13 @@ export function GuestFolio({
   onPayNow: () => void;
   /** Maps to session payment_timing `at_checkout` — room bill or pay at counter. */
   onPayAtCheckout: () => void;
+  /** Public QR: verify check-in code then charge to that occupied room. */
+  onChargeToRoom?: (code: string) => void | Promise<void>;
   variant?: "page" | "compact";
-  /** Public QR area (lobby, bar, spa…) — no room-charge option. */
+  /** Public QR area (lobby, bar, spa…). */
   isPublic?: boolean;
+  /** Verified billing room after check-in code (public QR only). */
+  billingRoomNumber?: string | null;
 }) {
   const unpaid = unpaidChargeables(requests);
   const paid = requests.filter(
@@ -53,6 +62,10 @@ export function GuestFolio({
   const { owedTotal, currency } = folioTotals(unpaid);
   const isPage = variant === "page";
   const copy = folioPayCopy(orderLocationKind(isPublic));
+  const [codeOpen, setCodeOpen] = useState(false);
+  const [code, setCode] = useState("");
+  const chargedToRoom = paymentTiming === "charge_to_room" && !!billingRoomNumber;
+  const deferred = paymentTiming === "at_checkout";
 
   if (!unpaid.length && !paid.length) {
     return (
@@ -62,6 +75,14 @@ export function GuestFolio({
       </div>
     );
   }
+
+  const hint = paymentTiming === "pay_now"
+    ? copy.unpaidHintPayNow
+    : chargedToRoom
+      ? `${copy.unpaidHintChargeRoom}${billingRoomNumber ? ` (${formatRoomLabel(billingRoomNumber)})` : ""}`
+      : deferred
+        ? copy.unpaidHintDeferred
+        : copy.unpaidHintUnset;
 
   return (
     <div className="space-y-3">
@@ -75,33 +96,104 @@ export function GuestFolio({
                   ? `You currently owe ${formatMoney(owedTotal, currency)}`
                   : `${unpaid.length} unpaid item${unpaid.length === 1 ? "" : "s"}`}
               </p>
-              <p className="mt-1 text-[11px] leading-snug text-amber-900/80">
-                {paymentTiming === "pay_now"
-                  ? copy.unpaidHintPayNow
-                  : paymentTiming === "at_checkout"
-                    ? copy.unpaidHintDeferred
-                    : copy.unpaidHintUnset}
-              </p>
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                <Button
-                  size="sm"
-                  className="h-10 bg-amber-700 text-white hover:bg-amber-800"
-                  disabled={!!payBusy || paymentTiming === "pay_now"}
-                  onClick={onPayNow}
-                >
-                  {payBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-                  {paymentTiming === "pay_now" ? copy.payNowActive : copy.payNowIdle}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-10 border-amber-300 bg-white/80"
-                  disabled={!!payBusy || paymentTiming === "at_checkout"}
-                  onClick={onPayAtCheckout}
-                >
-                  {paymentTiming === "at_checkout" ? copy.deferActive : copy.deferIdle}
-                </Button>
-              </div>
+              <p className="mt-1 text-[11px] leading-snug text-amber-900/80">{hint}</p>
+
+              {isPublic ? (
+                <div className="mt-3 space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      size="sm"
+                      className="h-10 bg-amber-700 text-white hover:bg-amber-800"
+                      disabled={!!payBusy || paymentTiming === "pay_now"}
+                      onClick={onPayNow}
+                    >
+                      {payBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                      {paymentTiming === "pay_now" ? copy.payNowActive : copy.payNowIdle}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-10 border-amber-300 bg-white/80"
+                      disabled={!!payBusy || deferred}
+                      onClick={() => { setCodeOpen(false); onPayAtCheckout(); }}
+                    >
+                      {deferred ? copy.deferActive : copy.deferIdle}
+                    </Button>
+                  </div>
+                  {chargedToRoom ? (
+                    <p className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-[11px] font-medium text-emerald-950">
+                      Charging to {formatRoomLabel(billingRoomNumber!)}
+                    </p>
+                  ) : onChargeToRoom ? (
+                    codeOpen ? (
+                      <form
+                        className="space-y-2 rounded-xl border border-amber-300/80 bg-white/80 p-3"
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          if (!code.trim() || payBusy) return;
+                          void Promise.resolve(onChargeToRoom(code.trim()))
+                            .then(() => {
+                              setCode("");
+                              setCodeOpen(false);
+                            })
+                            .catch(() => { /* parent toasts */ });
+                        }}
+                      >
+                        <p className="text-[11px] leading-snug text-amber-900/85">{copy.codeHint}</p>
+                        <Input
+                          value={code}
+                          onChange={(e) => setCode(e.target.value.toUpperCase())}
+                          placeholder="e.g. R3K8NW"
+                          className="h-10 tracking-[0.18em]"
+                          autoCapitalize="characters"
+                          autoComplete="one-time-code"
+                          disabled={!!payBusy}
+                        />
+                        <div className="flex gap-2">
+                          <Button type="submit" size="sm" className="h-9 flex-1 bg-amber-800 text-white hover:bg-amber-900" disabled={!!payBusy || !code.trim()}>
+                            {payBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                            {copy.codeSubmit}
+                          </Button>
+                          <Button type="button" size="sm" variant="ghost" className="h-9" disabled={!!payBusy} onClick={() => setCodeOpen(false)}>
+                            Cancel
+                          </Button>
+                        </div>
+                      </form>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-10 w-full border-amber-400 bg-white/90 font-medium"
+                        disabled={!!payBusy}
+                        onClick={() => setCodeOpen(true)}
+                      >
+                        {copy.chargeRoomIdle}
+                      </Button>
+                    )
+                  ) : null}
+                </div>
+              ) : (
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <Button
+                    size="sm"
+                    className="h-10 bg-amber-700 text-white hover:bg-amber-800"
+                    disabled={!!payBusy || paymentTiming === "pay_now"}
+                    onClick={onPayNow}
+                  >
+                    {payBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                    {paymentTiming === "pay_now" ? copy.payNowActive : copy.payNowIdle}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-10 border-amber-300 bg-white/80"
+                    disabled={!!payBusy || deferred || chargedToRoom}
+                    onClick={onPayAtCheckout}
+                  >
+                    {deferred || chargedToRoom ? copy.deferActive : copy.deferIdle}
+                  </Button>
+                </div>
+              )}
             </div>
           </div>
         </div>

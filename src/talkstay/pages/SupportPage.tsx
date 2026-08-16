@@ -23,7 +23,7 @@ const FAQS: { q: string; a: string }[] = [
   },
   {
     q: "How do payments work for rooms vs public areas?",
-    a: "Resident guests can pay now, charge to room, or settle at checkout. Walk-ins and public-area orders can pay now or at the counter / on delivery — room charge only applies when the order is on a verified stay (a private room unit), not a public QR.",
+    a: "Resident guests can pay now or charge to room / settle at checkout. Walk-ins on a Public QR can pay now or at the counter. To charge a lobby order to a room, the guest must enter their room check-in code — TalkStay never accepts a typed room number alone, and only occupied private rooms qualify.",
   },
   {
     q: "How do staff log phone or walk-in orders?",

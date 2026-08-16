@@ -397,8 +397,12 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
     if (pay === "unpaid") return status === "unpaid";
     if (pay === "paid") return status === "paid";
     if (pay === "waived") return status === "waived";
-    if (pay === "charge_to_room") return status === "unpaid" && !isPublic;
-    if (pay === "pay_at_counter") return status === "unpaid" && isPublic;
+    if (pay === "charge_to_room") {
+      return status === "unpaid" && (!isPublic || !!r.billing_room_id || r.payment_timing === "charge_to_room");
+    }
+    if (pay === "pay_at_counter") {
+      return status === "unpaid" && isPublic && !r.billing_room_id && r.payment_timing !== "charge_to_room";
+    }
     return true;
   };
 
@@ -1120,6 +1124,11 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
                       <span className="font-semibold">{guestStayLabel(r.guest_first_name, r.ts_rooms?.room_number)}</span>
                       {r.ts_rooms?.is_public ? (
                         <Badge variant="outline" className="border-sky-300 bg-sky-50 text-sky-800">Public</Badge>
+                      ) : null}
+                      {r.billing_room_number ? (
+                        <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-950">
+                          Bill → {formatRoomLabel(r.billing_room_number)}
+                        </Badge>
                       ) : null}
                       <Badge variant="secondary">{deptLabel(r.department_key)}</Badge>
                       {isStaffLogged(r.source) ? (

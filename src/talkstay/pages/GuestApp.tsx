@@ -18,7 +18,7 @@ import {
   fetchStaffMessages, enableDevicePush, disableDevicePush,
   getSessionId, getDeviceId, loadHistory, saveHistory, getNotifyChoice, setNotifyChoice,
   submitPulse, transcribePulseAudio, getPulseState, setPulseState,
-  requestPaymentNow, setPaymentTiming,
+  requestPaymentNow, setPaymentTiming, chargeToRoomWithCode,
   type ChatMsg, type GuestCard, type GuestRequest, type GuestBranding, type GuestPaymentTiming,
 } from "@/talkstay/lib/guest";
 import { formatMoney, PAYMENT_STYLE, paymentLabel, statusBadge, statusDot, statusLabel } from "@/talkstay/lib/statusStyles";
@@ -1304,6 +1304,7 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, isPublic = false, onClos
 }) {
   const [reqs, setReqs] = useState<GuestRequest[] | null>(null);
   const [paymentTiming, setPaymentTimingState] = useState<GuestPaymentTiming | null>(null);
+  const [billingRoomNumber, setBillingRoomNumber] = useState<string | null>(null);
   const [payBusy, setPayBusy] = useState(false);
   // Optimistic guest close-out: id → "confirmed" | "reopened".
   const [resolved, setResolved] = useState<Record<string, "confirmed" | "reopened">>({});
@@ -1323,6 +1324,7 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, isPublic = false, onClos
       .then((payload) => {
         setReqs(payload.requests);
         setPaymentTimingState(payload.paymentTiming);
+        setBillingRoomNumber(payload.billingRoomNumber ?? null);
       })
       .catch(() => setReqs([]));
 
@@ -1335,6 +1337,7 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, isPublic = false, onClos
     try {
       await requestPaymentNow({ hotelSlug, roomId, token, sessionId: sid });
       setPaymentTimingState("pay_now");
+      setBillingRoomNumber(null);
       toast.success(payCopy.payNowToast);
     } catch (e: any) {
       const msg = String(e?.message ?? e?.code ?? "");
@@ -1355,9 +1358,35 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, isPublic = false, onClos
     try {
       await setPaymentTiming({ hotelSlug, roomId, token, sessionId: sid, timing: "at_checkout" });
       setPaymentTimingState("at_checkout");
+      setBillingRoomNumber(null);
       toast.success(payCopy.deferToast);
     } catch {
       toast.error("Couldn't save that preference. Please try again.");
+    } finally {
+      setPayBusy(false);
+    }
+  };
+
+  const chargeToRoom = async (code: string) => {
+    setPayBusy(true);
+    try {
+      const out = await chargeToRoomWithCode({ hotelSlug, roomId, token, sessionId: sid, code });
+      setPaymentTimingState("charge_to_room");
+      setBillingRoomNumber(out.billingRoomNumber);
+      toast.success(`${payCopy.chargeRoomToast} ${formatRoomLabel(out.billingRoomNumber)}`);
+      await reload();
+    } catch (e: any) {
+      const msg = String(e?.message ?? e?.code ?? "");
+      toast.error(
+        msg.includes("locked")
+          ? payCopy.codeLocked
+          : msg.includes("bad_code") || msg.includes("need_code")
+            ? payCopy.codeBad
+            : msg.includes("billing_link_unavailable")
+              ? "Room charge verification isn’t available yet — pay at the counter or ask reception."
+              : "Couldn't verify that code. Please try again.",
+      );
+      throw e;
     } finally {
       setPayBusy(false);
     }
@@ -1522,7 +1551,9 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, isPublic = false, onClos
               payBusy={payBusy}
               onPayNow={() => void payNow()}
               onPayAtCheckout={() => void payAtCheckout()}
+              onChargeToRoom={isPublic ? (c) => chargeToRoom(c) : undefined}
               isPublic={isPublic}
+              billingRoomNumber={billingRoomNumber}
               variant="compact"
             />
             <Button variant="outline" size="sm" className="h-9 w-full" asChild>

@@ -797,11 +797,39 @@ serve(async (req) => {
       if (error) return json({ error: error.message }, 400);
 
       let paymentTiming: string | null = null;
+      let billingRoomNumber: string | null = null;
+      let billingRoomId: string | null = null;
       if (sessionId) {
         const sessFull = await admin.from("ts_guest_sessions")
-          .select("payment_timing")
+          .select("payment_timing, billing_room_id")
           .eq("hotel_id", ctx.hotelId).eq("session_id", sessionId).maybeSingle();
-        if (!sessFull.error) paymentTiming = (sessFull.data as any)?.payment_timing ?? null;
+        if (sessFull.error?.message?.includes("billing_room_id")) {
+          const legacy = await admin.from("ts_guest_sessions")
+            .select("payment_timing")
+            .eq("hotel_id", ctx.hotelId).eq("session_id", sessionId).maybeSingle();
+          if (!legacy.error) paymentTiming = (legacy.data as any)?.payment_timing ?? null;
+        } else if (!sessFull.error) {
+          paymentTiming = (sessFull.data as any)?.payment_timing ?? null;
+          billingRoomId = (sessFull.data as any)?.billing_room_id ?? null;
+        }
+        if (billingRoomId) {
+          const { data: br } = await admin.from("ts_rooms")
+            .select("room_number, occupancy_status, is_public")
+            .eq("id", billingRoomId).maybeSingle();
+          // Drop stale links if the stay ended or the unit went public.
+          if (!br || br.occupancy_status === "vacant" || br.is_public) {
+            billingRoomId = null;
+            billingRoomNumber = null;
+            if (paymentTiming === "charge_to_room") paymentTiming = null;
+            await admin.from("ts_guest_sessions").update({
+              billing_room_id: null,
+              billing_verified_at: null,
+              payment_timing: paymentTiming === "charge_to_room" ? null : paymentTiming,
+            }).eq("hotel_id", ctx.hotelId).eq("session_id", sessionId).then(() => {}, () => {});
+          } else {
+            billingRoomNumber = br.room_number ?? null;
+          }
+        }
       }
 
       const requests = data ?? [];
@@ -816,6 +844,8 @@ serve(async (req) => {
       return json({
         requests,
         paymentTiming,
+        billingRoomId,
+        billingRoomNumber,
         balance: {
           unpaidCount: unpaid.length,
           owedTotal,
@@ -824,23 +854,141 @@ serve(async (req) => {
       });
     }
 
-    // ---- set_payment_timing: guest chooses pay now vs at checkout ----
+    // ---- set_payment_timing: pay now / at counter (or room checkout) ----
+    // Public QR: at_checkout = pay at counter (clears any billing room link).
+    // charge_to_room is only set via charge_to_room action after code verify.
     if (action === "set_payment_timing") {
       const timing = String(body.timing ?? "");
       if (!sessionId) return json({ error: "sessionId required" }, 400);
       if (timing !== "pay_now" && timing !== "at_checkout") {
         return json({ error: "timing must be pay_now or at_checkout" }, 400);
       }
-      const { error } = await admin.from("ts_guest_sessions").upsert({
+      const patch: Record<string, unknown> = {
         hotel_id: ctx.hotelId, room_id: ctx.roomId, session_id: sessionId,
         language: ctx.language, payment_timing: timing,
-      }, { onConflict: "hotel_id,session_id" });
-      if (error?.message?.includes("payment_timing")) {
-        // Column not migrated yet — still OK to proceed with event-only flows.
-        return json({ ok: true, timing, deferred: true });
+      };
+      // Switching away from room charge clears the verified billing link.
+      if (ctx.isPublic) {
+        patch.billing_room_id = null;
+        patch.billing_verified_at = null;
+      }
+      const { error } = await admin.from("ts_guest_sessions").upsert(patch, { onConflict: "hotel_id,session_id" });
+      if (error?.message?.includes("payment_timing") || error?.message?.includes("billing_room_id")) {
+        const { error: legacyErr } = await admin.from("ts_guest_sessions").upsert({
+          hotel_id: ctx.hotelId, room_id: ctx.roomId, session_id: sessionId,
+          language: ctx.language, payment_timing: timing,
+        }, { onConflict: "hotel_id,session_id" });
+        if (legacyErr?.message?.includes("payment_timing")) {
+          return json({ ok: true, timing, deferred: true });
+        }
+        if (legacyErr) return json({ error: legacyErr.message }, 400);
+        return json({ ok: true, timing });
       }
       if (error) return json({ error: error.message }, 400);
       return json({ ok: true, timing });
+    }
+
+    // ---- charge_to_room: public QR only — prove stay with check-in code ----
+    // Never accepts a typed room number. Code must match an occupied private room
+    // at this hotel. Rate-limits consecutive failures on the session.
+    if (action === "charge_to_room") {
+      if (!sessionId) return json({ error: "sessionId required" }, 400);
+      if (!ctx.isPublic) {
+        return json({ error: "not_public", message: "Use Pay at checkout from your room QR." }, 400);
+      }
+      const stayCode = String(body.code ?? code ?? "").trim().toUpperCase();
+      if (!stayCode) return json({ error: "need_code" }, 400);
+
+      // Load / create session for fail counters.
+      let sess: any = null;
+      {
+        const full = await admin.from("ts_guest_sessions")
+          .select("id, billing_fail_count, billing_fail_at, billing_room_id")
+          .eq("hotel_id", ctx.hotelId).eq("session_id", sessionId).maybeSingle();
+        if (full.error?.message?.includes("billing_fail_count") || full.error?.message?.includes("billing_room_id")) {
+          return json({ error: "billing_link_unavailable" }, 409);
+        }
+        if (full.error) return json({ error: full.error.message }, 400);
+        sess = full.data;
+      }
+
+      const failCount = Number(sess?.billing_fail_count ?? 0);
+      const failAt = sess?.billing_fail_at ? new Date(sess.billing_fail_at).getTime() : 0;
+      const lockMs = 15 * 60 * 1000;
+      if (failCount >= 5 && Date.now() - failAt < lockMs) {
+        return json({ error: "locked", retryAfterMin: 15 }, 429);
+      }
+      // Reset window after lock expires.
+      const effectiveFails = (failCount >= 5 && Date.now() - failAt >= lockMs) ? 0 : failCount;
+
+      const { data: matches, error: matchErr } = await admin.from("ts_rooms")
+        .select("id, room_number, occupancy_status, is_public, checkin_code")
+        .eq("hotel_id", ctx.hotelId)
+        .eq("occupancy_status", "occupied")
+        .eq("is_public", false)
+        .not("checkin_code", "is", null)
+        .limit(200);
+      if (matchErr) return json({ error: matchErr.message }, 400);
+
+      const hit = (matches ?? []).find((r: any) =>
+        r.checkin_code && String(r.checkin_code).trim().toUpperCase() === stayCode,
+      );
+
+      if (!hit) {
+        const nextFails = effectiveFails + 1;
+        await admin.from("ts_guest_sessions").upsert({
+          hotel_id: ctx.hotelId, room_id: ctx.roomId, session_id: sessionId,
+          language: ctx.language,
+          billing_fail_count: nextFails,
+          billing_fail_at: new Date().toISOString(),
+        }, { onConflict: "hotel_id,session_id" }).then(() => {}, () => {});
+        // Same error whether code unknown or vacant — don't leak room existence.
+        return json({ error: "bad_code" }, 403);
+      }
+
+      const { error: saveErr } = await admin.from("ts_guest_sessions").upsert({
+        hotel_id: ctx.hotelId, room_id: ctx.roomId, session_id: sessionId,
+        language: ctx.language,
+        billing_room_id: hit.id,
+        billing_verified_at: new Date().toISOString(),
+        billing_fail_count: 0,
+        billing_fail_at: null,
+        payment_timing: "charge_to_room",
+      }, { onConflict: "hotel_id,session_id" });
+      if (saveErr) return json({ error: saveErr.message }, 400);
+
+      // Stamp open chargeables so ops sees billing room without joining sessions.
+      const { data: unpaidRows } = await admin.from("ts_service_requests")
+        .select("id, summary_staff, summary, payment_status")
+        .eq("hotel_id", ctx.hotelId)
+        .eq("session_id", sessionId)
+        .eq("is_chargeable", true)
+        .neq("status", "cancelled")
+        .limit(40);
+      const roomLabel = formatRoomLabel(hit.room_number);
+      const billNote = `Charge to room ${roomLabel} (verified via check-in code from ${formatRoomLabel(ctx.roomNumber)})`;
+      for (const row of (unpaidRows ?? []) as any[]) {
+        if ((row.payment_status ?? "unpaid") !== "unpaid") continue;
+        await admin.from("ts_request_events").insert({
+          request_id: row.id,
+          status: "guest_updated",
+          actor_type: "guest",
+          note: billNote.slice(0, 280),
+        }).then(() => {}, () => {});
+        const staff = String(row.summary_staff || row.summary || "");
+        if (!/charge to room/i.test(staff)) {
+          await admin.from("ts_service_requests").update({
+            summary_staff: `${billNote} · ${staff}`.slice(0, 400),
+          }).eq("id", row.id).then(() => {}, () => {});
+        }
+      }
+
+      return json({
+        ok: true,
+        timing: "charge_to_room",
+        billingRoomId: hit.id,
+        billingRoomNumber: hit.room_number,
+      });
     }
 
     // ---- request_payment: guest wants staff to collect payment now ----
@@ -853,6 +1001,7 @@ serve(async (req) => {
       await admin.from("ts_guest_sessions").upsert({
         hotel_id: ctx.hotelId, room_id: ctx.roomId, session_id: sessionId,
         language: ctx.language, payment_timing: "pay_now",
+        ...(ctx.isPublic ? { billing_room_id: null, billing_verified_at: null } : {}),
       }, { onConflict: "hotel_id,session_id" }).then(() => {}, () => {});
 
       let q = admin.from("ts_service_requests")
@@ -885,7 +1034,10 @@ serve(async (req) => {
       const amountBit = priced.length
         ? ` · about ${Number(total).toFixed(2)} ${String(currency).toUpperCase()}`
         : "";
-      const note = `Guest asked to pay now — please collect payment in the room${amountBit}`
+      const where = ctx.isPublic
+        ? `at ${formatRoomLabel(ctx.roomNumber)}`
+        : "in the room";
+      const note = `Guest asked to pay now — please collect payment ${where}${amountBit}`
         + (unpaid.length > 1 ? ` (${unpaid.length} unpaid items)` : "");
 
       // Stamp the primary ticket (or each) so ops + detail sheet surface the ask.

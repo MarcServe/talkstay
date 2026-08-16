@@ -93,6 +93,10 @@ export interface OpsRequest {
   session_id?: string | null;
   /** From ts_guest_sessions when the guest opted in with a name. */
   guest_first_name?: string | null;
+  /** Public-QR session verified a private room via check-in code. */
+  billing_room_number?: string | null;
+  billing_room_id?: string | null;
+  payment_timing?: "pay_now" | "at_checkout" | "charge_to_room" | null;
   ts_rooms?: { room_number: string; is_public?: boolean | null } | null;
 }
 
@@ -200,33 +204,76 @@ export async function fetchOpsQueue(hotelId: string, timeRange: OpsTimeRange): P
   }
   requests.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
-  // Attach guest first names when sessions opted in.
+  // Attach guest first names + optional billing-room link when sessions opted in.
   const sessionIds = [...new Set(
     requests.map((r) => r.session_id).filter((s): s is string => !!s),
   )];
   if (sessionIds.length) {
     const nameBySession = new Map<string, string>();
+    const billingBySession = new Map<string, { id: string; timing: string | null }>();
     // Chunk to stay under PostgREST URL limits.
     for (let i = 0; i < sessionIds.length; i += 80) {
       const chunk = sessionIds.slice(i, i + 80);
-      const sessRes = await supabase
+      let sessRes = await supabase
         .from("ts_guest_sessions")
-        .select("session_id, guest_first_name")
+        .select("session_id, guest_first_name, billing_room_id, payment_timing")
         .eq("hotel_id", hotelId)
         .in("session_id", chunk);
+      if (sessRes.error?.message?.includes("billing_room_id") || sessRes.error?.message?.includes("payment_timing")) {
+        sessRes = await supabase
+          .from("ts_guest_sessions")
+          .select("session_id, guest_first_name")
+          .eq("hotel_id", hotelId)
+          .in("session_id", chunk);
+      }
       if (sessRes.error?.message?.includes("guest_first_name")) {
         // Migration not applied yet — skip names.
         break;
       }
-      for (const s of (sessRes.data ?? []) as { session_id: string; guest_first_name: string | null }[]) {
+      for (const s of (sessRes.data ?? []) as {
+        session_id: string;
+        guest_first_name: string | null;
+        billing_room_id?: string | null;
+        payment_timing?: string | null;
+      }[]) {
         const n = String(s.guest_first_name ?? "").trim();
         if (n) nameBySession.set(s.session_id, n);
+        if (s.billing_room_id) {
+          billingBySession.set(s.session_id, {
+            id: s.billing_room_id,
+            timing: s.payment_timing ?? null,
+          });
+        } else if (s.payment_timing) {
+          billingBySession.set(s.session_id, { id: "", timing: s.payment_timing });
+        }
       }
     }
-    if (nameBySession.size) {
-      for (const r of requests) {
-        if (r.session_id && nameBySession.has(r.session_id)) {
-          r.guest_first_name = nameBySession.get(r.session_id) ?? null;
+    const billingRoomIds = [...new Set(
+      [...billingBySession.values()].map((b) => b.id).filter(Boolean),
+    )];
+    const roomNumById = new Map<string, string>();
+    if (billingRoomIds.length) {
+      for (let i = 0; i < billingRoomIds.length; i += 80) {
+        const chunk = billingRoomIds.slice(i, i + 80);
+        const roomsRes = await supabase
+          .from("ts_rooms")
+          .select("id, room_number")
+          .in("id", chunk);
+        for (const rm of (roomsRes.data ?? []) as { id: string; room_number: string }[]) {
+          roomNumById.set(rm.id, rm.room_number);
+        }
+      }
+    }
+    for (const r of requests) {
+      if (r.session_id && nameBySession.has(r.session_id)) {
+        r.guest_first_name = nameBySession.get(r.session_id) ?? null;
+      }
+      if (r.session_id && billingBySession.has(r.session_id)) {
+        const b = billingBySession.get(r.session_id)!;
+        r.payment_timing = (b.timing as OpsRequest["payment_timing"]) ?? null;
+        if (b.id) {
+          r.billing_room_id = b.id;
+          r.billing_room_number = roomNumById.get(b.id) ?? null;
         }
       }
     }
