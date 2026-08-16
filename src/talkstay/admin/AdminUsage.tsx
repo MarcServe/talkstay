@@ -6,7 +6,10 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { Download, Loader2, QrCode, RefreshCw } from "lucide-react";
-import { loadUsageSummary } from "@/talkstay/admin/adminApi";
+import { useQueryClient } from "@tanstack/react-query";
+import { AdminPager } from "@/talkstay/admin/AdminPager";
+import { ADMIN_PAGE_SIZE, adminKeys } from "@/talkstay/admin/adminKeys";
+import { useAdminUsage } from "@/talkstay/admin/useAdminQueries";
 
 type Charge = {
   primary_meter: string;
@@ -50,6 +53,10 @@ type UsagePayload = {
   until: string;
   days: number;
   billing: Record<string, unknown>;
+  page?: number;
+  pageSize?: number;
+  total?: number;
+  totals_scope?: "page" | "platform";
   totals: {
     active_qr: number;
     sessions: number;
@@ -98,32 +105,26 @@ function downloadCsv(filename: string, rows: string[][]) {
 }
 
 export default function AdminUsage() {
+  const qc = useQueryClient();
   const [params, setParams] = useSearchParams();
   const hotelId = params.get("hotel") ?? "";
   const [days, setDays] = useState(Number(params.get("days")) || 30);
-  const [data, setData] = useState<UsagePayload | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
   const [q, setQ] = useState("");
 
-  const load = async () => {
-    setLoading(true);
-    try {
-      const res = await loadUsageSummary({
-        days,
-        ...(hotelId ? { hotelId } : {}),
-      }) as UsagePayload & { via?: string };
-      setData(res);
-      if (res.rollup_ready === false && res.via === "direct") {
-        /* direct path is fine — no toast needed */
-      }
-    } catch (e: any) {
-      toast.error(e.message);
-    } finally {
-      setLoading(false);
-    }
-  };
+  useEffect(() => { setPage(1); }, [hotelId, days]);
 
-  useEffect(() => { void load(); /* eslint-disable-next-line */ }, [hotelId, days]);
+  const { data: raw, isLoading, isFetching, isError, error, refetch } = useAdminUsage(
+    days,
+    hotelId,
+    hotelId ? 1 : page,
+  );
+
+  useEffect(() => {
+    if (isError) toast.error(error instanceof Error ? error.message : "Failed to load usage");
+  }, [isError, error]);
+
+  const data = raw as UsagePayload | undefined;
 
   const hotels = useMemo(() => {
     const list = data?.hotels ?? [];
@@ -135,6 +136,7 @@ export default function AdminUsage() {
   }, [data, q]);
 
   const detail = hotelId ? (data?.hotel ?? data?.hotels?.[0] ?? null) : null;
+  const total = data?.total ?? data?.hotels?.length ?? 0;
 
   const exportHotels = () => {
     if (!data) return;
@@ -168,7 +170,7 @@ export default function AdminUsage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Usage & pilot billing</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Per-property and per-QR engagement meters for usage-based or pilot charges — instead of bulk subscription.
+            Per-property meters load in pages; room/QR detail loads only when you open one hotel.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -189,8 +191,16 @@ export default function AdminUsage() {
               ))}
             </SelectContent>
           </Select>
-          <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading}>
-            <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              void qc.invalidateQueries({ queryKey: adminKeys.all });
+              void refetch();
+            }}
+            disabled={isFetching}
+          >
+            <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${isFetching ? "animate-spin" : ""}`} />
             Refresh
           </Button>
           <Button variant="outline" size="sm" onClick={exportHotels} disabled={!data?.hotels?.length}>
@@ -199,12 +209,12 @@ export default function AdminUsage() {
         </div>
       </div>
 
-      {loading && !data ? (
+      {isLoading && !data ? (
         <div className="flex items-center gap-2 text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" /> Loading usage…
         </div>
       ) : data ? (
-        <>
+        <div className={isFetching ? "opacity-70 space-y-6" : "space-y-6"}>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             <Stat label="Properties" value={data.totals.hotels} />
             <Stat label="Active QRs" value={data.totals.active_qr} hint="Rooms with ≥1 interaction" />
@@ -213,7 +223,11 @@ export default function AdminUsage() {
             <Stat
               label="Suggested total"
               value={money(data.totals.suggested, data.totals.currency)}
-              hint={`Primary meter: ${String(data.billing.primary_meter ?? "active_qr")}`}
+              hint={
+                data.totals_scope === "page"
+                  ? "Totals for this page (rollup not available)"
+                  : `Primary meter: ${String(data.billing.primary_meter ?? "active_qr")}`
+              }
             />
           </div>
 
@@ -223,8 +237,8 @@ export default function AdminUsage() {
                 <div>
                   <h2 className="text-base font-semibold text-violet-950">Invoice draft (pilot / usage)</h2>
                   <p className="mt-1 text-sm text-violet-900/80">
-                    Line items for properties on <span className="font-medium">pilot</span> or{" "}
-                    <span className="font-medium">usage</span> billing. Export CSV to invoice offline — Stripe auto-invoice can plug in later.
+                    Line items for <span className="font-medium">pilot</span> or{" "}
+                    <span className="font-medium">usage</span> hotels on this page. Export CSV to invoice offline.
                   </p>
                 </div>
                 <Button
@@ -236,7 +250,7 @@ export default function AdminUsage() {
                       h.billing_mode === "pilot" || h.billing_mode === "usage",
                     );
                     if (!billable.length) {
-                      toast.message("No pilot/usage hotels yet — set billing mode on each hotel.");
+                      toast.message("No pilot/usage hotels on this page — set billing mode or go to next page.");
                       return;
                     }
                     const currency = data.totals.currency;
@@ -256,7 +270,7 @@ export default function AdminUsage() {
                         data.until,
                       ]),
                     ];
-                    downloadCsv(`talkstay-invoice-draft-${days}d.csv`, rows);
+                    downloadCsv(`talkstay-invoice-draft-${days}d-p${page}.csv`, rows);
                     toast.success(`Exported ${billable.length} invoice line${billable.length === 1 ? "" : "s"}`);
                   }}
                 >
@@ -293,8 +307,7 @@ export default function AdminUsage() {
                     {data.hotels.filter((h) => h.billing_mode === "pilot" || h.billing_mode === "usage").length === 0 && (
                       <tr>
                         <td colSpan={5} className="px-3 py-6 text-center text-sm text-muted-foreground">
-                          No pilot/usage properties yet. Open a hotel → set billing mode to{" "}
-                          <strong>pilot</strong> or <strong>usage</strong>, then refresh.
+                          No pilot/usage properties on this page.
                         </td>
                       </tr>
                     )}
@@ -378,7 +391,7 @@ export default function AdminUsage() {
                 <Input
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
-                  placeholder="Filter properties…"
+                  placeholder="Filter this page…"
                   className="pl-3"
                 />
               </div>
@@ -437,6 +450,13 @@ export default function AdminUsage() {
                   </tbody>
                 </table>
               </div>
+              <AdminPager
+                page={page}
+                pageSize={data.pageSize ?? ADMIN_PAGE_SIZE}
+                total={total}
+                onPageChange={setPage}
+                disabled={isFetching}
+              />
             </>
           )}
 
@@ -444,9 +464,9 @@ export default function AdminUsage() {
             Period {new Date(data.since).toLocaleString()} → {new Date(data.until).toLocaleString()}.
             Rates come from{" "}
             <Link to="/admin/settings" className="underline hover:text-foreground">System settings</Link>
-            {" "}(or per-hotel overrides on the hotel page). Suggested charge uses the primary meter only.
+            {" "}(or per-hotel overrides). Platform list skips room/token payloads for scale.
           </p>
-        </>
+        </div>
       ) : null}
     </div>
   );
