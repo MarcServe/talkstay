@@ -1,4 +1,8 @@
 import { supabase } from "@/integrations/supabase/client";
+import {
+  applyPartnersSettings,
+  partnerCommissionAmount,
+} from "@/talkstay/lib/partners";
 
 /** Invoke talkstay-admin and surface the function's JSON `error` when status is non-2xx. */
 export async function adminApi<T = unknown>(action: string, body: Record<string, unknown> = {}): Promise<T> {
@@ -181,9 +185,89 @@ export async function loadUsageSummary(opts: {
     days,
     ...(hotelId ? { hotelId } : {}),
   });
-  if (edge) return { ...edge, via: "edge" };
 
-  // Direct path
+  let payload: Record<string, unknown>;
+  if (edge) {
+    payload = { ...edge, via: "edge" };
+  } else {
+    payload = await loadUsageSummaryDirect({ days, hotelId });
+  }
+
+  return enrichUsageWithPartnerCommission(payload);
+}
+
+async function enrichUsageWithPartnerCommission(
+  payload: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const settingsRes = await loadPlatformSettings();
+  const partners = applyPartnersSettings(settingsRes.settings.partners);
+  const hotels = Array.isArray(payload.hotels) ? (payload.hotels as any[]) : [];
+
+  // If edge omitted referral_code, fetch for these hotels.
+  const needCodes = hotels.some((h) => h.referral_code === undefined);
+  const codeById = new Map<string, string | null>();
+  if (needCodes && hotels.length) {
+    const ids = hotels.map((h) => h.hotel_id).filter(Boolean);
+    for (let i = 0; i < ids.length; i += 80) {
+      const chunk = ids.slice(i, i + 80);
+      const { data } = await supabase
+        .from("ts_hotels")
+        .select("id, referral_code")
+        .in("id", chunk);
+      for (const row of data ?? []) {
+        codeById.set(row.id, row.referral_code ?? null);
+      }
+    }
+  }
+
+  const enriched = hotels.map((h) => {
+    const referral_code = h.referral_code !== undefined
+      ? h.referral_code
+      : (codeById.get(h.hotel_id) ?? null);
+    const suggested = Number(h.charge?.suggested) || 0;
+    const { pct, amount, partner } = partnerCommissionAmount(suggested, referral_code, partners);
+    return {
+      ...h,
+      referral_code: referral_code ?? null,
+      partner: partner
+        ? { code: String(referral_code), name: partner.name, email: partner.email, commission_pct: pct }
+        : null,
+      partner_commission: {
+        pct,
+        amount,
+        currency: h.charge?.currency ?? (payload.totals as any)?.currency ?? "GBP",
+      },
+    };
+  });
+
+  const partnerTotal = Math.round(
+    enriched.reduce((s, h) => s + (Number(h.partner_commission?.amount) || 0), 0) * 100,
+  ) / 100;
+  const referredHotels = enriched.filter((h) => h.partner).length;
+
+  const totals = {
+    ...((payload.totals as object) ?? {}),
+    partner_commission: partnerTotal,
+    referred_hotels: referredHotels,
+  };
+
+  const hotelId = (payload as any).hotel?.hotel_id;
+  return {
+    ...payload,
+    partners,
+    hotels: enriched,
+    hotel: hotelId
+      ? enriched.find((h) => h.hotel_id === hotelId) ?? (payload as any).hotel
+      : (payload as any).hotel,
+    totals,
+  };
+}
+
+async function loadUsageSummaryDirect(opts: {
+  days: number;
+  hotelId: string;
+}): Promise<Record<string, unknown>> {
+  const { days, hotelId } = opts;
   const until = new Date();
   const since = new Date(until.getTime() - days * 24 * 60 * 60 * 1000);
   const sinceIso = since.toISOString();
@@ -197,7 +281,7 @@ export async function loadUsageSummary(opts: {
 
   let hotelQuery = supabase
     .from("ts_hotels")
-    .select("id, name, slug, is_active, billing_mode, billing_notes, billing_rates, created_at")
+    .select("id, name, slug, is_active, billing_mode, billing_notes, billing_rates, referral_code, created_at")
     .order("name")
     .limit(500);
   if (hotelId) hotelQuery = hotelQuery.eq("id", hotelId);
@@ -360,6 +444,7 @@ export async function loadUsageSummary(opts: {
       is_active: h.is_active,
       billing_mode: h.billing_mode ?? "subscription",
       billing_notes: h.billing_notes ?? null,
+      referral_code: h.referral_code ?? null,
       rates,
       meters,
       charge,
