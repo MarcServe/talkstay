@@ -534,247 +534,353 @@ serve(async (req) => {
 
     // ── Usage / pilot billing meters ──────────────────────────────────────
     if (action === "usage_summary" || action === "usage_hotel") {
-      const days = Math.max(1, Math.min(366, Number(body?.days) || 30));
-      const until = body?.until ? new Date(String(body.until)) : new Date();
-      const since = body?.since
-        ? new Date(String(body.since))
-        : new Date(until.getTime() - days * 24 * 60 * 60 * 1000);
-      if (Number.isNaN(since.getTime()) || Number.isNaN(until.getTime())) {
-        return json({ error: "Invalid since/until" }, 400);
-      }
-
-      const hotelIdFilter = action === "usage_hotel"
-        ? String(body?.hotelId ?? "").trim()
-        : (body?.hotelId ? String(body.hotelId).trim() : "");
-      if (action === "usage_hotel" && !hotelIdFilter) {
-        return json({ error: "hotelId required" }, 400);
-      }
-
-      const { data: settingsRows } = await admin.from("ts_platform_settings")
-        .select("key, value")
-        .eq("key", "billing")
-        .maybeSingle();
-      const billing = {
-        currency: "GBP",
-        default_mode: "pilot",
-        primary_meter: "active_qr",
-        rate_active_qr: 15,
-        rate_session: 0.5,
-        rate_guest_turn: 0.05,
-        rate_request: 0.25,
-        include_inactive_hotels: false,
-        ...((settingsRows?.value as Record<string, unknown>) ?? {}),
-      };
-
-      let hotelQuery = admin.from("ts_hotels")
-        .select("id, name, slug, is_active, billing_mode, billing_notes, billing_rates, created_at")
-        .order("name");
-      if (hotelIdFilter) hotelQuery = hotelQuery.eq("id", hotelIdFilter);
-      else if (!billing.include_inactive_hotels) hotelQuery = hotelQuery.eq("is_active", true);
-
-      let { data: hotels, error: hotelsErr } = await hotelQuery.limit(500);
-      if (hotelsErr && /billing_mode|billing_rates/i.test(hotelsErr.message)) {
-        let fb = admin.from("ts_hotels")
-          .select("id, name, slug, is_active, created_at")
-          .order("name");
-        if (hotelIdFilter) fb = fb.eq("id", hotelIdFilter);
-        else if (!billing.include_inactive_hotels) fb = fb.eq("is_active", true);
-        const retry = await fb.limit(500);
-        hotels = retry.data;
-        hotelsErr = retry.error;
-      }
-      if (hotelsErr) return json({ error: hotelsErr.message }, 500);
-
-      const { data: rollup, error: rollupErr } = await admin.rpc("ts_usage_rollup", {
-        _since: since.toISOString(),
-        _until: until.toISOString(),
-        _hotel_id: hotelIdFilter || null,
-      });
-      if (rollupErr) {
-        // Fall back: empty meters if migration not applied yet.
-        if (!/does not exist|function/i.test(rollupErr.message)) {
-          return json({ error: rollupErr.message }, 500);
+      try {
+        const days = Math.max(1, Math.min(366, Number(body?.days) || 30));
+        const until = body?.until ? new Date(String(body.until)) : new Date();
+        const since = body?.since
+          ? new Date(String(body.since))
+          : new Date(until.getTime() - days * 24 * 60 * 60 * 1000);
+        if (Number.isNaN(since.getTime()) || Number.isNaN(until.getTime())) {
+          return json({ error: "Invalid since/until" }, 400);
         }
-      }
 
-      const rows = (rollup ?? []) as {
-        hotel_id: string;
-        room_id: string | null;
-        guest_turns: number;
-        sessions: number;
-        requests: number;
-      }[];
+        const hotelIdFilter = action === "usage_hotel"
+          ? String(body?.hotelId ?? "").trim()
+          : (body?.hotelId ? String(body.hotelId).trim() : "");
+        if (action === "usage_hotel" && !hotelIdFilter) {
+          return json({ error: "hotelId required" }, 400);
+        }
 
-      // Room labels + QR tokens for detail view
-      const hotelIds = (hotels ?? []).map((h) => h.id);
-      let rooms: { id: string; hotel_id: string; room_number: string; is_active: boolean; is_public?: boolean }[] = [];
-      let tokens: { room_id: string; token: string; is_active: boolean }[] = [];
-      if (hotelIds.length) {
-        const [{ data: roomRows }, { data: tokenRows }] = await Promise.all([
-          admin.from("ts_rooms")
-            .select("id, hotel_id, room_number, is_active, is_public")
-            .in("hotel_id", hotelIds)
-            .order("room_number"),
-          admin.from("ts_room_tokens")
-            .select("room_id, token, is_active")
-            .in("hotel_id", hotelIds)
-            .eq("is_active", true),
-        ]);
-        rooms = (roomRows as any) ?? [];
-        tokens = (tokenRows as any) ?? [];
-      }
-      const tokenByRoom = new Map(tokens.map((t) => [t.room_id, t.token]));
-      const roomsByHotel = new Map<string, typeof rooms>();
-      for (const r of rooms) {
-        const list = roomsByHotel.get(r.hotel_id) ?? [];
-        list.push(r);
-        roomsByHotel.set(r.hotel_id, list);
-      }
+        const sinceIso = since.toISOString();
+        const untilIso = until.toISOString();
 
-      const rollupByHotel = new Map<string, typeof rows>();
-      for (const r of rows) {
-        const list = rollupByHotel.get(r.hotel_id) ?? [];
-        list.push(r);
-        rollupByHotel.set(r.hotel_id, list);
-      }
-
-      const money = (n: number, currency: string) =>
-        Math.round(n * 100) / 100;
-
-      const resolveRates = (hotel: any) => {
-        const o = (hotel.billing_rates && typeof hotel.billing_rates === "object")
-          ? hotel.billing_rates as Record<string, unknown>
-          : {};
-        return {
-          currency: String(o.currency ?? billing.currency ?? "GBP"),
-          rate_active_qr: Number(o.rate_active_qr ?? billing.rate_active_qr) || 0,
-          rate_session: Number(o.rate_session ?? billing.rate_session) || 0,
-          rate_guest_turn: Number(o.rate_guest_turn ?? billing.rate_guest_turn) || 0,
-          rate_request: Number(o.rate_request ?? billing.rate_request) || 0,
-          primary_meter: String(o.primary_meter ?? billing.primary_meter ?? "active_qr"),
+        // Platform billing rates (optional table)
+        let billing: Record<string, unknown> = {
+          currency: "GBP",
+          default_mode: "pilot",
+          primary_meter: "active_qr",
+          rate_active_qr: 15,
+          rate_session: 0.5,
+          rate_guest_turn: 0.05,
+          rate_request: 0.25,
+          include_inactive_hotels: false,
         };
-      };
+        {
+          const { data: settingsRows } = await admin.from("ts_platform_settings")
+            .select("key, value")
+            .eq("key", "billing")
+            .maybeSingle();
+          if (settingsRows?.value && typeof settingsRows.value === "object") {
+            billing = { ...billing, ...(settingsRows.value as Record<string, unknown>) };
+          }
+        }
 
-      const suggestCharge = (rates: ReturnType<typeof resolveRates>, m: {
-        active_qr: number; sessions: number; guest_turns: number; requests: number;
-      }) => {
-        const primary = rates.primary_meter;
-        let units = m.active_qr;
-        let rate = rates.rate_active_qr;
-        if (primary === "session") { units = m.sessions; rate = rates.rate_session; }
-        else if (primary === "guest_turn") { units = m.guest_turns; rate = rates.rate_guest_turn; }
-        else if (primary === "request") { units = m.requests; rate = rates.rate_request; }
-        return {
-          primary_meter: primary,
-          units,
-          rate,
-          suggested: money(units * rate, rates.currency),
-          currency: rates.currency,
-          breakdown: {
-            active_qr: money(m.active_qr * rates.rate_active_qr, rates.currency),
-            sessions: money(m.sessions * rates.rate_session, rates.currency),
-            guest_turns: money(m.guest_turns * rates.rate_guest_turn, rates.currency),
-            requests: money(m.requests * rates.rate_request, rates.currency),
-          },
+        // Hotels — tolerate missing billing columns (migration not applied yet)
+        let hotels: any[] | null = null;
+        {
+          let q = admin.from("ts_hotels")
+            .select("id, name, slug, is_active, billing_mode, billing_notes, billing_rates, created_at")
+            .order("name")
+            .limit(500);
+          if (hotelIdFilter) q = q.eq("id", hotelIdFilter);
+          else if (!billing.include_inactive_hotels) q = q.eq("is_active", true);
+          let res = await q;
+          if (res.error) {
+            let q2 = admin.from("ts_hotels")
+              .select("id, name, slug, is_active, created_at")
+              .order("name")
+              .limit(500);
+            if (hotelIdFilter) q2 = q2.eq("id", hotelIdFilter);
+            else if (!billing.include_inactive_hotels) q2 = q2.eq("is_active", true);
+            res = await q2;
+          }
+          if (res.error) return json({ error: res.error.message }, 500);
+          hotels = res.data ?? [];
+        }
+
+        type RollRow = {
+          hotel_id: string;
+          room_id: string | null;
+          guest_turns: number;
+          sessions: number;
+          requests: number;
         };
-      };
 
-      const hotelSummaries = (hotels ?? []).map((h) => {
-        const rates = resolveRates(h);
-        const hotelRooms = roomsByHotel.get(h.id) ?? [];
-        const hotelRollup = rollupByHotel.get(h.id) ?? [];
-        const byRoom = new Map<string | null, { guest_turns: number; sessions: number; requests: number }>();
-        for (const r of hotelRollup) {
-          byRoom.set(r.room_id, {
-            guest_turns: Number(r.guest_turns) || 0,
-            sessions: Number(r.sessions) || 0,
-            requests: Number(r.requests) || 0,
+        let rows: RollRow[] = [];
+        let rollupReady = false;
+
+        // Prefer SQL rollup when migration is applied
+        {
+          const rpcArgs: Record<string, unknown> = {
+            _since: sinceIso,
+            _until: untilIso,
+          };
+          if (hotelIdFilter) rpcArgs._hotel_id = hotelIdFilter;
+          const { data: rollup, error: rollupErr } = await admin.rpc("ts_usage_rollup", rpcArgs);
+          if (!rollupErr && Array.isArray(rollup)) {
+            rows = rollup.map((r: any) => ({
+              hotel_id: r.hotel_id,
+              room_id: r.room_id ?? null,
+              guest_turns: Number(r.guest_turns) || 0,
+              sessions: Number(r.sessions) || 0,
+              requests: Number(r.requests) || 0,
+            }));
+            rollupReady = true;
+          }
+        }
+
+        // JS fallback — works without RPC / before migration
+        if (!rollupReady) {
+          const hotelIdsForScan = hotelIdFilter
+            ? [hotelIdFilter]
+            : (hotels ?? []).map((h) => h.id);
+
+          const ixByKey = new Map<string, { guest_turns: number; sessions: Set<string> }>();
+          const rqByKey = new Map<string, number>();
+
+          const bumpIx = (hotel_id: string, room_id: string | null, session_id: string | null) => {
+            const key = `${hotel_id}::${room_id ?? ""}`;
+            let row = ixByKey.get(key);
+            if (!row) {
+              row = { guest_turns: 0, sessions: new Set() };
+              ixByKey.set(key, row);
+            }
+            row.guest_turns += 1;
+            if (session_id) row.sessions.add(session_id);
+          };
+
+          // Chunk .in() to avoid URL limits
+          const chunk = <T,>(arr: T[], size: number) => {
+            const out: T[][] = [];
+            for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+            return out;
+          };
+
+          if (hotelIdsForScan.length) {
+            for (const ids of chunk(hotelIdsForScan, 80)) {
+              const [{ data: ix }, { data: rq }] = await Promise.all([
+                admin.from("ts_interactions")
+                  .select("hotel_id, room_id, session_id, role")
+                  .in("hotel_id", ids)
+                  .eq("role", "guest")
+                  .gte("created_at", sinceIso)
+                  .lt("created_at", untilIso)
+                  .limit(20000),
+                admin.from("ts_service_requests")
+                  .select("hotel_id, room_id")
+                  .in("hotel_id", ids)
+                  .gte("created_at", sinceIso)
+                  .lt("created_at", untilIso)
+                  .limit(20000),
+              ]);
+              for (const r of ix ?? []) {
+                bumpIx(r.hotel_id, r.room_id ?? null, r.session_id ?? null);
+              }
+              for (const r of rq ?? []) {
+                const key = `${r.hotel_id}::${r.room_id ?? ""}`;
+                rqByKey.set(key, (rqByKey.get(key) ?? 0) + 1);
+              }
+            }
+          }
+
+          const keys = new Set([...ixByKey.keys(), ...rqByKey.keys()]);
+          rows = [...keys].map((key) => {
+            const [hotel_id, roomPart] = key.split("::");
+            const room_id = roomPart ? roomPart : null;
+            const ix = ixByKey.get(key);
+            return {
+              hotel_id,
+              room_id,
+              guest_turns: ix?.guest_turns ?? 0,
+              sessions: ix?.sessions.size ?? 0,
+              requests: rqByKey.get(key) ?? 0,
+            };
           });
         }
 
-        const roomRows = hotelRooms.map((room) => {
-          const m = byRoom.get(room.id) ?? { guest_turns: 0, sessions: 0, requests: 0 };
-          const active = m.sessions > 0 || m.guest_turns > 0 || m.requests > 0;
-          const token = tokenByRoom.get(room.id) ?? null;
-          const slugHotel = (hotels ?? []).find((x) => x.id === h.id)?.slug;
+        const hotelIds = (hotels ?? []).map((h) => h.id);
+        let rooms: { id: string; hotel_id: string; room_number: string; is_active: boolean; is_public?: boolean }[] = [];
+        let tokens: { room_id: string; token: string; is_active: boolean }[] = [];
+        if (hotelIds.length) {
+          const chunk = <T,>(arr: T[], size: number) => {
+            const out: T[][] = [];
+            for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+            return out;
+          };
+          for (const ids of chunk(hotelIds, 80)) {
+            let roomRes = await admin.from("ts_rooms")
+              .select("id, hotel_id, room_number, is_active, is_public")
+              .in("hotel_id", ids)
+              .order("room_number");
+            if (roomRes.error) {
+              roomRes = await admin.from("ts_rooms")
+                .select("id, hotel_id, room_number, is_active")
+                .in("hotel_id", ids)
+                .order("room_number");
+            }
+            const tokenRes = await admin.from("ts_room_tokens")
+              .select("room_id, token, is_active")
+              .in("hotel_id", ids)
+              .eq("is_active", true);
+            rooms = rooms.concat((roomRes.data as any) ?? []);
+            tokens = tokens.concat((tokenRes.data as any) ?? []);
+          }
+        }
+
+        const tokenByRoom = new Map(tokens.map((t) => [t.room_id, t.token]));
+        const roomsByHotel = new Map<string, typeof rooms>();
+        for (const r of rooms) {
+          const list = roomsByHotel.get(r.hotel_id) ?? [];
+          list.push(r);
+          roomsByHotel.set(r.hotel_id, list);
+        }
+
+        const rollupByHotel = new Map<string, typeof rows>();
+        for (const r of rows) {
+          const list = rollupByHotel.get(r.hotel_id) ?? [];
+          list.push(r);
+          rollupByHotel.set(r.hotel_id, list);
+        }
+
+        const money = (n: number) => Math.round(n * 100) / 100;
+
+        const resolveRates = (hotel: any) => {
+          const o = (hotel.billing_rates && typeof hotel.billing_rates === "object")
+            ? hotel.billing_rates as Record<string, unknown>
+            : {};
           return {
-            room_id: room.id,
-            room_number: room.room_number,
-            is_active: room.is_active,
-            is_public: !!(room as any).is_public,
-            has_qr_token: !!token,
-            token_preview: token ? `${token.slice(0, 8)}…` : null,
-            guest_url: token && slugHotel
-              ? `${PUBLIC_BASE_URL}/h/${encodeURIComponent(slugHotel)}/r/${room.id}?token=${encodeURIComponent(token)}`
-              : null,
-            guest_turns: m.guest_turns,
-            sessions: m.sessions,
-            requests: m.requests,
-            engaged: active,
+            currency: String(o.currency ?? billing.currency ?? "GBP"),
+            rate_active_qr: Number(o.rate_active_qr ?? billing.rate_active_qr) || 0,
+            rate_session: Number(o.rate_session ?? billing.rate_session) || 0,
+            rate_guest_turn: Number(o.rate_guest_turn ?? billing.rate_guest_turn) || 0,
+            rate_request: Number(o.rate_request ?? billing.rate_request) || 0,
+            primary_meter: String(o.primary_meter ?? billing.primary_meter ?? "active_qr"),
+          };
+        };
+
+        const suggestCharge = (rates: ReturnType<typeof resolveRates>, m: {
+          active_qr: number; sessions: number; guest_turns: number; requests: number;
+        }) => {
+          const primary = rates.primary_meter;
+          let units = m.active_qr;
+          let rate = rates.rate_active_qr;
+          if (primary === "session") { units = m.sessions; rate = rates.rate_session; }
+          else if (primary === "guest_turn") { units = m.guest_turns; rate = rates.rate_guest_turn; }
+          else if (primary === "request") { units = m.requests; rate = rates.rate_request; }
+          return {
+            primary_meter: primary,
+            units,
+            rate,
+            suggested: money(units * rate),
+            currency: rates.currency,
+            breakdown: {
+              active_qr: money(m.active_qr * rates.rate_active_qr),
+              sessions: money(m.sessions * rates.rate_session),
+              guest_turns: money(m.guest_turns * rates.rate_guest_turn),
+              requests: money(m.requests * rates.rate_request),
+            },
+          };
+        };
+
+        const hotelSummaries = (hotels ?? []).map((h) => {
+          const rates = resolveRates(h);
+          const hotelRooms = roomsByHotel.get(h.id) ?? [];
+          const hotelRollup = rollupByHotel.get(h.id) ?? [];
+          const byRoom = new Map<string | null, { guest_turns: number; sessions: number; requests: number }>();
+          for (const r of hotelRollup) {
+            byRoom.set(r.room_id, {
+              guest_turns: Number(r.guest_turns) || 0,
+              sessions: Number(r.sessions) || 0,
+              requests: Number(r.requests) || 0,
+            });
+          }
+
+          const roomRowsOut = hotelRooms.map((room) => {
+            const m = byRoom.get(room.id) ?? { guest_turns: 0, sessions: 0, requests: 0 };
+            const active = m.sessions > 0 || m.guest_turns > 0 || m.requests > 0;
+            const token = tokenByRoom.get(room.id) ?? null;
+            return {
+              room_id: room.id,
+              room_number: room.room_number,
+              is_active: room.is_active,
+              is_public: !!room.is_public,
+              has_qr_token: !!token,
+              token_preview: token ? `${token.slice(0, 8)}…` : null,
+              guest_url: token
+                ? `${PUBLIC_BASE_URL}/h/${encodeURIComponent(h.slug)}/r/${room.id}?token=${encodeURIComponent(token)}`
+                : null,
+              guest_turns: m.guest_turns,
+              sessions: m.sessions,
+              requests: m.requests,
+              engaged: active,
+            };
+          });
+
+          let orphanTurns = 0, orphanSessions = 0, orphanRequests = 0;
+          for (const [rid, m] of byRoom) {
+            if (rid && hotelRooms.some((r) => r.id === rid)) continue;
+            orphanTurns += m.guest_turns;
+            orphanSessions += m.sessions;
+            orphanRequests += m.requests;
+          }
+
+          const guest_turns = roomRowsOut.reduce((s, r) => s + r.guest_turns, 0) + orphanTurns;
+          const sessions = roomRowsOut.reduce((s, r) => s + r.sessions, 0) + orphanSessions;
+          const requests = roomRowsOut.reduce((s, r) => s + r.requests, 0) + orphanRequests;
+          const active_qr = roomRowsOut.filter((r) => r.engaged).length;
+          const meters = { active_qr, sessions, guest_turns, requests };
+          const charge = suggestCharge(rates, meters);
+
+          return {
+            hotel_id: h.id,
+            name: h.name,
+            slug: h.slug,
+            is_active: h.is_active,
+            billing_mode: h.billing_mode ?? "subscription",
+            billing_notes: h.billing_notes ?? null,
+            rates,
+            meters,
+            charge,
+            room_count: hotelRooms.length,
+            rooms: action === "usage_hotel" || hotelIdFilter ? roomRowsOut : undefined,
           };
         });
 
-        // Orphan rollup rows (room deleted) still count toward hotel totals
-        let orphanTurns = 0, orphanSessions = 0, orphanRequests = 0;
-        for (const [rid, m] of byRoom) {
-          if (rid && hotelRooms.some((r) => r.id === rid)) continue;
-          orphanTurns += m.guest_turns;
-          orphanSessions += m.sessions;
-          orphanRequests += m.requests;
-        }
+        const totals = hotelSummaries.reduce(
+          (acc, h) => {
+            acc.active_qr += h.meters.active_qr;
+            acc.sessions += h.meters.sessions;
+            acc.guest_turns += h.meters.guest_turns;
+            acc.requests += h.meters.requests;
+            acc.suggested += h.charge.suggested;
+            return acc;
+          },
+          { active_qr: 0, sessions: 0, guest_turns: 0, requests: 0, suggested: 0 },
+        );
 
-        const guest_turns = roomRows.reduce((s, r) => s + r.guest_turns, 0) + orphanTurns;
-        const sessions = roomRows.reduce((s, r) => s + r.sessions, 0) + orphanSessions;
-        const requests = roomRows.reduce((s, r) => s + r.requests, 0) + orphanRequests;
-        const active_qr = roomRows.filter((r) => r.engaged).length;
-        const meters = { active_qr, sessions, guest_turns, requests };
-        const charge = suggestCharge(rates, meters);
-
-        return {
-          hotel_id: h.id,
-          name: h.name,
-          slug: h.slug,
-          is_active: h.is_active,
-          billing_mode: (h as any).billing_mode ?? "subscription",
-          billing_notes: (h as any).billing_notes ?? null,
-          rates,
-          meters,
-          charge,
-          room_count: hotelRooms.length,
-          rooms: action === "usage_hotel" || hotelIdFilter ? roomRows : undefined,
-        };
-      });
-
-      const totals = hotelSummaries.reduce(
-        (acc, h) => {
-          acc.active_qr += h.meters.active_qr;
-          acc.sessions += h.meters.sessions;
-          acc.guest_turns += h.meters.guest_turns;
-          acc.requests += h.meters.requests;
-          acc.suggested += h.charge.suggested;
-          return acc;
-        },
-        { active_qr: 0, sessions: 0, guest_turns: 0, requests: 0, suggested: 0 },
-      );
-
-      return json({
-        since: since.toISOString(),
-        until: until.toISOString(),
-        days,
-        billing,
-        totals: {
-          ...totals,
-          suggested: money(totals.suggested, String(billing.currency)),
-          currency: String(billing.currency ?? "GBP"),
-          hotels: hotelSummaries.length,
-        },
-        hotels: hotelSummaries,
-        hotel: action === "usage_hotel" ? hotelSummaries[0] ?? null : undefined,
-        rollup_ready: !rollupErr,
-      });
+        return json({
+          since: sinceIso,
+          until: untilIso,
+          days,
+          billing,
+          totals: {
+            ...totals,
+            suggested: money(totals.suggested),
+            currency: String(billing.currency ?? "GBP"),
+            hotels: hotelSummaries.length,
+          },
+          hotels: hotelSummaries,
+          hotel: action === "usage_hotel" ? hotelSummaries[0] ?? null : undefined,
+          rollup_ready: rollupReady,
+        });
+      } catch (usageErr) {
+        return json({
+          error: usageErr instanceof Error ? usageErr.message : "Usage calculation failed",
+        }, 500);
+      }
     }
 
-    return json({ error: "Unknown action" }, 400);
+    return json({ error: "Unknown action — redeploy talkstay-admin to pick up usage/settings endpoints" }, 400);
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : "Server error" }, 500);
   }
