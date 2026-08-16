@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import {
-  Loader2, LogOut, Bell, Menu, X, Phone,
+  Loader2, Bell, Menu, X, Phone,
   Inbox, BarChart3, QrCode, Building2, BookOpen, Users, Palette, LifeBuoy, UserRound,
 } from "lucide-react";
 import { enablePush, pushSupported } from "@/talkstay/lib/push";
@@ -47,7 +47,7 @@ const NAV = [
   { key: "departments", label: "Departments", icon: Building2, admin: true, desc: "Teams, routing rules and per-department notifications." },
   { key: "knowledge", label: "Knowledge", icon: BookOpen, admin: true, desc: "What the assistant knows — website, documents and property info." },
   { key: "staff", label: "Staff", icon: Users, admin: true, desc: "Invite your team and manage their roles and access." },
-  { key: "account", label: "Account", icon: UserRound, admin: false, desc: "Your profile and Direct Support — partner-routed when your property has a referral." },
+  { key: "account", label: "Account", icon: UserRound, admin: false, desc: "Your email, role, Direct Support, and sign out." },
 ] as const;
 type NavKey = (typeof NAV)[number]["key"];
 
@@ -444,24 +444,47 @@ export default function HotelApp() {
         }]}
         activeId={hotel.id}
         roleLabel={roleLabel}
-        canAdd={ownsAny}
+        canAdd={ownsAny || !!membership?.isOwner || membership?.role === "owner"}
         onSelect={selectProperty}
-        onAdd={() => setAddingProperty(true)}
+        onAdd={() => {
+          setNavOpen(false);
+          setAddingProperty(true);
+        }}
       />
 
       <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3">
-        {visibleNav.map(({ key, label, icon: Icon }) => (
-          <button
-            key={key}
-            onClick={() => go(key)}
-            className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-              effectiveActive === key ? "bg-violet-600 text-white" : "text-white/60 hover:bg-white/5 hover:text-white"
-            }`}
-          >
-            <Icon className="h-4 w-4 shrink-0" />
-            {label}
-          </button>
-        ))}
+        {visibleNav.map(({ key, label, icon: Icon }) => {
+          const isAccount = key === "account";
+          return (
+            <button
+              key={key}
+              onClick={() => go(key)}
+              className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors ${
+                effectiveActive === key ? "bg-violet-600 text-white" : "text-white/60 hover:bg-white/5 hover:text-white"
+              }`}
+            >
+              {isAccount ? (
+                <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
+                  effectiveActive === key ? "bg-white/20 text-white" : "bg-violet-600/30 text-violet-200"
+                }`}>
+                  {identityInitial}
+                </div>
+              ) : (
+                <Icon className="h-4 w-4 shrink-0" />
+              )}
+              <span className="min-w-0 flex-1">
+                <span className="block truncate">{label}</span>
+                {isAccount && user?.email && (
+                  <span className={`block truncate text-[11px] font-normal ${
+                    effectiveActive === key ? "text-white/75" : "text-white/40"
+                  }`}>
+                    {user.email}
+                  </span>
+                )}
+              </span>
+            </button>
+          );
+        })}
       </nav>
 
       <div className="space-y-1 border-t border-white/10 p-3">
@@ -504,37 +527,6 @@ export default function HotelApp() {
             <Bell className="h-4 w-4" /> Enable alert sounds
           </button>
         )}
-        <button
-          type="button"
-          onClick={() => go("account")}
-          className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left transition-colors ${
-            effectiveActive === "account" ? "bg-white/10" : "hover:bg-white/5"
-          }`}
-        >
-          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-violet-600/30 text-xs font-semibold text-violet-200">
-            {identityInitial}
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-medium text-white">{identityName}</div>
-            <div className="truncate text-xs text-white/40">{user?.email}</div>
-          </div>
-          <span
-            role="button"
-            tabIndex={0}
-            onClick={(e) => { e.stopPropagation(); void supabase.auth.signOut(); }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.stopPropagation();
-                void supabase.auth.signOut();
-              }
-            }}
-            aria-label="Sign out"
-            title="Sign out"
-            className="shrink-0"
-          >
-            <LogOut className="h-4 w-4 text-white/40 hover:text-white" />
-          </span>
-        </button>
       </div>
     </div>
   );

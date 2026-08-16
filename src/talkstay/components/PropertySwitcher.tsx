@@ -21,7 +21,7 @@ export default function PropertySwitcher({
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const active = properties.find((p) => p.hotel.id === activeId) ?? properties[0];
-  const multi = properties.length > 1 || canAdd;
+  const multi = properties.length > 1;
 
   useEffect(() => {
     if (!open) return;
@@ -42,12 +42,12 @@ export default function PropertySwitcher({
   if (!active) return null;
 
   return (
-    <div ref={rootRef} className="relative mx-3 mb-2">
+    <div ref={rootRef} className="relative mx-3 mb-2 space-y-1.5">
       <button
         type="button"
         onClick={() => multi && setOpen((v) => !v)}
         aria-expanded={open}
-        aria-haspopup="listbox"
+        aria-haspopup={multi ? "listbox" : undefined}
         className={`flex w-full items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-left transition-colors ${
           multi ? "hover:bg-white/10" : "cursor-default"
         }`}
@@ -64,9 +64,9 @@ export default function PropertySwitcher({
         )}
       </button>
 
-      {open && (
+      {open && multi && (
         <div
-          className="absolute left-0 right-0 z-50 mt-1.5 overflow-hidden rounded-xl border border-white/15 bg-[#1c1628] shadow-xl"
+          className="absolute left-0 right-0 z-50 mt-0 overflow-hidden rounded-xl border border-white/15 bg-[#1c1628] shadow-xl"
           role="listbox"
         >
           <div className="max-h-64 overflow-y-auto py-1">
@@ -114,6 +114,17 @@ export default function PropertySwitcher({
             </button>
           )}
         </div>
+      )}
+
+      {/* Always visible for owners — don't bury behind the switcher chevron. */}
+      {canAdd && onAdd && (
+        <button
+          type="button"
+          onClick={onAdd}
+          className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-white/20 px-3 py-2 text-xs font-medium text-violet-300 transition-colors hover:border-violet-400/50 hover:bg-white/5 hover:text-violet-200"
+        >
+          <Plus className="h-3.5 w-3.5" /> Add property
+        </button>
       )}
     </div>
   );
