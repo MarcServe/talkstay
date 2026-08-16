@@ -10,7 +10,11 @@ import {
 } from "lucide-react";
 import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
 import { useAuth } from "@/hooks/useAuth";
+<<<<<<< HEAD
 import { GUEST_ACCESS_MARKETING } from "@/talkstay/lib/guestAccessCopy";
+=======
+import { captureReferralFromSearch, ensurePartnersLoaded } from "@/talkstay/lib/partners";
+>>>>>>> origin/cursor/partner-referral-signup-c398
 
 const DEMO_VIDEO_ID = "83u9qLpVlQ8";
 
@@ -411,6 +415,11 @@ const cases: {
 
 export default function Landing() {
   const { user } = useAuth();
+
+  useEffect(() => {
+    captureReferralFromSearch(window.location.search);
+    void ensurePartnersLoaded();
+  }, []);
 
   return (
     <div data-talkstay className="ts-atmosphere min-h-screen text-foreground">

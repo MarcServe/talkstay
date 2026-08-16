@@ -421,7 +421,7 @@ serve(async (req) => {
     if (action === "update_settings") {
       const key = String(body?.key ?? "").trim();
       const value = body?.value;
-      const ALLOWED = new Set(["billing", "defaults", "features", "support"]);
+      const ALLOWED = new Set(["billing", "defaults", "features", "support", "partners"]);
       if (!ALLOWED.has(key)) return json({ error: "Invalid settings key" }, 400);
       if (value == null || typeof value !== "object" || Array.isArray(value)) {
         return json({ error: "value must be a JSON object" }, 400);
