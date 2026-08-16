@@ -43,7 +43,14 @@ export async function adminApi<T = unknown>(action: string, body: Record<string,
 /** True when the deployed edge function doesn't know this action yet. */
 export function isUnknownAdminAction(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err ?? "");
-  return /unknown action|non-2xx|failed to send|functions?\.invoke/i.test(msg);
+  return (
+    /unknown action|non-2xx|failed to send|functions?\.invoke/i.test(msg)
+    // A settings key the LIVE function predates (e.g. `partners`, added later).
+    // The frontend deploys on push but edge functions are deployed by hand, so
+    // the two drift; fall back to the direct upsert, which RLS still guards
+    // with is_admin(), rather than surfacing "Invalid settings key" to an admin.
+    || /invalid settings key/i.test(msg)
+  );
 }
 
 async function tryAdminApi<T>(action: string, body: Record<string, unknown> = {}): Promise<T | null> {
