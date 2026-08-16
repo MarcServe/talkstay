@@ -26,7 +26,7 @@ import StaffAlertsHost from "@/talkstay/components/StaffAlertsHost";
 import InstallAppBanner from "@/talkstay/components/InstallAppBanner";
 import NoIndexMeta from "@/talkstay/components/NoIndexMeta";
 import AccountPanel from "@/talkstay/components/AccountPanel";
-import { createHotel, ingestHotelWebsite, DEPARTMENTS, type Hotel, type PropertyProfile, type AccessibleProperty, pickAccessibleProperty, readActiveHotelId, writeActiveHotelId } from "@/talkstay/lib/hotels";
+import { createHotel, ingestHotelWebsite, type Hotel, type PropertyProfile, type AccessibleProperty, pickAccessibleProperty, readActiveHotelId, writeActiveHotelId, resolveLockedDepartment, canSeeNavItem, membershipRoleLabel } from "@/talkstay/lib/hotels";
 import { talkstayKeys } from "@/talkstay/lib/data";
 import {
   useHotelAccess, usePrefetchHotelData, invalidateOps,
@@ -248,7 +248,7 @@ function Panel({ active, hotel, onHotel, departmentKey, focusRequestId, onOpenRe
     case "knowledge": return <KnowledgePanel hotel={hotel} />;
     case "staff": return (
       <Suspense fallback={<div className="flex justify-center py-16"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>}>
-        <StaffPanel hotel={hotel} />
+        <StaffPanel hotel={hotel} scopedDepartment={departmentKey ?? null} />
       </Suspense>
     );
     case "account": return (
@@ -378,19 +378,9 @@ export default function HotelApp() {
     );
   }
 
-  const isAdmin = !!(membership?.isOwner || membership?.role === "manager" || membership?.role === "owner");
-  const visibleNav = NAV.filter((n) => isAdmin || !n.admin);
-  // Front Desk / Duty Manager coordinate across teams — same hotel-wide ops view as managers.
-  const staffDept = isAdmin ? null : membership?.departmentKey ?? null;
-  const lockedDepartment =
-    staffDept === "front_desk" || staffDept === "duty_manager" ? null : staffDept;
-  const roleLabel = membership?.isOwner || membership?.role === "owner"
-    ? "Owner"
-    : membership?.role === "manager"
-      ? "Manager"
-      : (staffDept
-        ? `${DEPARTMENTS.find((d) => d.key === staffDept)?.display_name ?? staffDept} team`
-        : "Staff");
+  const visibleNav = NAV.filter((n) => canSeeNavItem(membership, { admin: n.admin, key: n.key }));
+  const lockedDepartment = resolveLockedDepartment(membership);
+  const roleLabel = membershipRoleLabel(membership);
 
   // A department member should never sit on an admin tab (e.g. after a refresh).
   const effectiveActive: NavKey = visibleNav.some((n) => n.key === active) ? active : "operations";

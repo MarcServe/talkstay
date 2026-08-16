@@ -72,11 +72,14 @@ export default function PropertySwitcher({
           <div className="max-h-64 overflow-y-auto py-1">
             {properties.map((p) => {
               const on = p.hotel.id === activeId;
-              const label = p.isOwner
-                ? "Owner"
-                : p.role === "manager"
-                  ? "Manager"
-                  : "Staff";
+              const label = (() => {
+                if (p.isOwner) return "Owner";
+                if (p.departmentKey === "duty_manager") return "Duty Manager";
+                if (p.role === "manager" && !p.departmentKey) return "Property manager";
+                if (p.role === "manager" && p.departmentKey) return "Department manager";
+                if (p.role === "manager") return "Manager";
+                return "Staff";
+              })();
               return (
                 <button
                   key={p.hotel.id}

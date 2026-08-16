@@ -38,12 +38,20 @@ type NavKey = (typeof NAV)[number]["key"];
 type DemoRole =
   | { kind: "owner" }
   | { kind: "manager" }
+  | { kind: "dept_manager"; department: string }
+  | { kind: "duty_manager" }
   | { kind: "staff"; department: string };
 
 const ROLE_OPTIONS: { id: string; label: string; role: DemoRole }[] = [
-  { id: "owner", label: "Owner (all departments)", role: { kind: "owner" } },
-  { id: "manager", label: "Manager (all departments)", role: { kind: "manager" } },
-  ...DEPARTMENTS.map((d) => ({
+  { id: "owner", label: "Owner (full property)", role: { kind: "owner" } },
+  { id: "manager", label: "Property manager (all departments)", role: { kind: "manager" } },
+  { id: "duty", label: "Duty Manager (full property)", role: { kind: "duty_manager" } },
+  ...DEPARTMENTS.filter((d) => d.key !== "duty_manager").map((d) => ({
+    id: `dept-mgr-${d.key}`,
+    label: `${d.display_name} manager`,
+    role: { kind: "dept_manager" as const, department: d.key },
+  })),
+  ...DEPARTMENTS.filter((d) => d.key !== "duty_manager").map((d) => ({
     id: `staff-${d.key}`,
     label: `${d.display_name} staff`,
     role: { kind: "staff" as const, department: d.key },
@@ -51,8 +59,13 @@ const ROLE_OPTIONS: { id: string; label: string; role: DemoRole }[] = [
 ];
 
 function roleLabel(role: DemoRole): string {
-  if (role.kind === "owner") return "Owner · all departments";
-  if (role.kind === "manager") return "Manager · all departments";
+  if (role.kind === "owner") return "Owner · full property";
+  if (role.kind === "manager") return "Property manager · all departments";
+  if (role.kind === "duty_manager") return "Duty Manager · full property (as owner)";
+  if (role.kind === "dept_manager") {
+    const dept = DEPARTMENTS.find((d) => d.key === role.department)?.display_name ?? role.department;
+    return `${dept} manager · team queue + Insights/Staff`;
+  }
   const dept = DEPARTMENTS.find((d) => d.key === role.department)?.display_name ?? role.department;
   return `${dept} staff · department queue only`;
 }
@@ -66,16 +79,38 @@ function DemoDashboard() {
   const [focusRequestId, setFocusRequestId] = useState<string | null>(null);
 
   const demoRole = ROLE_OPTIONS.find((r) => r.id === roleId)?.role ?? { kind: "owner" as const };
-  const isAdmin = demoRole.kind === "owner" || demoRole.kind === "manager";
-  const staffDept = demoRole.kind === "staff" ? demoRole.department : null;
-  const lockedDepartment =
-    staffDept === "front_desk" || staffDept === "duty_manager" ? null : staffDept;
-  const visibleNav = NAV.filter((n) => isAdmin || !n.adminOnly);
+  const membership = (() => {
+    if (demoRole.kind === "owner") return { isOwner: true, role: "owner" as const, departmentKey: null };
+    if (demoRole.kind === "manager") return { isOwner: false, role: "manager" as const, departmentKey: null };
+    if (demoRole.kind === "duty_manager") {
+      return { isOwner: false, role: "staff" as const, departmentKey: "duty_manager" };
+    }
+    if (demoRole.kind === "dept_manager") {
+      return { isOwner: false, role: "manager" as const, departmentKey: demoRole.department };
+    }
+    return { isOwner: false, role: "staff" as const, departmentKey: demoRole.department };
+  })();
+  const isAdmin = membership.isOwner || membership.role === "owner"
+    || membership.departmentKey === "duty_manager"
+    || (membership.role === "manager" && !membership.departmentKey);
+  const isDeptMgr = membership.role === "manager" && !!membership.departmentKey
+    && membership.departmentKey !== "duty_manager";
+  const lockedDepartment = isAdmin
+    ? null
+    : (membership.departmentKey === "front_desk" ? null : membership.departmentKey);
+  const visibleNav = NAV.filter((n) => {
+    if (!n.adminOnly) return true;
+    if (isAdmin) return true;
+    if (isDeptMgr && (n.key === "insights" || n.key === "staff")) return true;
+    return false;
+  });
   const activeNav = visibleNav.find((n) => n.key === active) ?? visibleNav[0];
 
   useEffect(() => {
-    if (!isAdmin && active !== "operations" && active !== "log_order") setActive("operations");
-  }, [isAdmin, active]);
+    if (!visibleNav.some((n) => n.key === active)) setActive("operations");
+    // roleId drives membership / visibleNav; avoid depending on the array identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roleId, active]);
 
   const go = (k: NavKey) => { setActive(k); setNavOpen(false); };
 
@@ -184,7 +219,7 @@ function DemoDashboard() {
             <div className="mb-6 min-w-0">
               <h1 className="text-2xl font-bold tracking-tight">{activeNav.label}</h1>
               <p className="mt-1 text-sm text-muted-foreground">{activeNav.desc}</p>
-              {!isAdmin && (
+              {!isAdmin && !isDeptMgr && (
                 <p className="mt-2 text-xs text-amber-800">
                   Viewing as department staff — Insights and setup tabs are hidden, matching a real invite.{" "}
                   <button
@@ -196,6 +231,18 @@ function DemoDashboard() {
                   </button>
                 </p>
               )}
+              {isDeptMgr && (
+                <p className="mt-2 text-xs text-amber-800">
+                  Viewing as department manager — queue locked to your team; Insights and Staff are available.{" "}
+                  <button
+                    type="button"
+                    className="font-semibold underline underline-offset-2 hover:text-amber-950"
+                    onClick={() => setRoleId("owner")}
+                  >
+                    Back to Owner
+                  </button>
+                </p>
+              )}
             </div>
 
             {active === "operations" && (
@@ -204,7 +251,7 @@ function DemoDashboard() {
                 lockedDepartment={lockedDepartment}
                 focusRequestId={focusRequestId}
                 onClearDepartmentLock={
-                  lockedDepartment
+                  lockedDepartment && isAdmin
                     ? () => {
                         setRoleId("owner");
                         toast.message("Back to Owner — all departments");
@@ -225,7 +272,7 @@ function DemoDashboard() {
                 }}
               />
             )}
-            {active === "insights" && isAdmin && <InsightsPanel hotel={demo.hotel} />}
+            {active === "insights" && (isAdmin || isDeptMgr) && <InsightsPanel hotel={demo.hotel} />}
             {active === "rooms" && isAdmin && <DemoRoomsPanel />}
             {active === "branding" && isAdmin && (
               <BrandingPanel
@@ -235,7 +282,7 @@ function DemoDashboard() {
             )}
             {active === "departments" && isAdmin && <DemoDepartmentsPanel />}
             {active === "knowledge" && isAdmin && <KnowledgePanel hotel={demo.hotel} />}
-            {active === "staff" && isAdmin && <DemoStaffPanel />}
+            {active === "staff" && (isAdmin || isDeptMgr) && <DemoStaffPanel />}
           </div>
         </main>
       </div>
