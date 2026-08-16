@@ -185,3 +185,97 @@ export function supportLabelForHotel(referralCode?: string | null): string {
   const partner = partnerForReferral(referralCode);
   return partner ? `Support (${partner.name})` : "Support";
 }
+
+// ── Referral capture ────────────────────────────────────────────────────────
+// A partner link (`/app?ref=code`) is often clicked long before the property is
+// actually created — the visitor reads the landing page, signs up, confirms an
+// email, and only then fills in the property form. Persisting the code for that
+// whole journey is what makes attribution survive those hops.
+
+const REFERRAL_STORAGE_KEY = "talkstay:referral";
+
+export type ReferralSource = "url" | "inherit" | "stored" | "none";
+
+function toSearchParams(input: URLSearchParams | string | null | undefined): URLSearchParams {
+  if (!input) return new URLSearchParams();
+  return typeof input === "string" ? new URLSearchParams(input) : input;
+}
+
+/** Read `?ref=` and remember it for the rest of the signup journey. */
+export function captureReferralFromSearch(
+  input: URLSearchParams | string | null | undefined,
+): string | null {
+  const code = normalizeReferralCode(toSearchParams(input).get("ref"));
+  if (!code) return null;
+  try {
+    localStorage.setItem(REFERRAL_STORAGE_KEY, code);
+  } catch { /* private browsing — attribution is best-effort, never fatal */ }
+  return code;
+}
+
+export function storedReferral(): string | null {
+  try {
+    return normalizeReferralCode(localStorage.getItem(REFERRAL_STORAGE_KEY));
+  } catch { return null; }
+}
+
+/** Called once the property exists, so the next signup starts clean. */
+export function clearStoredReferral(): void {
+  try {
+    localStorage.removeItem(REFERRAL_STORAGE_KEY);
+  } catch { /* ignore */ }
+}
+
+/** Which referral applies to this signup, and where it came from.
+ *  A code in the URL is the most explicit signal, so it wins. `inheritFrom`
+ *  (an owner adding a second property) beats a code left over in this browser
+ *  from some earlier visit. Anything resolved here is shown locked — the
+ *  signup form only lets someone type a code when we found none. */
+export function resolveSignupReferral(args: {
+  searchParams?: URLSearchParams | string | null;
+  inheritFrom?: string | null;
+}): { code: string | null; source: ReferralSource } {
+  const fromUrl = normalizeReferralCode(toSearchParams(args.searchParams).get("ref"));
+  if (fromUrl) return { code: fromUrl, source: "url" };
+
+  const inherited = normalizeReferralCode(args.inheritFrom);
+  if (inherited) return { code: inherited, source: "inherit" };
+
+  const stored = storedReferral();
+  if (stored) return { code: stored, source: "stored" };
+
+  return { code: null, source: "none" };
+}
+
+// ── Partner map loading ─────────────────────────────────────────────────────
+// Admin-created partners live in ts_platform_settings.partners, which has a
+// public SELECT policy for exactly this reason (see the partner-commission
+// migration): signup and Support routing must resolve partner names before
+// anyone has signed in.
+
+let partnersPromise: Promise<PartnersSettings> | null = null;
+
+/** Load the admin-managed partner map once per page load. Safe to call from
+ *  anywhere — repeat calls share the first request, and a failure falls back to
+ *  the built-in PARTNER_SUPPORT map rather than blocking the page. */
+export function ensurePartnersLoaded(force = false): Promise<PartnersSettings> {
+  if (force) partnersPromise = null;
+  if (partnersPromise) return partnersPromise;
+
+  partnersPromise = (async () => {
+    try {
+      const { supabase } = await import("@/integrations/supabase/client");
+      const { data, error } = await supabase
+        .from("ts_platform_settings")
+        .select("value")
+        .eq("key", "partners")
+        .maybeSingle();
+      if (error || !data) return emptyPartnersSettings();
+      return applyPartnersSettings((data as { value: unknown }).value);
+    } catch {
+      return emptyPartnersSettings();
+    }
+  })();
+
+  return partnersPromise;
+}
