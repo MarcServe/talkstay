@@ -43,7 +43,7 @@ function homeScreenGuide(platform: PlatformHint, canPrompt: boolean): {
           { icon: "home", text: "Scroll and tap Add to Home Screen" },
           { text: "Tap Add — then open TalkStay from the new icon to turn on alerts" },
         ],
-        tip: "iPhone and iPad need TalkStay on the Home Screen before notifications can turn on.",
+        tip: "Alert sounds already work here in Safari. The Home Screen app adds banner notifications for when TalkStay isn't open — an Apple requirement, not ours.",
       };
     case "ios_other":
       return {
@@ -53,7 +53,7 @@ function homeScreenGuide(platform: PlatformHint, canPrompt: boolean): {
           { icon: "share", text: "Tap Share → Add to Home Screen" },
           { text: "Open TalkStay from the Home Screen icon, then turn on alerts" },
         ],
-        tip: "Safari only — notifications work after you open the Home Screen app.",
+        tip: "Alert sounds work in any browser. Banner notifications for when TalkStay isn't open need the Home Screen app, and on iPhone only Safari can add one.",
       };
     case "android_chrome":
       return {
