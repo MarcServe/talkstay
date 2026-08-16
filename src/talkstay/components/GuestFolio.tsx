@@ -9,6 +9,7 @@ import {
   statusLabel,
 } from "@/talkstay/lib/statusStyles";
 import type { GuestPaymentTiming, GuestRequest } from "@/talkstay/lib/guest";
+import { folioPayCopy, orderLocationKind } from "@/talkstay/lib/locationOrders";
 
 export function unpaidChargeables(reqs: GuestRequest[]) {
   return reqs.filter(
@@ -25,7 +26,7 @@ export function folioTotals(unpaid: GuestRequest[]) {
   return { owedTotal, currency, pricedCount: priced.length };
 }
 
-/** Itemized stay balance — used on Check-out page and My requests. */
+/** Itemized stay / location balance — used on Check-out page and My requests. */
 export function GuestFolio({
   requests,
   paymentTiming,
@@ -33,13 +34,17 @@ export function GuestFolio({
   onPayNow,
   onPayAtCheckout,
   variant = "page",
+  isPublic = false,
 }: {
   requests: GuestRequest[];
   paymentTiming: GuestPaymentTiming | null;
   payBusy?: boolean;
   onPayNow: () => void;
+  /** Maps to session payment_timing `at_checkout` — room bill or pay at counter. */
   onPayAtCheckout: () => void;
   variant?: "page" | "compact";
+  /** Public QR area (lobby, bar, spa…) — no room-charge option. */
+  isPublic?: boolean;
 }) {
   const unpaid = unpaidChargeables(requests);
   const paid = requests.filter(
@@ -47,14 +52,13 @@ export function GuestFolio({
   );
   const { owedTotal, currency } = folioTotals(unpaid);
   const isPage = variant === "page";
+  const copy = folioPayCopy(orderLocationKind(isPublic));
 
   if (!unpaid.length && !paid.length) {
     return (
       <div className={`rounded-2xl border border-emerald-200 bg-emerald-50/80 ${isPage ? "px-4 py-5" : "px-3.5 py-3"}`}>
         <p className="text-sm font-semibold text-emerald-950">Nothing to pay</p>
-        <p className="mt-1 text-xs text-emerald-900/80">
-          Chargeable room service and extras will appear here with prices as they’re added.
-        </p>
+        <p className="mt-1 text-xs text-emerald-900/80">{copy.emptyHint}</p>
       </div>
     );
   }
@@ -73,10 +77,10 @@ export function GuestFolio({
               </p>
               <p className="mt-1 text-[11px] leading-snug text-amber-900/80">
                 {paymentTiming === "pay_now"
-                  ? "We've asked the team to collect payment in your room."
+                  ? copy.unpaidHintPayNow
                   : paymentTiming === "at_checkout"
-                    ? "You'll settle this at checkout — no card needed in the app."
-                    : "Pay now (someone collects in your room) or settle at the desk on checkout. Online card pay isn’t wired yet."}
+                    ? copy.unpaidHintDeferred
+                    : copy.unpaidHintUnset}
               </p>
               <div className="mt-3 grid grid-cols-2 gap-2">
                 <Button
@@ -86,7 +90,7 @@ export function GuestFolio({
                   onClick={onPayNow}
                 >
                   {payBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-                  {paymentTiming === "pay_now" ? "Team notified" : "Pay now"}
+                  {paymentTiming === "pay_now" ? copy.payNowActive : copy.payNowIdle}
                 </Button>
                 <Button
                   size="sm"
@@ -95,7 +99,7 @@ export function GuestFolio({
                   disabled={!!payBusy || paymentTiming === "at_checkout"}
                   onClick={onPayAtCheckout}
                 >
-                  {paymentTiming === "at_checkout" ? "At checkout" : "Pay at checkout"}
+                  {paymentTiming === "at_checkout" ? copy.deferActive : copy.deferIdle}
                 </Button>
               </div>
             </div>

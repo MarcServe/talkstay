@@ -140,6 +140,8 @@ export async function fetchContext(hotelSlug: string, roomId: string, token: str
     hotelName: string; roomNumber: string; language: string; greeting: string;
     departments: string[]; branding?: GuestBranding; assistantId?: string | null;
     pulseAsk?: boolean;
+    /** Public QR area — payment options exclude room charge. */
+    isPublic?: boolean;
   };
 }
 
@@ -162,6 +164,7 @@ export async function fetchDemoContext() {
     hotelName: string; roomNumber: string; language: string; greeting: string;
     departments: string[]; branding?: GuestBranding; assistantId?: string | null;
     pulseAsk?: boolean;
+    isPublic?: boolean;
   };
 }
 

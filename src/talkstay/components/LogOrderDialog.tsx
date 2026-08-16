@@ -15,6 +15,7 @@ import { useDemo } from "@/talkstay/demo/DemoContext";
 import { OPEN_STATUSES } from "@/talkstay/lib/data";
 import { useOpsQueue } from "@/talkstay/hooks/useTalkStayQueries";
 import { statusBadge, statusLabel } from "@/talkstay/lib/statusStyles";
+import { logOrderChargeableLabel } from "@/talkstay/lib/locationOrders";
 
 type OrderSource = "phone" | "walk_in" | "front_desk";
 
@@ -103,6 +104,12 @@ export default function LogOrderDialog({
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
       .slice(0, 12);
   }, [variant, queue?.requests, lockedDepartment]);
+
+  const selectedRoom = useMemo(
+    () => rooms.find((r) => r.id === roomId) ?? null,
+    [rooms, roomId],
+  );
+  const selectedIsPublic = !!selectedRoom?.is_public;
 
   useEffect(() => {
     if (lockedDepartment) setDept(lockedDepartment);
@@ -313,7 +320,7 @@ export default function LogOrderDialog({
         <div className="space-y-1.5">
           <Label>Room / area</Label>
           <Select value={roomId} onValueChange={setRoomId}>
-            <SelectTrigger><SelectValue placeholder="Select room" /></SelectTrigger>
+            <SelectTrigger><SelectValue placeholder="Select room or public area" /></SelectTrigger>
             <SelectContent>
               {rooms.map((r) => (
                 <SelectItem key={r.id} value={r.id}>
@@ -329,6 +336,9 @@ export default function LogOrderDialog({
               ))}
             </SelectContent>
           </Select>
+          <p className="text-[11px] text-muted-foreground">
+            Bedroom stay, or a Public QR location (lobby, bar, restaurant, pool, spa, conference). Room number is not required for walk-ins — pick the area.
+          </p>
         </div>
 
         <div className="space-y-1.5">
@@ -410,8 +420,13 @@ export default function LogOrderDialog({
               onChange={(e) => setChargeable(e.target.checked)}
               className="h-4 w-4 rounded border-emerald-300"
             />
-            Chargeable (bill to room / collect at checkout)
+            {logOrderChargeableLabel(selectedIsPublic)}
           </label>
+          {chargeable && selectedIsPublic && (
+            <p className="text-[11px] leading-snug text-emerald-900/75">
+              Public / walk-in orders: collect pay now, at the counter, or on delivery — not charged to a room bill.
+            </p>
+          )}
           {chargeable && (
             <div className="space-y-1.5">
               <Label>Amount</Label>

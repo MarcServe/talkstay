@@ -34,6 +34,8 @@ interface RoomCtx {
   rules: { department_key: string; keywords: string[] }[];
   branding: Record<string, unknown>;
   pulseEnabled: boolean;
+  /** Public QR (lobby/bar/spa…) — walk-in / non-resident location. */
+  isPublic: boolean;
 }
 
 // Built-in deterministic keyword routing (safety net + works when OpenAI is down).
@@ -138,6 +140,7 @@ async function resolveRoom(
     rules: (rules ?? []) as any,
     branding: (hotel as any).branding || {},
     pulseEnabled: (hotel as any).pulse_enabled !== false,
+    isPublic,
   };
 }
 
@@ -564,6 +567,7 @@ async function handleMarketingDemo(body: any, OPENAI_API_KEY: string) {
     rules: [],
     branding: { primary_color: "#4c2bb8" },
     pulseEnabled: false,
+    isPublic: false,
   };
 
   const createdRequests: any[] = [];
@@ -757,7 +761,10 @@ serve(async (req) => {
         // Assistant id powers the voice session (TalkWeb realtime stack); assistant
         // ids are public by design in TalkWeb's widget embeds.
         assistantId: ctx.assistantId,
-        greeting: `Hi! You're in ${formatRoomLabel(ctx.roomNumber)} at ${ctx.hotelName}. How can I help — anything you need, or a question about the hotel?`,
+        isPublic: !!ctx.isPublic,
+        greeting: ctx.isPublic
+          ? `Hi! You're at ${formatRoomLabel(ctx.roomNumber)} in ${ctx.hotelName}. How can I help — food, drinks, or a question about the property?`
+          : `Hi! You're in ${formatRoomLabel(ctx.roomNumber)} at ${ctx.hotelName}. How can I help — anything you need, or a question about the hotel?`,
       });
     }
 

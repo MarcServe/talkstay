@@ -93,7 +93,7 @@ export interface OpsRequest {
   session_id?: string | null;
   /** From ts_guest_sessions when the guest opted in with a name. */
   guest_first_name?: string | null;
-  ts_rooms?: { room_number: string } | null;
+  ts_rooms?: { room_number: string; is_public?: boolean | null } | null;
 }
 
 export interface OpsQueueData {
@@ -125,13 +125,15 @@ function guestSignalKind(status: string, note: string | null): GuestSignalKind {
 }
 
 const OPS_SELECT_FULL =
-  "id, room_id, department_key, summary, summary_staff, status, priority, is_complaint, needs_triage, guest_language, source, is_chargeable, price, currency, payment_status, created_at, session_id, ts_rooms(room_number)";
+  "id, room_id, department_key, summary, summary_staff, status, priority, is_complaint, needs_triage, guest_language, source, is_chargeable, price, currency, payment_status, created_at, session_id, ts_rooms(room_number, is_public)";
 const OPS_SELECT_NO_PAYMENT =
-  "id, room_id, department_key, summary, summary_staff, status, priority, is_complaint, needs_triage, guest_language, source, is_chargeable, price, currency, created_at, session_id, ts_rooms(room_number)";
+  "id, room_id, department_key, summary, summary_staff, status, priority, is_complaint, needs_triage, guest_language, source, is_chargeable, price, currency, created_at, session_id, ts_rooms(room_number, is_public)";
 const OPS_SELECT_LEGACY =
   "id, room_id, department_key, summary, summary_staff, status, priority, is_complaint, needs_triage, guest_language, created_at, session_id, ts_rooms(room_number)";
 const OPS_SELECT_NO_SESSION =
-  "id, room_id, department_key, summary, summary_staff, status, priority, is_complaint, needs_triage, guest_language, source, is_chargeable, price, currency, payment_status, created_at, ts_rooms(room_number)";
+  "id, room_id, department_key, summary, summary_staff, status, priority, is_complaint, needs_triage, guest_language, source, is_chargeable, price, currency, payment_status, created_at, ts_rooms(room_number, is_public)";
+const OPS_SELECT_NO_PUBLIC =
+  "id, room_id, department_key, summary, summary_staff, status, priority, is_complaint, needs_triage, guest_language, source, is_chargeable, price, currency, payment_status, created_at, session_id, ts_rooms(room_number)";
 
 export async function fetchOpsQueue(hotelId: string, timeRange: OpsTimeRange): Promise<OpsQueueData> {
   const ms = OPS_TIME_MS[timeRange];
@@ -179,6 +181,12 @@ export async function fetchOpsQueue(hotelId: string, timeRange: OpsTimeRange): P
     closedRes.error?.message?.includes("session_id")
   ) {
     [openRes, closedRes] = await load(OPS_SELECT_NO_SESSION);
+  }
+  if (
+    openRes.error?.message?.includes("is_public") ||
+    closedRes.error?.message?.includes("is_public")
+  ) {
+    [openRes, closedRes] = await load(OPS_SELECT_NO_PUBLIC);
   }
   if (openRes.error) throw openRes.error;
   if (closedRes.error) throw closedRes.error;

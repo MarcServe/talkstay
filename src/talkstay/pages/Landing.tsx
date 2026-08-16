@@ -10,7 +10,6 @@ import {
 } from "lucide-react";
 import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
 import { useAuth } from "@/hooks/useAuth";
-import { MAILTO_SUPPORT } from "@/config/contact";
 
 const DEMO_VIDEO_ID = "83u9qLpVlQ8";
 
@@ -712,7 +711,7 @@ export default function Landing() {
             <span>© {new Date().getFullYear()} TalkStay by TalkWeb</span>
           </Link>
           <div className="flex flex-wrap gap-x-4 gap-y-2">
-            <a href={MAILTO_SUPPORT} className="transition-colors hover:text-foreground">Support</a>
+            <Link to="/support" className="transition-colors hover:text-foreground">Support</Link>
             <Link to="/privacy" className="transition-colors hover:text-foreground">Privacy</Link>
             <Link to="/terms" className="transition-colors hover:text-foreground">Terms</Link>
             <Link to="/cookies" className="transition-colors hover:text-foreground">Cookies</Link>

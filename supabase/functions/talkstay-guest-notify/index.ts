@@ -74,13 +74,18 @@ serve(async (req) => {
       }
     }
 
-    const [{ data: hotel }, { data: room }, { data: pushSubs }] = await Promise.all([
+    const [{ data: hotel }, roomRes, { data: pushSubs }] = await Promise.all([
       admin.from("ts_hotels").select("name, slug, branding").eq("id", r.hotel_id).maybeSingle(),
-      r.room_id ? admin.from("ts_rooms").select("room_number").eq("id", r.room_id).maybeSingle()
-                : Promise.resolve({ data: null }),
+      r.room_id ? admin.from("ts_rooms").select("room_number, is_public").eq("id", r.room_id).maybeSingle()
+                : Promise.resolve({ data: null, error: null }),
       admin.from("ts_guest_push_subscriptions").select("id, endpoint, p256dh, auth")
         .eq("hotel_id", r.hotel_id).eq("session_id", r.session_id),
     ]);
+    let room = roomRes.data as { room_number?: string; is_public?: boolean } | null;
+    if ((roomRes as any)?.error?.message?.includes("is_public") && r.room_id) {
+      const legacy = await admin.from("ts_rooms").select("room_number").eq("id", r.room_id).maybeSingle();
+      room = legacy.data;
+    }
 
     let unpaid: any[] = [];
     {
@@ -104,10 +109,16 @@ serve(async (req) => {
         ? `${owedTotal.toFixed(2)} ${currency}`
         : `${unpaid.length} item${unpaid.length === 1 ? "" : "s"} (amounts confirmed at the desk)`;
       const timingLine = timing === "at_checkout"
-        ? "You've chosen to settle at checkout."
+        ? (room?.is_public
+          ? "You've chosen to settle at the counter."
+          : "You've chosen to settle at checkout / charge to room.")
         : timing === "pay_now"
-          ? "You've asked the team to collect payment in your room."
-          : "Open My requests in chat to pay now (someone collects in your room) or settle at checkout.";
+          ? (room?.is_public
+            ? "You've asked the team to collect payment at your location."
+            : "You've asked the team to collect payment in your room.")
+          : (room?.is_public
+            ? "Open My requests to pay now or settle at the counter."
+            : "Open My requests in chat to pay now (someone collects in your room) or settle at checkout.");
       balanceHtml = `
             <div style="margin:14px 0 0;padding:12px 14px;border-radius:10px;background:#fffbeb;border:1px solid #fcd34d;">
               <p style="margin:0 0 4px;font-weight:600;color:#92400e;">Current balance</p>

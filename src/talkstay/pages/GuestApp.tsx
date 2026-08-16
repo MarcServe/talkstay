@@ -23,6 +23,7 @@ import {
 } from "@/talkstay/lib/guest";
 import { formatMoney, PAYMENT_STYLE, paymentLabel, statusBadge, statusDot, statusLabel } from "@/talkstay/lib/statusStyles";
 import { GuestFolio } from "@/talkstay/components/GuestFolio";
+import { folioPayCopy, orderLocationKind } from "@/talkstay/lib/locationOrders";
 import { guestStayPath } from "@/talkstay/lib/guestUrls";
 
 /** Guest My-requests card washes — kept in this file so Tailwind always emits them. */
@@ -42,6 +43,7 @@ type Ctx = {
   hotelName: string; roomNumber: string; greeting: string;
   branding?: GuestBranding; assistantId?: string | null;
   pulseAsk?: boolean;
+  isPublic?: boolean;
 };
 
 type Msg =
@@ -857,6 +859,7 @@ function GuestAppInner({ hotelSlug, roomId, token }: { hotelSlug: string; roomId
       {requestsOpen && (
         <RequestsSheet
           hotelSlug={hotelSlug} roomId={roomId} token={token} sid={sid}
+          isPublic={!!ctx?.isPublic}
           onClose={() => setRequestsOpen(false)}
         />
       )}
@@ -1296,8 +1299,8 @@ function NotifySheet({ hotelSlug, roomId, token, sid, onDone, onClose }: {
   );
 }
 
-function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
-  hotelSlug: string; roomId: string; token: string; sid: string; onClose: () => void;
+function RequestsSheet({ hotelSlug, roomId, token, sid, isPublic = false, onClose }: {
+  hotelSlug: string; roomId: string; token: string; sid: string; isPublic?: boolean; onClose: () => void;
 }) {
   const [reqs, setReqs] = useState<GuestRequest[] | null>(null);
   const [paymentTiming, setPaymentTimingState] = useState<GuestPaymentTiming | null>(null);
@@ -1313,6 +1316,7 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
   const [editText, setEditText] = useState<Record<string, string>>({});
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [cancelReason, setCancelReason] = useState("");
+  const payCopy = folioPayCopy(orderLocationKind(isPublic));
 
   const reload = () =>
     fetchMyRequests(hotelSlug, roomId, token, sid)
@@ -1331,7 +1335,7 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
     try {
       await requestPaymentNow({ hotelSlug, roomId, token, sessionId: sid });
       setPaymentTimingState("pay_now");
-      toast.success("We've asked the team to come collect payment.");
+      toast.success(payCopy.payNowToast);
     } catch (e: any) {
       const msg = String(e?.message ?? e?.code ?? "");
       toast.error(
@@ -1351,7 +1355,7 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
     try {
       await setPaymentTiming({ hotelSlug, roomId, token, sessionId: sid, timing: "at_checkout" });
       setPaymentTimingState("at_checkout");
-      toast.success("We'll settle this at checkout.");
+      toast.success(payCopy.deferToast);
     } catch {
       toast.error("Couldn't save that preference. Please try again.");
     } finally {
@@ -1518,6 +1522,7 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
               payBusy={payBusy}
               onPayNow={() => void payNow()}
               onPayAtCheckout={() => void payAtCheckout()}
+              isPublic={isPublic}
               variant="compact"
             />
             <Button variant="outline" size="sm" className="h-9 w-full" asChild>

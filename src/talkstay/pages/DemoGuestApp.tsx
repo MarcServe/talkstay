@@ -273,6 +273,7 @@ function DemoRequestsSheet({
               demo.guestSetPaymentTiming("at_checkout");
               toast.success("We'll settle this at checkout.");
             }}
+            isPublic={false}
             variant="compact"
           />
           <Button variant="outline" size="sm" className="h-9 w-full" asChild>

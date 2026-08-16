@@ -28,6 +28,31 @@ export function supportMailtoForHotel(referralCode?: string | null): string {
   return MAILTO_SUPPORT;
 }
 
+/** Direct Support mailto with property context for authenticated Account. */
+export function directSupportMailto(args: {
+  referralCode?: string | null;
+  hotelName: string;
+  email?: string | null;
+  roleLabel?: string;
+}): string {
+  const partner = partnerForReferral(args.referralCode);
+  const to = partner?.email ?? SUPPORT_EMAIL;
+  const subject = encodeURIComponent(`TalkStay support · ${args.hotelName}`);
+  const body = encodeURIComponent(
+    [
+      `Property: ${args.hotelName}`,
+      args.email ? `Signed in as: ${args.email}` : null,
+      args.roleLabel ? `Role: ${args.roleLabel}` : null,
+      "",
+      "How can we help?",
+      "",
+    ]
+      .filter((line) => line != null)
+      .join("\n"),
+  );
+  return `mailto:${to}?subject=${subject}&body=${body}`;
+}
+
 export function supportLabelForHotel(referralCode?: string | null): string {
   const partner = partnerForReferral(referralCode);
   return partner ? `Support (${partner.name})` : "Support";
