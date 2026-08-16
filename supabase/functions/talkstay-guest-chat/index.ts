@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { formatRoomLabel } from "../_shared/roomLabel.ts";
+import { makeLlmTracker, type LlmTracker } from "../_shared/llmCost.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -144,9 +145,14 @@ async function resolveRoom(
   };
 }
 
-async function embedQuery(query: string, apiKey: string): Promise<number[] | null> {
+async function embedQuery(
+  query: string,
+  apiKey: string,
+  track?: LlmTracker | null,
+): Promise<number[] | null> {
   try {
     const clean = apiKey.replace(/[^\x21-\x7E]/g, "");
+    const t0 = Date.now();
     const r = await fetch("https://api.openai.com/v1/embeddings", {
       method: "POST",
       headers: { Authorization: `Bearer ${clean}`, "Content-Type": "application/json" },
@@ -154,6 +160,14 @@ async function embedQuery(query: string, apiKey: string): Promise<number[] | nul
     });
     if (!r.ok) return null;
     const d = await r.json();
+    if (track) {
+      await track.trackUsage({
+        purpose: "embed",
+        model: "text-embedding-3-small",
+        usage: d?.usage ?? { prompt_tokens: Math.ceil(query.length / 4), total_tokens: Math.ceil(query.length / 4) },
+        latencyMs: Date.now() - t0,
+      });
+    }
     return d.data?.[0]?.embedding ?? null;
   } catch { return null; }
 }
@@ -221,7 +235,7 @@ function extractLinksFromText(text: string): { links: { label: string; url: stri
 // Room/department info first, then site content. Also collect property media cards.
 async function searchKnowledge(
   admin: any, hotelId: string, roomId: string, assistantId: string | null,
-  query: string, apiKey: string
+  query: string, apiKey: string, track?: LlmTracker | null,
 ): Promise<{ text: string; cards: GuestCard[] }> {
   const parts: string[] = [];
   const cards: GuestCard[] = [];
@@ -229,7 +243,7 @@ async function searchKnowledge(
   // (a) TalkStay layered KB
   if (apiKey) {
     try {
-      const emb = await embedQuery(query, apiKey);
+      const emb = await embedQuery(query, apiKey, track);
       if (emb) {
         const { data } = await admin.rpc("ts_search_knowledge", {
           query_embedding: `[${emb.join(",")}]`, p_hotel_id: hotelId, p_room_id: roomId, match_count: 5,
@@ -279,6 +293,7 @@ async function searchKnowledge(
 /** Turn flat knowledge into organised guest cards (no markdown). Prefer property media. */
 async function structureKnowledgeAnswer(
   apiKey: string, guestQuestion: string, kbText: string, seedCards: GuestCard[],
+  track?: LlmTracker | null,
 ): Promise<{ intro: string; cards: GuestCard[] }> {
   const hasSeedSections = seedCards.some((c) => (c.sections?.length ?? 0) > 0);
   if (hasSeedSections) {
@@ -293,6 +308,7 @@ async function structureKnowledgeAnswer(
   try {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 8000);
+    const t0 = Date.now();
     const resp = await fetch(OPENAI, {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
@@ -314,6 +330,14 @@ Rules: no markdown, no bullets with *, no # headings. Put menu/list content into
     clearTimeout(timer);
     if (!resp.ok) throw new Error("structure failed");
     const data = await resp.json();
+    if (track) {
+      await track.trackUsage({
+        purpose: "structure_kb",
+        model: "gpt-4o-mini",
+        usage: data?.usage,
+        latencyMs: Date.now() - t0,
+      });
+    }
     const raw = String(data?.choices?.[0]?.message?.content ?? "");
     const parsed = JSON.parse(raw);
     const intro = String(parsed.intro ?? "").replace(/[*#`_]/g, "").trim().slice(0, 280)
@@ -430,13 +454,15 @@ const OPENAI = "https://api.openai.com/v1/chat/completions";
 
 /** Classify what the guest said about their stay. Falls back to keywords on any failure. */
 async function classifyPulse(
-  apiKey: string, text: string, rating: number | null, ctx: RoomCtx
+  apiKey: string, text: string, rating: number | null, ctx: RoomCtx,
+  track?: LlmTracker | null,
 ): Promise<PulseVerdict> {
   const fallback = classifyPulseDeterministic(text, rating, ctx);
   if (!apiKey || !text.trim()) return fallback;
   try {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 8000);
+    const t0 = Date.now();
     const resp = await fetch(OPENAI, {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
@@ -463,6 +489,14 @@ async function classifyPulse(
     clearTimeout(timer);
     if (!resp.ok) return fallback;
     const data = await resp.json();
+    if (track) {
+      await track.trackUsage({
+        purpose: "pulse",
+        model: "gpt-4o-mini",
+        usage: data?.usage,
+        latencyMs: Date.now() - t0,
+      });
+    }
     const parsed = JSON.parse(String(data?.choices?.[0]?.message?.content ?? "{}"));
 
     const sentiment = ["positive", "neutral", "negative"].includes(parsed.sentiment) ? parsed.sentiment : fallback.sentiment;
@@ -488,11 +522,15 @@ const isEnglish = (lang?: string) => {
 /** Translate the English staff summary into the hotel's language (B4) so staff
  *  read requests in their own language. Best-effort: returns null on any failure
  *  (missing key, timeout, error) and the caller falls back to the English summary. */
-async function translateForStaff(apiKey: string, text: string, targetLang: string): Promise<string | null> {
+async function translateForStaff(
+  apiKey: string, text: string, targetLang: string,
+  track?: LlmTracker | null,
+): Promise<string | null> {
   if (!apiKey || isEnglish(targetLang) || !text.trim()) return null;
   try {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 4000);
+    const t0 = Date.now();
     const resp = await fetch(OPENAI, {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
@@ -510,6 +548,14 @@ async function translateForStaff(apiKey: string, text: string, targetLang: strin
     clearTimeout(timer);
     if (!resp.ok) return null;
     const data = await resp.json();
+    if (track) {
+      await track.trackUsage({
+        purpose: "translate_staff",
+        model: "gpt-4o-mini",
+        usage: data?.usage,
+        latencyMs: Date.now() - t0,
+      });
+    }
     const out = String(data?.choices?.[0]?.message?.content ?? "").trim();
     return out || null;
   } catch { return null; }
@@ -748,6 +794,9 @@ serve(async (req) => {
     // Track guest activity — powers auto-checkout after the hotel's inactivity window.
     admin.from("ts_rooms").update({ last_guest_activity_at: new Date().toISOString() })
       .eq("id", ctx.roomId).then(() => {}, () => {});
+
+    // Attribute OpenAI spend to this hotel + room (QR). OpenAI org usage cannot.
+    const llmTrack = makeLlmTracker(admin, ctx.hotelId, ctx.roomId, sessionId || null);
 
     // ---- context: greeting + room info ----
     if (action === "context") {
@@ -1193,7 +1242,7 @@ serve(async (req) => {
         .eq("hotel_id", ctx.hotelId).eq("session_id", sessionId);
       if ((count ?? 0) >= 5) return json({ error: "too_many" }, 429);
 
-      const v = await classifyPulse(OPENAI_API_KEY, text, rating, ctx);
+      const v = await classifyPulse(OPENAI_API_KEY, text, rating, ctx, llmTrack);
       const issueLabel = PULSE_ISSUE_LABEL[v.issueKey] ?? "General";
       const actionable = v.sentiment === "negative" && v.severity !== "low";
 
@@ -1208,7 +1257,7 @@ serve(async (req) => {
           ?? ctx.departments[0] ?? "front_desk";
         const about = v.departmentKey && v.departmentKey !== routeTo ? ` · about ${v.departmentKey.replace(/_/g, " ")}` : "";
         const summary = `Guest feedback during stay — ${issueLabel}${about}: ${text || `rated the stay ${rating}/5`}`.slice(0, 500);
-        const summaryStaff = await translateForStaff(OPENAI_API_KEY, summary, ctx.language);
+        const summaryStaff = await translateForStaff(OPENAI_API_KEY, summary, ctx.language, llmTrack);
         const { data: reqRow } = await admin.from("ts_service_requests").insert({
           hotel_id: ctx.hotelId, room_id: ctx.roomId, department_key: routeTo,
           intent: "pulse_check", summary, summary_staff: summaryStaff,
@@ -1446,7 +1495,7 @@ serve(async (req) => {
       const summaryChanged = !!note && note !== reqRow.summary;
       let nextSummaryStaff = reqRow.summary_staff;
       if (summaryChanged && OPENAI_API_KEY) {
-        nextSummaryStaff = await translateForStaff(OPENAI_API_KEY, nextSummary, ctx.language);
+        nextSummaryStaff = await translateForStaff(OPENAI_API_KEY, nextSummary, ctx.language, llmTrack);
       } else if (summaryChanged) {
         nextSummaryStaff = nextSummary;
       }
@@ -1684,7 +1733,7 @@ what you just said. Vary your phrasing so it doesn't sound like a scripted closi
       const isComplaint = o.isComplaint ?? (dept === "duty_manager");
       const enSummary = summary.slice(0, 500);
       // B4: give staff the request in the hotel's language (falls back to English).
-      const summaryStaff = await translateForStaff(OPENAI_API_KEY, enSummary, ctx.language);
+      const summaryStaff = await translateForStaff(OPENAI_API_KEY, enSummary, ctx.language, llmTrack);
       const guestSource = o.method === "guest_repeat" ? "repeat" : "guest_chat";
       const chargeable = !!o.isChargeable;
       const priceNum = chargeable && typeof o.price === "number" && Number.isFinite(o.price) && o.price > 0
@@ -1741,6 +1790,7 @@ what you just said. Vary your phrasing so it doesn't sound like a scripted closi
         try {
           const ctrl = new AbortController();
           const t = setTimeout(() => ctrl.abort(), 15000);
+          const t0 = Date.now();
           const resp = await fetch(OPENAI, {
             method: "POST",
             headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
@@ -1752,7 +1802,14 @@ what you just said. Vary your phrasing so it doesn't sound like a scripted closi
             if (attempt === 0 && (resp.status === 429 || resp.status >= 500)) { await sleep(700); continue; }
             throw new Error(`status ${resp.status}`);
           }
-          return await resp.json();
+          const data = await resp.json();
+          await llmTrack.trackUsage({
+            purpose: "guest_chat",
+            model: "gpt-4o-mini",
+            usage: data?.usage,
+            latencyMs: Date.now() - t0,
+          });
+          return data;
         } catch (e) {
           if (attempt === 0) { await sleep(700); continue; }
           throw e;
@@ -1779,10 +1836,10 @@ what you just said. Vary your phrasing so it doesn't sound like a scripted closi
 
           if (tc.function.name === "answer_from_knowledge") {
             if (guestIntent === "other") guestIntent = "question";
-            const kb = await searchKnowledge(admin, ctx.hotelId, ctx.roomId, ctx.assistantId, String(args.query || message), OPENAI_API_KEY);
+            const kb = await searchKnowledge(admin, ctx.hotelId, ctx.roomId, ctx.assistantId, String(args.query || message), OPENAI_API_KEY, llmTrack);
             if (kb.text) {
               const structured = await structureKnowledgeAnswer(
-                OPENAI_API_KEY, String(message), kb.text, kb.cards,
+                OPENAI_API_KEY, String(message), kb.text, kb.cards, llmTrack,
               );
               pendingCards = structured.cards.length ? structured.cards : undefined;
               messages.push({

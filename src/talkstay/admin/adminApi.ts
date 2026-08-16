@@ -145,6 +145,153 @@ function money(n: number) {
   return Math.round(n * 100) / 100;
 }
 
+type LlmCostAgg = {
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  cost_usd: number;
+  calls: number;
+};
+
+async function loadLlmCostByHotelRoom(opts: {
+  sinceIso: string;
+  untilIso: string;
+  hotelIds: string[];
+}): Promise<{
+  byHotel: Map<string, LlmCostAgg>;
+  byRoom: Map<string, LlmCostAgg>; // hotelId::roomId
+  missingTable?: boolean;
+}> {
+  const byHotel = new Map<string, LlmCostAgg>();
+  const byRoom = new Map<string, LlmCostAgg>();
+  const empty = (): LlmCostAgg => ({
+    prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, cost_usd: 0, calls: 0,
+  });
+  const add = (map: Map<string, LlmCostAgg>, key: string, row: {
+    prompt_tokens: number; completion_tokens: number; total_tokens: number; cost_usd: number;
+  }) => {
+    const cur = map.get(key) ?? empty();
+    cur.prompt_tokens += row.prompt_tokens;
+    cur.completion_tokens += row.completion_tokens;
+    cur.total_tokens += row.total_tokens;
+    cur.cost_usd += row.cost_usd;
+    cur.calls += 1;
+    map.set(key, cur);
+  };
+
+  if (!opts.hotelIds.length) return { byHotel, byRoom };
+
+  const chunk = <T,>(arr: T[], n: number) => {
+    const out: T[][] = [];
+    for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
+    return out;
+  };
+
+  for (const ids of chunk(opts.hotelIds, 80)) {
+    const { data, error } = await supabase
+      .from("ts_llm_calls")
+      .select("hotel_id, room_id, prompt_tokens, completion_tokens, total_tokens, cost_usd")
+      .in("hotel_id", ids)
+      .gte("created_at", opts.sinceIso)
+      .lt("created_at", opts.untilIso)
+      .limit(50000);
+    if (error) {
+      if (/does not exist|relation|schema cache/i.test(error.message)) {
+        return { byHotel, byRoom, missingTable: true };
+      }
+      // Non-fatal — usage page still works without COGS
+      console.warn("ts_llm_calls:", error.message);
+      return { byHotel, byRoom };
+    }
+    for (const r of data ?? []) {
+      const prompt = Number(r.prompt_tokens) || 0;
+      const completion = Number(r.completion_tokens) || 0;
+      const total = Number(r.total_tokens) || prompt + completion;
+      const cost = Number(r.cost_usd) || 0;
+      const payload = { prompt_tokens: prompt, completion_tokens: completion, total_tokens: total, cost_usd: cost };
+      add(byHotel, r.hotel_id, payload);
+      if (r.room_id) add(byRoom, `${r.hotel_id}::${r.room_id}`, payload);
+    }
+  }
+
+  for (const v of byHotel.values()) v.cost_usd = Math.round(v.cost_usd * 1e6) / 1e6;
+  for (const v of byRoom.values()) v.cost_usd = Math.round(v.cost_usd * 1e6) / 1e6;
+  return { byHotel, byRoom };
+}
+
+function enrichUsageWithLlmCosts(
+  payload: Record<string, unknown>,
+  llm: Awaited<ReturnType<typeof loadLlmCostByHotelRoom>>,
+): Record<string, unknown> {
+  const hotels = Array.isArray(payload.hotels) ? payload.hotels as any[] : [];
+  const enrichedHotels = hotels.map((h) => {
+    const hotelCost = llm.byHotel.get(h.hotel_id) ?? {
+      prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, cost_usd: 0, calls: 0,
+    };
+    const rooms = Array.isArray(h.rooms)
+      ? h.rooms.map((r: any) => {
+        const rc = llm.byRoom.get(`${h.hotel_id}::${r.room_id}`) ?? {
+          prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, cost_usd: 0, calls: 0,
+        };
+        return {
+          ...r,
+          prompt_tokens: rc.prompt_tokens,
+          completion_tokens: rc.completion_tokens,
+          total_tokens: rc.total_tokens,
+          ai_cost_usd: rc.cost_usd,
+          ai_calls: rc.calls,
+        };
+      })
+      : h.rooms;
+    return {
+      ...h,
+      meters: {
+        ...(h.meters ?? {}),
+        prompt_tokens: hotelCost.prompt_tokens,
+        completion_tokens: hotelCost.completion_tokens,
+        total_tokens: hotelCost.total_tokens,
+        ai_cost_usd: hotelCost.cost_usd,
+        ai_calls: hotelCost.calls,
+      },
+      rooms,
+    };
+  });
+
+  const totals = (payload.totals && typeof payload.totals === "object")
+    ? { ...(payload.totals as object) as Record<string, unknown> }
+    : {};
+  let aiCost = 0;
+  let promptTokens = 0;
+  let completionTokens = 0;
+  let aiCalls = 0;
+  for (const h of enrichedHotels) {
+    aiCost += Number(h.meters?.ai_cost_usd) || 0;
+    promptTokens += Number(h.meters?.prompt_tokens) || 0;
+    completionTokens += Number(h.meters?.completion_tokens) || 0;
+    aiCalls += Number(h.meters?.ai_calls) || 0;
+  }
+
+  const hotelId = (payload as any).hotel?.hotel_id;
+  const hotel = hotelId
+    ? enrichedHotels.find((h) => h.hotel_id === hotelId) ?? (payload as any).hotel
+    : (payload as any).hotel;
+
+  return {
+    ...payload,
+    hotels: enrichedHotels,
+    hotel,
+    totals: {
+      ...totals,
+      ai_cost_usd: Math.round(aiCost * 1e6) / 1e6,
+      prompt_tokens: promptTokens,
+      completion_tokens: completionTokens,
+      ai_calls: aiCalls,
+    },
+    llm_cost_ready: !llm.missingTable,
+    llm_cost_missing_table: !!llm.missingTable,
+  };
+}
+
 function suggestCharge(
   rates: { currency: string; primary_meter: string; rate_active_qr: number; rate_session: number; rate_guest_turn: number; rate_request: number },
   m: { active_qr: number; sessions: number; guest_turns: number; requests: number },
@@ -177,17 +324,36 @@ export async function loadUsageSummary(opts: {
   const hotelId = opts.hotelId?.trim() || "";
   const action = hotelId ? "usage_hotel" : "usage_summary";
 
-  const edge = await tryAdminApi<Record<string, unknown>>(action, {
-    days,
-    ...(hotelId ? { hotelId } : {}),
-  });
-  if (edge) return { ...edge, via: "edge" };
-
-  // Direct path
   const until = new Date();
   const since = new Date(until.getTime() - days * 24 * 60 * 60 * 1000);
   const sinceIso = since.toISOString();
   const untilIso = until.toISOString();
+
+  const edge = await tryAdminApi<Record<string, unknown>>(action, {
+    days,
+    ...(hotelId ? { hotelId } : {}),
+  });
+
+  let payload: Record<string, unknown>;
+  if (edge) {
+    payload = { ...edge, via: "edge" };
+  } else {
+    payload = await loadUsageSummaryDirect({ days, hotelId, sinceIso, untilIso });
+  }
+
+  const hotelList = Array.isArray(payload.hotels) ? (payload.hotels as any[]) : [];
+  const hotelIds = hotelList.map((h) => h.hotel_id).filter(Boolean);
+  const llm = await loadLlmCostByHotelRoom({ sinceIso: String(payload.since ?? sinceIso), untilIso: String(payload.until ?? untilIso), hotelIds });
+  return enrichUsageWithLlmCosts(payload, llm);
+}
+
+async function loadUsageSummaryDirect(opts: {
+  days: number;
+  hotelId: string;
+  sinceIso: string;
+  untilIso: string;
+}): Promise<Record<string, unknown>> {
+  const { days, hotelId, sinceIso, untilIso } = opts;
 
   const settingsRes = await loadPlatformSettings();
   const billing: BillingCfg = {
