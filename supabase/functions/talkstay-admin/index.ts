@@ -66,12 +66,26 @@ serve(async (req) => {
 
     if (action === "list_hotels") {
       const q = String(body?.q ?? "").trim().toLowerCase();
+      const selectFull =
+        "id, name, slug, is_active, user_id, created_at, branding, default_language, timezone, require_checkin_code, pulse_enabled, billing_mode, billing_notes, billing_rates, max_devices_per_room";
+      const selectBase =
+        "id, name, slug, is_active, user_id, created_at, branding, default_language, timezone, require_checkin_code, pulse_enabled";
       let query = admin.from("ts_hotels")
-        .select("id, name, slug, is_active, user_id, created_at, branding, default_language, timezone, require_checkin_code, pulse_enabled")
+        .select(selectFull)
         .order("created_at", { ascending: false })
         .limit(200);
       if (q) query = query.or(`name.ilike.%${q}%,slug.ilike.%${q}%`);
-      const { data, error } = await query;
+      let { data, error } = await query;
+      if (error && /billing_mode|billing_rates|max_devices/i.test(error.message)) {
+        let fallback = admin.from("ts_hotels")
+          .select(selectBase)
+          .order("created_at", { ascending: false })
+          .limit(200);
+        if (q) fallback = fallback.or(`name.ilike.%${q}%,slug.ilike.%${q}%`);
+        const retry = await fallback;
+        data = retry.data;
+        error = retry.error;
+      }
       if (error) return json({ error: error.message }, 500);
 
       const ownerIds = [...new Set((data ?? []).map((h) => h.user_id).filter(Boolean))];
@@ -237,6 +251,371 @@ serve(async (req) => {
         .eq("id", staffId);
       if (error) return json({ error: error.message }, 500);
       return json({ ok: true });
+    }
+
+    // ── Platform settings (TalkStay control plane) ─────────────────────────
+    if (action === "get_settings") {
+      const { data, error } = await admin.from("ts_platform_settings")
+        .select("key, value, updated_at, updated_by");
+      if (error) {
+        // Migration not applied yet — return empty so UI still loads.
+        if (/does not exist|relation/i.test(error.message)) {
+          return json({ settings: {}, missingTable: true });
+        }
+        return json({ error: error.message }, 500);
+      }
+      const settings: Record<string, unknown> = {};
+      for (const row of data ?? []) settings[row.key] = row.value;
+      return json({
+        settings,
+        updated: Object.fromEntries((data ?? []).map((r) => [r.key, r.updated_at])),
+      });
+    }
+
+    if (action === "update_settings") {
+      const key = String(body?.key ?? "").trim();
+      const value = body?.value;
+      const ALLOWED = new Set(["billing", "defaults", "features", "support"]);
+      if (!ALLOWED.has(key)) return json({ error: "Invalid settings key" }, 400);
+      if (value == null || typeof value !== "object" || Array.isArray(value)) {
+        return json({ error: "value must be a JSON object" }, 400);
+      }
+      const { error } = await admin.from("ts_platform_settings").upsert(
+        { key, value, updated_at: new Date().toISOString(), updated_by: uid },
+        { onConflict: "key" },
+      );
+      if (error) return json({ error: error.message }, 500);
+      return json({ ok: true, key, value });
+    }
+
+    // ── Hotel commercial / ops controls ───────────────────────────────────
+    if (action === "update_hotel") {
+      const hotelId = String(body?.hotelId ?? "").trim();
+      if (!hotelId) return json({ error: "hotelId required" }, 400);
+      const patch: Record<string, unknown> = {};
+
+      if (body?.is_active !== undefined) patch.is_active = !!body.is_active;
+      if (body?.pulse_enabled !== undefined) patch.pulse_enabled = !!body.pulse_enabled;
+      if (body?.require_checkin_code !== undefined) patch.require_checkin_code = !!body.require_checkin_code;
+      if (body?.whatsapp_enabled !== undefined) patch.whatsapp_enabled = !!body.whatsapp_enabled;
+
+      if (body?.name !== undefined) {
+        const name = String(body.name).trim();
+        if (!name) return json({ error: "name cannot be empty" }, 400);
+        patch.name = name;
+      }
+      if (body?.default_language !== undefined) {
+        patch.default_language = String(body.default_language).trim() || "English";
+      }
+      if (body?.timezone !== undefined) {
+        patch.timezone = String(body.timezone).trim() || "Europe/London";
+      }
+      if (body?.escalation_phone !== undefined) {
+        const v = String(body.escalation_phone).trim();
+        patch.escalation_phone = v || null;
+      }
+      if (body?.whatsapp_number !== undefined) {
+        const v = String(body.whatsapp_number).trim();
+        patch.whatsapp_number = v || null;
+      }
+      if (body?.max_devices_per_room !== undefined) {
+        const n = Math.max(1, Math.min(50, Number(body.max_devices_per_room) || 8));
+        patch.max_devices_per_room = n;
+      }
+      if (body?.billing_mode !== undefined) {
+        const mode = String(body.billing_mode).trim();
+        if (!["subscription", "usage", "pilot", "complimentary"].includes(mode)) {
+          return json({ error: "Invalid billing_mode" }, 400);
+        }
+        patch.billing_mode = mode;
+      }
+      if (body?.billing_notes !== undefined) {
+        const v = String(body.billing_notes).trim();
+        patch.billing_notes = v || null;
+      }
+      if (body?.billing_rates !== undefined) {
+        if (body.billing_rates === null) {
+          patch.billing_rates = null;
+        } else if (typeof body.billing_rates === "object" && !Array.isArray(body.billing_rates)) {
+          patch.billing_rates = body.billing_rates;
+        } else {
+          return json({ error: "billing_rates must be an object or null" }, 400);
+        }
+      }
+      if (body?.referral_code !== undefined) {
+        const v = String(body.referral_code).trim();
+        patch.referral_code = v || null;
+      }
+
+      if (!Object.keys(patch).length) return json({ error: "No fields to update" }, 400);
+
+      const { data, error } = await admin.from("ts_hotels")
+        .update(patch)
+        .eq("id", hotelId)
+        .select("*")
+        .maybeSingle();
+      if (error) return json({ error: error.message }, 500);
+      if (!data) return json({ error: "Hotel not found" }, 404);
+      return json({ ok: true, hotel: data });
+    }
+
+    if (action === "rotate_room_token") {
+      const roomId = String(body?.roomId ?? "").trim();
+      if (!roomId) return json({ error: "roomId required" }, 400);
+      const { data: room } = await admin.from("ts_rooms")
+        .select("id, hotel_id, room_number")
+        .eq("id", roomId)
+        .maybeSingle();
+      if (!room) return json({ error: "Room not found" }, 404);
+
+      // Deactivate current active tokens, then mint a fresh one.
+      await admin.from("ts_room_tokens")
+        .update({ is_active: false, rotated_at: new Date().toISOString() })
+        .eq("room_id", roomId)
+        .eq("is_active", true);
+
+      const { data: tok, error } = await admin.from("ts_room_tokens")
+        .insert({ hotel_id: room.hotel_id, room_id: roomId })
+        .select("id, token, is_active, created_at")
+        .single();
+      if (error) return json({ error: error.message }, 500);
+      return json({
+        ok: true,
+        token: tok,
+        room: { id: room.id, room_number: room.room_number },
+      });
+    }
+
+    // ── Usage / pilot billing meters ──────────────────────────────────────
+    if (action === "usage_summary" || action === "usage_hotel") {
+      const days = Math.max(1, Math.min(366, Number(body?.days) || 30));
+      const until = body?.until ? new Date(String(body.until)) : new Date();
+      const since = body?.since
+        ? new Date(String(body.since))
+        : new Date(until.getTime() - days * 24 * 60 * 60 * 1000);
+      if (Number.isNaN(since.getTime()) || Number.isNaN(until.getTime())) {
+        return json({ error: "Invalid since/until" }, 400);
+      }
+
+      const hotelIdFilter = action === "usage_hotel"
+        ? String(body?.hotelId ?? "").trim()
+        : (body?.hotelId ? String(body.hotelId).trim() : "");
+      if (action === "usage_hotel" && !hotelIdFilter) {
+        return json({ error: "hotelId required" }, 400);
+      }
+
+      const { data: settingsRows } = await admin.from("ts_platform_settings")
+        .select("key, value")
+        .eq("key", "billing")
+        .maybeSingle();
+      const billing = {
+        currency: "GBP",
+        default_mode: "pilot",
+        primary_meter: "active_qr",
+        rate_active_qr: 15,
+        rate_session: 0.5,
+        rate_guest_turn: 0.05,
+        rate_request: 0.25,
+        include_inactive_hotels: false,
+        ...((settingsRows?.value as Record<string, unknown>) ?? {}),
+      };
+
+      let hotelQuery = admin.from("ts_hotels")
+        .select("id, name, slug, is_active, billing_mode, billing_notes, billing_rates, created_at")
+        .order("name");
+      if (hotelIdFilter) hotelQuery = hotelQuery.eq("id", hotelIdFilter);
+      else if (!billing.include_inactive_hotels) hotelQuery = hotelQuery.eq("is_active", true);
+
+      const { data: hotels, error: hotelsErr } = await hotelQuery.limit(500);
+      if (hotelsErr) return json({ error: hotelsErr.message }, 500);
+
+      const { data: rollup, error: rollupErr } = await admin.rpc("ts_usage_rollup", {
+        _since: since.toISOString(),
+        _until: until.toISOString(),
+        _hotel_id: hotelIdFilter || null,
+      });
+      if (rollupErr) {
+        // Fall back: empty meters if migration not applied yet.
+        if (!/does not exist|function/i.test(rollupErr.message)) {
+          return json({ error: rollupErr.message }, 500);
+        }
+      }
+
+      const rows = (rollup ?? []) as {
+        hotel_id: string;
+        room_id: string | null;
+        guest_turns: number;
+        sessions: number;
+        requests: number;
+      }[];
+
+      // Room labels + QR tokens for detail view
+      const hotelIds = (hotels ?? []).map((h) => h.id);
+      let rooms: { id: string; hotel_id: string; room_number: string; is_active: boolean; is_public?: boolean }[] = [];
+      let tokens: { room_id: string; token: string; is_active: boolean }[] = [];
+      if (hotelIds.length) {
+        const [{ data: roomRows }, { data: tokenRows }] = await Promise.all([
+          admin.from("ts_rooms")
+            .select("id, hotel_id, room_number, is_active, is_public")
+            .in("hotel_id", hotelIds)
+            .order("room_number"),
+          admin.from("ts_room_tokens")
+            .select("room_id, token, is_active")
+            .in("hotel_id", hotelIds)
+            .eq("is_active", true),
+        ]);
+        rooms = (roomRows as any) ?? [];
+        tokens = (tokenRows as any) ?? [];
+      }
+      const tokenByRoom = new Map(tokens.map((t) => [t.room_id, t.token]));
+      const roomsByHotel = new Map<string, typeof rooms>();
+      for (const r of rooms) {
+        const list = roomsByHotel.get(r.hotel_id) ?? [];
+        list.push(r);
+        roomsByHotel.set(r.hotel_id, list);
+      }
+
+      const rollupByHotel = new Map<string, typeof rows>();
+      for (const r of rows) {
+        const list = rollupByHotel.get(r.hotel_id) ?? [];
+        list.push(r);
+        rollupByHotel.set(r.hotel_id, list);
+      }
+
+      const money = (n: number, currency: string) =>
+        Math.round(n * 100) / 100;
+
+      const resolveRates = (hotel: any) => {
+        const o = (hotel.billing_rates && typeof hotel.billing_rates === "object")
+          ? hotel.billing_rates as Record<string, unknown>
+          : {};
+        return {
+          currency: String(o.currency ?? billing.currency ?? "GBP"),
+          rate_active_qr: Number(o.rate_active_qr ?? billing.rate_active_qr) || 0,
+          rate_session: Number(o.rate_session ?? billing.rate_session) || 0,
+          rate_guest_turn: Number(o.rate_guest_turn ?? billing.rate_guest_turn) || 0,
+          rate_request: Number(o.rate_request ?? billing.rate_request) || 0,
+          primary_meter: String(o.primary_meter ?? billing.primary_meter ?? "active_qr"),
+        };
+      };
+
+      const suggestCharge = (rates: ReturnType<typeof resolveRates>, m: {
+        active_qr: number; sessions: number; guest_turns: number; requests: number;
+      }) => {
+        const primary = rates.primary_meter;
+        let units = m.active_qr;
+        let rate = rates.rate_active_qr;
+        if (primary === "session") { units = m.sessions; rate = rates.rate_session; }
+        else if (primary === "guest_turn") { units = m.guest_turns; rate = rates.rate_guest_turn; }
+        else if (primary === "request") { units = m.requests; rate = rates.rate_request; }
+        return {
+          primary_meter: primary,
+          units,
+          rate,
+          suggested: money(units * rate, rates.currency),
+          currency: rates.currency,
+          breakdown: {
+            active_qr: money(m.active_qr * rates.rate_active_qr, rates.currency),
+            sessions: money(m.sessions * rates.rate_session, rates.currency),
+            guest_turns: money(m.guest_turns * rates.rate_guest_turn, rates.currency),
+            requests: money(m.requests * rates.rate_request, rates.currency),
+          },
+        };
+      };
+
+      const hotelSummaries = (hotels ?? []).map((h) => {
+        const rates = resolveRates(h);
+        const hotelRooms = roomsByHotel.get(h.id) ?? [];
+        const hotelRollup = rollupByHotel.get(h.id) ?? [];
+        const byRoom = new Map<string | null, { guest_turns: number; sessions: number; requests: number }>();
+        for (const r of hotelRollup) {
+          byRoom.set(r.room_id, {
+            guest_turns: Number(r.guest_turns) || 0,
+            sessions: Number(r.sessions) || 0,
+            requests: Number(r.requests) || 0,
+          });
+        }
+
+        const roomRows = hotelRooms.map((room) => {
+          const m = byRoom.get(room.id) ?? { guest_turns: 0, sessions: 0, requests: 0 };
+          const active = m.sessions > 0 || m.guest_turns > 0 || m.requests > 0;
+          const token = tokenByRoom.get(room.id) ?? null;
+          const slugHotel = (hotels ?? []).find((x) => x.id === h.id)?.slug;
+          return {
+            room_id: room.id,
+            room_number: room.room_number,
+            is_active: room.is_active,
+            is_public: !!(room as any).is_public,
+            has_qr_token: !!token,
+            token_preview: token ? `${token.slice(0, 8)}…` : null,
+            guest_url: token && slugHotel
+              ? `${PUBLIC_BASE_URL}/h/${encodeURIComponent(slugHotel)}/r/${room.id}?token=${encodeURIComponent(token)}`
+              : null,
+            guest_turns: m.guest_turns,
+            sessions: m.sessions,
+            requests: m.requests,
+            engaged: active,
+          };
+        });
+
+        // Orphan rollup rows (room deleted) still count toward hotel totals
+        let orphanTurns = 0, orphanSessions = 0, orphanRequests = 0;
+        for (const [rid, m] of byRoom) {
+          if (rid && hotelRooms.some((r) => r.id === rid)) continue;
+          orphanTurns += m.guest_turns;
+          orphanSessions += m.sessions;
+          orphanRequests += m.requests;
+        }
+
+        const guest_turns = roomRows.reduce((s, r) => s + r.guest_turns, 0) + orphanTurns;
+        const sessions = roomRows.reduce((s, r) => s + r.sessions, 0) + orphanSessions;
+        const requests = roomRows.reduce((s, r) => s + r.requests, 0) + orphanRequests;
+        const active_qr = roomRows.filter((r) => r.engaged).length;
+        const meters = { active_qr, sessions, guest_turns, requests };
+        const charge = suggestCharge(rates, meters);
+
+        return {
+          hotel_id: h.id,
+          name: h.name,
+          slug: h.slug,
+          is_active: h.is_active,
+          billing_mode: (h as any).billing_mode ?? "subscription",
+          billing_notes: (h as any).billing_notes ?? null,
+          rates,
+          meters,
+          charge,
+          room_count: hotelRooms.length,
+          rooms: action === "usage_hotel" || hotelIdFilter ? roomRows : undefined,
+        };
+      });
+
+      const totals = hotelSummaries.reduce(
+        (acc, h) => {
+          acc.active_qr += h.meters.active_qr;
+          acc.sessions += h.meters.sessions;
+          acc.guest_turns += h.meters.guest_turns;
+          acc.requests += h.meters.requests;
+          acc.suggested += h.charge.suggested;
+          return acc;
+        },
+        { active_qr: 0, sessions: 0, guest_turns: 0, requests: 0, suggested: 0 },
+      );
+
+      return json({
+        since: since.toISOString(),
+        until: until.toISOString(),
+        days,
+        billing,
+        totals: {
+          ...totals,
+          suggested: money(totals.suggested, String(billing.currency)),
+          currency: String(billing.currency ?? "GBP"),
+          hotels: hotelSummaries.length,
+        },
+        hotels: hotelSummaries,
+        hotel: action === "usage_hotel" ? hotelSummaries[0] ?? null : undefined,
+        rollup_ready: !rollupErr,
+      });
     }
 
     return json({ error: "Unknown action" }, 400);

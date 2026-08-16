@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Building2, Inbox, Link2, Loader2, DoorOpen, Users } from "lucide-react";
+import { Building2, Inbox, Link2, Loader2, DoorOpen, QrCode, Settings, Users } from "lucide-react";
 import { adminApi } from "@/talkstay/admin/adminApi";
 
 type Overview = {
@@ -62,6 +62,28 @@ export default function AdminOverview() {
             <div className="mt-1 text-xs text-muted-foreground">{sub}</div>
           </Link>
         ))}
+        <Link
+          to="/admin/usage"
+          className="rounded-2xl border border-dashed border-violet-200 bg-violet-50/40 p-5 shadow-sm transition hover:border-violet-400 hover:shadow-md"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-muted-foreground">Usage & pilot billing</span>
+            <QrCode className="h-4 w-4 text-violet-600" />
+          </div>
+          <div className="mt-2 text-lg font-semibold tracking-tight text-violet-900">Per-QR meters</div>
+          <div className="mt-1 text-xs text-muted-foreground">Sessions, turns, suggested charges</div>
+        </Link>
+        <Link
+          to="/admin/settings"
+          className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/50 p-5 shadow-sm transition hover:border-slate-400 hover:shadow-md"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-muted-foreground">System settings</span>
+            <Settings className="h-4 w-4 text-slate-600" />
+          </div>
+          <div className="mt-2 text-lg font-semibold tracking-tight">Rates & flags</div>
+          <div className="mt-1 text-xs text-muted-foreground">Billing rates, defaults, features</div>
+        </Link>
       </div>
     </div>
   );

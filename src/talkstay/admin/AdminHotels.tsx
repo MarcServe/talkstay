@@ -13,6 +13,7 @@ type HotelRow = {
   slug: string;
   is_active: boolean;
   created_at: string;
+  billing_mode?: string;
   owner: { email: string | null; first_name: string | null; last_name: string | null } | null;
 };
 
@@ -85,13 +86,16 @@ export default function AdminHotels() {
               </tr>
             </thead>
             <tbody>
-              {hotels.map((h) => (
+          {hotels.map((h) => (
                 <tr key={h.id} className="border-t">
                   <td className="px-4 py-3">
                     <Link to={`/admin/hotels/${h.id}`} className="font-medium hover:text-violet-700">
                       {h.name}
                     </Link>
-                    <div className="text-xs text-muted-foreground">{h.slug}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {h.slug}
+                      {h.billing_mode ? ` · ${h.billing_mode}` : ""}
+                    </div>
                   </td>
                   <td className="hidden px-4 py-3 text-muted-foreground md:table-cell">
                     {h.owner?.email ?? "—"}
@@ -102,14 +106,19 @@ export default function AdminHotels() {
                     </Badge>
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={busyId === h.id}
-                      onClick={() => void toggle(h)}
-                    >
-                      {h.is_active ? "Deactivate" : "Activate"}
-                    </Button>
+                    <div className="flex justify-end gap-2">
+                      <Button size="sm" variant="ghost" asChild>
+                        <Link to={`/admin/usage?hotel=${h.id}`}>Usage</Link>
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={busyId === h.id}
+                        onClick={() => void toggle(h)}
+                      >
+                        {h.is_active ? "Deactivate" : "Activate"}
+                      </Button>
+                    </div>
                   </td>
                 </tr>
               ))}
