@@ -569,3 +569,286 @@ async function loadUsageSummaryDirect(opts: {
     via: "direct",
   };
 }
+
+// ── AI daily performance (study quality before / while scaling) ──────────────
+
+export type AiDayRow = {
+  day: string; // YYYY-MM-DD
+  guest_turns: number;
+  sessions: number;
+  questions: number;
+  requests: number;
+  complaints: number;
+  triage: number;
+  by_method: Record<string, number>;
+};
+
+export type AiHotelPerf = {
+  hotel_id: string;
+  name: string;
+  slug: string;
+  guest_turns: number;
+  requests: number;
+  triage: number;
+  complaints: number;
+  triage_rate: number;
+  llm_share: number;
+  fallback_share: number;
+};
+
+export type AiPerformance = {
+  since: string;
+  until: string;
+  days: number;
+  totals: {
+    guest_turns: number;
+    sessions: number;
+    questions: number;
+    requests: number;
+    complaints: number;
+    triage: number;
+    triage_rate: number;
+    complaint_rate: number;
+    by_method: Record<string, number>;
+    by_intent: Record<string, number>;
+    avg_rating: number | null;
+    ratings_count: number;
+  };
+  daily: AiDayRow[];
+  hotels: AiHotelPerf[];
+  scale_readiness: {
+    score: number; // 0–100
+    checks: { id: string; ok: boolean; label: string; detail: string }[];
+  };
+  via: "direct";
+};
+
+function dayKey(iso: string) {
+  return iso.slice(0, 10);
+}
+
+export async function loadAiPerformance(opts: { days?: number } = {}): Promise<AiPerformance> {
+  const days = Math.max(1, Math.min(90, opts.days || 14));
+  const until = new Date();
+  const since = new Date(until.getTime() - days * 24 * 60 * 60 * 1000);
+  const sinceIso = since.toISOString();
+  const untilIso = until.toISOString();
+
+  const [{ data: hotels }, ixRes, rqRes, revRes] = await Promise.all([
+    supabase.from("ts_hotels").select("id, name, slug, is_active").eq("is_active", true).limit(500),
+    supabase.from("ts_interactions")
+      .select("hotel_id, session_id, role, intent, created_at")
+      .eq("role", "guest")
+      .gte("created_at", sinceIso)
+      .lt("created_at", untilIso)
+      .limit(30000),
+    supabase.from("ts_service_requests")
+      .select("id, hotel_id, is_complaint, needs_triage, classification_method, created_at")
+      .gte("created_at", sinceIso)
+      .lt("created_at", untilIso)
+      .limit(20000),
+    supabase.from("ts_request_reviews")
+      .select("rating, created_at, hotel_id")
+      .gte("created_at", sinceIso)
+      .lt("created_at", untilIso)
+      .limit(10000),
+  ]);
+
+  if (ixRes.error) throw new Error(ixRes.error.message);
+  if (rqRes.error) throw new Error(rqRes.error.message);
+  // Reviews are optional for the board
+  const ix = ixRes.data;
+  const rq = rqRes.data;
+  const reviews = revRes.error ? [] : revRes.data;
+
+  const hotelName = new Map((hotels ?? []).map((h) => [h.id, { name: h.name, slug: h.slug }]));
+
+  // Seed empty days so charts have continuity
+  const dailyMap = new Map<string, AiDayRow>();
+  for (let i = 0; i < days; i++) {
+    const d = new Date(since.getTime() + i * 24 * 60 * 60 * 1000);
+    const key = d.toISOString().slice(0, 10);
+    dailyMap.set(key, {
+      day: key,
+      guest_turns: 0,
+      sessions: 0,
+      questions: 0,
+      requests: 0,
+      complaints: 0,
+      triage: 0,
+      by_method: {},
+    });
+  }
+
+  const sessionByDay = new Map<string, Set<string>>();
+  const byIntent: Record<string, number> = {};
+  const byMethod: Record<string, number> = {};
+  const hotelAgg = new Map<string, {
+    guest_turns: number; requests: number; triage: number; complaints: number;
+    methods: Record<string, number>;
+  }>();
+
+  const bumpHotel = (hotel_id: string) => {
+    let row = hotelAgg.get(hotel_id);
+    if (!row) {
+      row = { guest_turns: 0, requests: 0, triage: 0, complaints: 0, methods: {} };
+      hotelAgg.set(hotel_id, row);
+    }
+    return row;
+  };
+
+  for (const r of ix ?? []) {
+    const key = dayKey(r.created_at);
+    const day = dailyMap.get(key);
+    if (day) {
+      day.guest_turns += 1;
+      if (r.intent === "question") day.questions += 1;
+      if (r.session_id) {
+        let set = sessionByDay.get(key);
+        if (!set) { set = new Set(); sessionByDay.set(key, set); }
+        set.add(r.session_id);
+      }
+    }
+    const intent = r.intent || "other";
+    byIntent[intent] = (byIntent[intent] ?? 0) + 1;
+    bumpHotel(r.hotel_id).guest_turns += 1;
+  }
+  for (const [key, set] of sessionByDay) {
+    const day = dailyMap.get(key);
+    if (day) day.sessions = set.size;
+  }
+
+  for (const r of rq ?? []) {
+    const key = dayKey(r.created_at);
+    const day = dailyMap.get(key);
+    const method = (r.classification_method || "unknown").toLowerCase();
+    if (day) {
+      day.requests += 1;
+      if (r.is_complaint) day.complaints += 1;
+      if (r.needs_triage) day.triage += 1;
+      day.by_method[method] = (day.by_method[method] ?? 0) + 1;
+    }
+    byMethod[method] = (byMethod[method] ?? 0) + 1;
+    const h = bumpHotel(r.hotel_id);
+    h.requests += 1;
+    if (r.is_complaint) h.complaints += 1;
+    if (r.needs_triage) h.triage += 1;
+    h.methods[method] = (h.methods[method] ?? 0) + 1;
+  }
+
+  const daily = [...dailyMap.values()].sort((a, b) => a.day.localeCompare(b.day));
+  // Fill session counts already done
+
+  const guest_turns = daily.reduce((s, d) => s + d.guest_turns, 0);
+  const sessions = daily.reduce((s, d) => s + d.sessions, 0);
+  const questions = daily.reduce((s, d) => s + d.questions, 0);
+  const requests = daily.reduce((s, d) => s + d.requests, 0);
+  const complaints = daily.reduce((s, d) => s + d.complaints, 0);
+  const triage = daily.reduce((s, d) => s + d.triage, 0);
+
+  let ratings_sum = 0;
+  let ratings_count = 0;
+  for (const r of reviews ?? []) {
+    if (typeof r.rating === "number") {
+      ratings_sum += r.rating;
+      ratings_count += 1;
+    }
+  }
+
+  const hotelRows: AiHotelPerf[] = [...hotelAgg.entries()]
+    .map(([hotel_id, a]) => {
+      const meta = hotelName.get(hotel_id);
+      const methodTotal = Object.values(a.methods).reduce((s, n) => s + n, 0) || 1;
+      return {
+        hotel_id,
+        name: meta?.name ?? "Unknown property",
+        slug: meta?.slug ?? "",
+        guest_turns: a.guest_turns,
+        requests: a.requests,
+        triage: a.triage,
+        complaints: a.complaints,
+        triage_rate: a.requests ? a.triage / a.requests : 0,
+        llm_share: (a.methods.llm ?? 0) / methodTotal,
+        fallback_share: (a.methods.fallback ?? 0) / methodTotal,
+      };
+    })
+    .sort((a, b) => b.guest_turns - a.guest_turns);
+
+  const triage_rate = requests ? triage / requests : 0;
+  const complaint_rate = requests ? complaints / requests : 0;
+  const methodTotal = Object.values(byMethod).reduce((s, n) => s + n, 0) || 1;
+  const fallback_share = (byMethod.fallback ?? 0) / methodTotal;
+  const llm_share = (byMethod.llm ?? 0) / methodTotal;
+  const avg_rating = ratings_count ? ratings_sum / ratings_count : null;
+
+  // Last 3 days vs prior 3 days volume (simple trend)
+  const last3 = daily.slice(-3);
+  const prev3 = daily.slice(-6, -3);
+  const last3Turns = last3.reduce((s, d) => s + d.guest_turns, 0);
+  const prev3Turns = prev3.reduce((s, d) => s + d.guest_turns, 0);
+  const growing = last3Turns >= prev3Turns;
+
+  const checks = [
+    {
+      id: "volume",
+      ok: guest_turns >= 50 || requests >= 20,
+      label: "Enough traffic to learn from",
+      detail: guest_turns < 50 && requests < 20
+        ? "Low sample — keep piloting before changing rates or models."
+        : `${guest_turns} guest turns · ${requests} requests in period.`,
+    },
+    {
+      id: "triage",
+      ok: triage_rate <= 0.15,
+      label: "Routing triage under 15%",
+      detail: `${(triage_rate * 100).toFixed(1)}% of requests need human re-route (fallback / uncertain).`,
+    },
+    {
+      id: "fallback",
+      ok: fallback_share <= 0.2,
+      label: "Fallback classifier under 20%",
+      detail: `${(fallback_share * 100).toFixed(1)}% used fallback routing — high fallback means weak keywords/LLM coverage.`,
+    },
+    {
+      id: "ratings",
+      ok: avg_rating == null || avg_rating >= 4,
+      label: "Guest ratings healthy (≥4) or not yet rated",
+      detail: avg_rating == null
+        ? "No ratings in period yet."
+        : `Average ${avg_rating.toFixed(2)} from ${ratings_count} reviews.`,
+    },
+    {
+      id: "trend",
+      ok: growing || last3Turns === 0,
+      label: "Engagement not collapsing",
+      detail: `Last 3 days: ${last3Turns} turns vs prior 3: ${prev3Turns}.`,
+    },
+  ];
+  const okCount = checks.filter((c) => c.ok).length;
+  const score = Math.round((okCount / checks.length) * 100);
+
+  return {
+    since: sinceIso,
+    until: untilIso,
+    days,
+    totals: {
+      guest_turns,
+      sessions,
+      questions,
+      requests,
+      complaints,
+      triage,
+      triage_rate,
+      complaint_rate,
+      by_method: byMethod,
+      by_intent: byIntent,
+      avg_rating,
+      ratings_count,
+    },
+    daily,
+    hotels: hotelRows,
+    scale_readiness: { score, checks },
+    via: "direct",
+  };
+}
+
