@@ -11,7 +11,7 @@ import {
   ArrowDownRight, ArrowUpRight, Clock3, Phone, Bot,
 } from "lucide-react";
 import { DEPARTMENTS, type Hotel } from "@/talkstay/lib/hotels";
-import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
+import { formatRoomLabel, guestStayLabel } from "@/talkstay/lib/roomLabel";
 import type { OpsRequest, OpsTimeRange } from "@/talkstay/lib/data";
 import { OPEN_STATUSES } from "@/talkstay/lib/data";
 import {
@@ -46,11 +46,28 @@ function isGuestOrigin(source?: string | null) {
 }
 
 type OriginFilter = "all" | "guest" | "logged";
+type LocationFilter = "all" | "rooms" | "public";
+type PaymentFilter = "all" | "unpaid" | "paid" | "waived" | "charge_to_room" | "pay_at_counter";
 
 const ORIGIN_LABEL: Record<OriginFilter, string> = {
   all: "All origins",
   guest: "Guest assistant",
   logged: "Staff logged",
+};
+
+const LOCATION_LABEL: Record<LocationFilter, string> = {
+  all: "All locations",
+  rooms: "Rooms",
+  public: "Public areas",
+};
+
+const PAYMENT_FILTER_LABEL: Record<PaymentFilter, string> = {
+  all: "All payments",
+  unpaid: "Unpaid",
+  paid: "Paid",
+  waived: "Waived",
+  charge_to_room: "Charge to room",
+  pay_at_counter: "Pay at counter",
 };
 
 type Req = OpsRequest;
@@ -167,6 +184,8 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
   // BI card drill-down (today / active / completed today / accepted today).
   const [boardFocus, setBoardFocus] = useState<BoardFocus>(null);
   const [origin, setOrigin] = useState<OriginFilter>("all");
+  const [locationFilter, setLocationFilter] = useState<LocationFilter>("all");
+  const [paymentFilter, setPaymentFilter] = useState<PaymentFilter>("all");
 
   // Keep queue filter in sync when demo "View as" (or real staff lock) changes.
   useEffect(() => {
@@ -352,14 +371,39 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
     if (!roomQ) return true;
     const num = (r.ts_rooms?.room_number ?? "").toLowerCase();
     const label = formatRoomLabel(r.ts_rooms?.room_number).toLowerCase();
+    const guest = (r.guest_first_name ?? "").toLowerCase();
     const summary = `${r.summary ?? ""} ${r.summary_staff ?? ""}`.toLowerCase();
-    return num.includes(roomQ) || label.includes(roomQ) || summary.includes(roomQ);
+    return num.includes(roomQ) || label.includes(roomQ) || guest.includes(roomQ) || summary.includes(roomQ);
   };
 
   const matchesOrigin = (r: Req, o: OriginFilter) => {
     if (o === "all") return true;
     if (o === "logged") return isStaffLogged(r.source);
     return isGuestOrigin(r.source);
+  };
+
+  const matchesLocation = (r: Req, loc: LocationFilter) => {
+    if (loc === "all") return true;
+    const isPublic = !!r.ts_rooms?.is_public;
+    if (loc === "public") return isPublic;
+    return !isPublic;
+  };
+
+  const matchesPayment = (r: Req, pay: PaymentFilter) => {
+    if (pay === "all") return true;
+    if (!r.is_chargeable) return false;
+    const status = r.payment_status ?? "unpaid";
+    const isPublic = !!r.ts_rooms?.is_public;
+    if (pay === "unpaid") return status === "unpaid";
+    if (pay === "paid") return status === "paid";
+    if (pay === "waived") return status === "waived";
+    if (pay === "charge_to_room") {
+      return status === "unpaid" && (!isPublic || !!r.billing_room_id || r.payment_timing === "charge_to_room");
+    }
+    if (pay === "pay_at_counter") {
+      return status === "unpaid" && isPublic && !r.billing_room_id && r.payment_timing !== "charge_to_room";
+    }
+    return true;
   };
 
   const filtered = useMemo(
@@ -369,10 +413,12 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
       && matchesFilter(r, filter)
       && matchesBoardFocus(r, boardFocus)
       && matchesOrigin(r, origin)
+      && matchesLocation(r, locationFilter)
+      && matchesPayment(r, paymentFilter)
       && matchesRoomSearch(r),
     ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [reqs, filter, dept, escalations, timeRange, boardFocus, ack, roomQuery, origin]
+    [reqs, filter, dept, escalations, timeRange, boardFocus, ack, roomQuery, origin, locationFilter, paymentFilter]
   );
 
   /** Room lookup ignores status pills so staff can find any open/closed ticket fast. */
@@ -401,6 +447,8 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
     setBoardFocus(null);
     setFilter(nextFilter);
     setOrigin("all");
+    setLocationFilter("all");
+    setPaymentFilter("all");
     if (!lockedDepartment) setDept("all");
   };
 
@@ -656,7 +704,7 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
                     >
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-semibold">{formatRoomLabel(r.ts_rooms?.room_number)}</span>
+                          <span className="font-semibold">{guestStayLabel(r.guest_first_name, r.ts_rooms?.room_number)}</span>
                           <Badge variant="outline" className={`capitalize ${statusBadge(r.status)}`}>
                             {statusLabel(r.status)}
                           </Badge>
@@ -864,7 +912,7 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
                     {r.ts_rooms?.room_number ?? "—"}
                   </div>
                   <div className="min-w-0 flex-1 overflow-hidden">
-                    <p className="truncate text-sm font-medium">{formatRoomLabel(r.ts_rooms?.room_number)}</p>
+                    <p className="truncate text-sm font-medium">{guestStayLabel(r.guest_first_name, r.ts_rooms?.room_number)}</p>
                     <p className="truncate text-xs text-muted-foreground">
                       {deptLabel(r.department_key)} · {timeAgo(r.created_at)}
                     </p>
@@ -894,7 +942,7 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
               </button>
             );
           })}
-          {(boardFocus || origin !== "all" || (dept !== "all" && !lockedDepartment) || (!!lockedDepartment && !!onClearDepartmentLock)) && (
+          {(boardFocus || origin !== "all" || locationFilter !== "all" || paymentFilter !== "all" || (dept !== "all" && !lockedDepartment) || (!!lockedDepartment && !!onClearDepartmentLock)) && (
             <button
               type="button"
               onClick={() => {
@@ -949,6 +997,39 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
               );
             })}
           </div>
+          <div
+            className="flex rounded-lg border bg-background p-0.5"
+            title="Bedroom stays vs public QR areas (lobby, bar, restaurant…)"
+          >
+            {(["all", "rooms", "public"] as LocationFilter[]).map((loc) => {
+              const on = locationFilter === loc;
+              return (
+                <button
+                  key={loc}
+                  type="button"
+                  onClick={() => { setLocationFilter(loc); setBoardFocus(null); }}
+                  className={`rounded-md px-2 py-1 text-xs font-medium transition-colors ${
+                    on ? "bg-sky-700 text-white" : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {LOCATION_LABEL[loc]}
+                </button>
+              );
+            })}
+          </div>
+          <select
+            className="rounded-md border bg-background px-2 py-1.5 text-xs"
+            value={paymentFilter}
+            title="Payment settlement"
+            onChange={(e) => {
+              setPaymentFilter(e.target.value as PaymentFilter);
+              setBoardFocus(null);
+            }}
+          >
+            {(Object.keys(PAYMENT_FILTER_LABEL) as PaymentFilter[]).map((p) => (
+              <option key={p} value={p}>{PAYMENT_FILTER_LABEL[p]}</option>
+            ))}
+          </select>
           {lockedDepartment ? (
             onClearDepartmentLock ? (
               <button
@@ -1040,7 +1121,15 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
                   </div>
                   <div className="min-w-0 flex-1 overflow-hidden">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-semibold">{formatRoomLabel(r.ts_rooms?.room_number)}</span>
+                      <span className="font-semibold">{guestStayLabel(r.guest_first_name, r.ts_rooms?.room_number)}</span>
+                      {r.ts_rooms?.is_public ? (
+                        <Badge variant="outline" className="border-sky-300 bg-sky-50 text-sky-800">Public</Badge>
+                      ) : null}
+                      {r.billing_room_number ? (
+                        <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-950">
+                          Bill → {formatRoomLabel(r.billing_room_number)}
+                        </Badge>
+                      ) : null}
                       <Badge variant="secondary">{deptLabel(r.department_key)}</Badge>
                       {isStaffLogged(r.source) ? (
                         <Badge variant="outline" className="border-sky-200 bg-sky-50 text-sky-800">

@@ -7,12 +7,14 @@ import { toast } from "sonner";
 import NoIndexMeta from "@/talkstay/components/NoIndexMeta";
 import { GuestFolio } from "@/talkstay/components/GuestFolio";
 import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
+import { folioPayCopy, orderLocationKind } from "@/talkstay/lib/locationOrders";
 import {
   fetchContext,
   fetchMyRequests,
   getSessionId,
   requestPaymentNow,
   setPaymentTiming,
+  chargeToRoomWithCode,
   type GuestBranding,
   type GuestPaymentTiming,
   type GuestRequest,
@@ -20,7 +22,7 @@ import {
 import { guestStayPath } from "@/talkstay/lib/guestUrls";
 
 /**
- * Guest checkout folio — itemized prices, total owed, Pay now / Pay at checkout.
+ * Guest checkout folio — itemized prices, total owed, Pay now / Charge to room (or Pay at counter for public areas).
  * Same room QR token as chat/check-in. Staff still end the stay in Rooms & QR.
  */
 export default function GuestCheckOut() {
@@ -39,15 +41,18 @@ export default function GuestCheckOut() {
   const [checkedOut, setCheckedOut] = useState(false);
   const [hotelName, setHotelName] = useState("");
   const [roomNumber, setRoomNumber] = useState("");
+  const [isPublic, setIsPublic] = useState(false);
   const [branding, setBranding] = useState<GuestBranding | undefined>();
   const [ready, setReady] = useState(false);
   const [reqs, setReqs] = useState<GuestRequest[]>([]);
   const [paymentTiming, setPaymentTimingState] = useState<GuestPaymentTiming | null>(null);
+  const [billingRoomNumber, setBillingRoomNumber] = useState<string | null>(null);
   const [payBusy, setPayBusy] = useState(false);
 
   const brand = branding?.primary_color || "#0f766e";
   const chatHref = `${guestStayPath(hotelSlug, roomId, "chat")}?token=${encodeURIComponent(token)}`;
   const checkinHref = `${guestStayPath(hotelSlug, roomId, "checkin")}?token=${encodeURIComponent(token)}`;
+  const payCopy = folioPayCopy(orderLocationKind(isPublic));
 
   const loadFolio = useCallback(async () => {
     if (!hotelSlug || !roomId || !token || !sid) return;
@@ -56,6 +61,7 @@ export default function GuestCheckOut() {
       const payload = await fetchMyRequests(hotelSlug, roomId, token, sid);
       setReqs(payload.requests);
       setPaymentTimingState(payload.paymentTiming);
+      setBillingRoomNumber(payload.billingRoomNumber ?? null);
     } catch {
       setReqs([]);
     } finally {
@@ -74,6 +80,7 @@ export default function GuestCheckOut() {
       .then(async (c) => {
         setHotelName(c.hotelName);
         setRoomNumber(c.roomNumber);
+        setIsPublic(!!c.isPublic);
         setBranding(c.branding);
         setNeedCode(false);
         setCodeError(null);
@@ -112,7 +119,8 @@ export default function GuestCheckOut() {
     try {
       await requestPaymentNow({ hotelSlug, roomId, token, sessionId: sid });
       setPaymentTimingState("pay_now");
-      toast.success("We've asked the team to come collect payment.");
+      setBillingRoomNumber(null);
+      toast.success(payCopy.payNowToast);
       await loadFolio();
     } catch (e: any) {
       const msg = String(e?.message ?? e?.code ?? "");
@@ -133,9 +141,35 @@ export default function GuestCheckOut() {
     try {
       await setPaymentTiming({ hotelSlug, roomId, token, sessionId: sid, timing: "at_checkout" });
       setPaymentTimingState("at_checkout");
-      toast.success("We'll settle this at the desk on checkout.");
+      setBillingRoomNumber(null);
+      toast.success(payCopy.deferToast);
     } catch {
       toast.error("Couldn't save that preference. Please try again.");
+    } finally {
+      setPayBusy(false);
+    }
+  };
+
+  const chargeToRoom = async (code: string) => {
+    setPayBusy(true);
+    try {
+      const out = await chargeToRoomWithCode({ hotelSlug, roomId, token, sessionId: sid, code });
+      setPaymentTimingState("charge_to_room");
+      setBillingRoomNumber(out.billingRoomNumber);
+      toast.success(`${payCopy.chargeRoomToast} ${formatRoomLabel(out.billingRoomNumber)}`);
+      await loadFolio();
+    } catch (e: any) {
+      const msg = String(e?.message ?? e?.code ?? "");
+      toast.error(
+        msg.includes("locked")
+          ? payCopy.codeLocked
+          : msg.includes("bad_code") || msg.includes("need_code")
+            ? payCopy.codeBad
+            : msg.includes("billing_link_unavailable")
+              ? "Room charge verification isn’t available yet — pay at the counter or ask reception."
+              : "Couldn't verify that code. Please try again.",
+      );
+      throw e;
     } finally {
       setPayBusy(false);
     }
@@ -151,14 +185,18 @@ export default function GuestCheckOut() {
         }}
       >
         <div className="mx-auto w-full max-w-md">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-amber-800/70">Checkout</p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-amber-800/70">
+            {isPublic ? "Your order" : "Checkout"}
+          </p>
           <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900">
-            Your stay balance
+            {isPublic ? "Location balance" : "Your stay balance"}
           </h1>
           <p className="mt-1 text-sm text-slate-600">
             {hotelName || "Hotel"}
             {roomNumber ? ` · ${formatRoomLabel(roomNumber)}` : ""}
-            {" — "}prices for room service and extras, ready before you leave.
+            {isPublic
+              ? " — prices for orders at this area."
+              : " — prices for room service and extras, ready before you leave."}
           </p>
 
           <div className="mt-6 space-y-4">
@@ -224,22 +262,29 @@ export default function GuestCheckOut() {
                   payBusy={payBusy}
                   onPayNow={() => void payNow()}
                   onPayAtCheckout={() => void payAtCheckout()}
+                  onChargeToRoom={isPublic ? (c) => chargeToRoom(c) : undefined}
+                  isPublic={isPublic}
+                  billingRoomNumber={billingRoomNumber}
                   variant="page"
                 />
                 <p className="text-[11px] leading-relaxed text-slate-500">
-                  Front desk still completes checkout in Rooms & QR. Use Pay now if you’d like someone to collect in the room first.
+                  {isPublic
+                    ? "Charge to room only works with your room’s check-in code from an active stay — we never accept a room number alone. Otherwise pay now or at the counter."
+                    : "Front desk still completes checkout in Rooms & QR. Use Pay now if you’d like someone to collect in the room first."}
                 </p>
                 <div className="grid gap-2 sm:grid-cols-2">
                   <Button asChild className="h-11 text-white" style={{ backgroundColor: brand }}>
                     <Link to={chatHref}>
-                      <MessageCircle className="mr-1.5 h-4 w-4" /> Room assistant
+                      <MessageCircle className="mr-1.5 h-4 w-4" /> {isPublic ? "Assistant" : "Room assistant"}
                     </Link>
                   </Button>
-                  <Button asChild variant="outline" className="h-11">
-                    <Link to={checkinHref}>
-                      <DoorOpen className="mr-1.5 h-4 w-4" /> Check-in page
-                    </Link>
-                  </Button>
+                  {!isPublic && (
+                    <Button asChild variant="outline" className="h-11">
+                      <Link to={checkinHref}>
+                        <DoorOpen className="mr-1.5 h-4 w-4" /> Check-in page
+                      </Link>
+                    </Button>
+                  )}
                 </div>
               </>
             ) : null}
@@ -249,3 +294,4 @@ export default function GuestCheckOut() {
     </>
   );
 }
+

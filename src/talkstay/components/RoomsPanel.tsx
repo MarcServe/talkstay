@@ -475,6 +475,26 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
                         {r.occupancy_status}
                       </Badge>
                     )}
+                    <button
+                      type="button"
+                      onClick={() => toggleRoomCode(r)}
+                      disabled={isPublic}
+                      title={isPublic ? "Public areas never require a check-in code" : "Tap to cycle code requirement"}
+                      className={`rounded-lg border px-2 py-1.5 text-left text-[11px] leading-tight transition-colors ${
+                        isPublic
+                          ? "cursor-not-allowed border-dashed text-muted-foreground opacity-60"
+                          : "hover:border-violet-300 hover:bg-violet-50/60"
+                      }`}
+                    >
+                      {r.require_checkin_code == null
+                        ? "Code: property default"
+                        : r.require_checkin_code
+                          ? "Code: always on"
+                          : "Code: always off"}
+                      {!isPublic && (
+                        <span className="mt-0.5 block text-[10px] text-muted-foreground">tap to change</span>
+                      )}
+                    </button>
                     <div className="flex flex-wrap items-center gap-1.5">
                       <Button size="sm" variant="outline" className="h-8" onClick={() => showQr(r)}>
                         <QrCode className="mr-1 h-3.5 w-3.5" /> QR

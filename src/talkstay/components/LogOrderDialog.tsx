@@ -15,6 +15,7 @@ import { useDemo } from "@/talkstay/demo/DemoContext";
 import { OPEN_STATUSES } from "@/talkstay/lib/data";
 import { useOpsQueue } from "@/talkstay/hooks/useTalkStayQueries";
 import { statusBadge, statusLabel } from "@/talkstay/lib/statusStyles";
+import { logOrderChargeableLabel } from "@/talkstay/lib/locationOrders";
 
 type OrderSource = "phone" | "walk_in" | "front_desk";
 
@@ -78,6 +79,7 @@ export default function LogOrderDialog({
   const [dept, setDept] = useState(lockedDepartment || "housekeeping");
   const [source, setSource] = useState<OrderSource>("phone");
   const [summary, setSummary] = useState("");
+  const [guestNote, setGuestNote] = useState("");
   const [priority, setPriority] = useState("normal");
   const [chargeable, setChargeable] = useState(false);
   const [price, setPrice] = useState("");
@@ -102,6 +104,12 @@ export default function LogOrderDialog({
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
       .slice(0, 12);
   }, [variant, queue?.requests, lockedDepartment]);
+
+  const selectedRoom = useMemo(
+    () => rooms.find((r) => r.id === roomId) ?? null,
+    [rooms, roomId],
+  );
+  const selectedIsPublic = !!selectedRoom?.is_public;
 
   useEffect(() => {
     if (lockedDepartment) setDept(lockedDepartment);
@@ -139,6 +147,10 @@ export default function LogOrderDialog({
   const submit = async (force = false) => {
     if (!roomId) { toast.error("Pick a room first."); return; }
     if (!summary.trim()) { toast.error("What was ordered / requested?"); return; }
+    const note = guestNote.trim();
+    const summaryText = note
+      ? `${note} · ${summary.trim()}`
+      : summary.trim();
     setBusy(true);
     setDupBlock(null);
     try {
@@ -146,7 +158,7 @@ export default function LogOrderDialog({
         const out = demo.logStaffOrder({
           roomId,
           departmentKey: lockedDepartment || dept,
-          summary: summary.trim(),
+          summary: summaryText,
           source,
           priority,
           force,
@@ -160,6 +172,7 @@ export default function LogOrderDialog({
         }
         toast.success(`Logged for ${formatRoomLabel(rooms.find((r) => r.id === roomId)?.room_number)} — on the Operations queue.`);
         setSummary("");
+        setGuestNote("");
         onCreated();
         onClose?.();
         setBusy(false);
@@ -171,7 +184,7 @@ export default function LogOrderDialog({
           hotelId: hotel.id,
           roomId,
           departmentKey: lockedDepartment || dept,
-          summary: summary.trim(),
+          summary: summaryText,
           source,
           priority,
           force,
@@ -187,6 +200,8 @@ export default function LogOrderDialog({
       }
       if (error || bodyErr) throw new Error(bodyErr || error?.message || "Couldn't log order");
       toast.success(`Logged for ${formatRoomLabel((data as any)?.roomNumber)} — team notified.`);
+      setSummary("");
+      setGuestNote("");
       onCreated();
       onClose?.();
     } catch (e: any) {
@@ -270,10 +285,13 @@ export default function LogOrderDialog({
           <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight">
             <Phone className="h-5 w-5 text-violet-600" /> Log phone / walk-in
           </h2>
-          <p className="mt-1 text-sm text-muted-foreground">
+            <p className="mt-1 text-sm text-muted-foreground">
             Use this only when a guest called, walked up, or asked reception — and the request isn’t
             already on Operations. Guest-app tickets appear automatically; search the room there first
             so you don’t re-log the same order.
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Lobby / restaurant walk-ups: choose a <span className="font-medium text-foreground">Public QR</span> area.
           </p>
         </div>
       )}
@@ -287,6 +305,7 @@ export default function LogOrderDialog({
             <p className="mt-1 text-xs text-muted-foreground">
               For calls and walk-ins that aren’t already on the board. Prefer searching the room on
               Operations if the guest may have used the room assistant.
+              {" "}Lobby / restaurant walk-ups: pick a Public QR area.
             </p>
           </div>
           {onClose && (
@@ -299,15 +318,40 @@ export default function LogOrderDialog({
 
       <div className="space-y-3">
         <div className="space-y-1.5">
-          <Label>Room</Label>
+          <Label>Room / area</Label>
           <Select value={roomId} onValueChange={setRoomId}>
-            <SelectTrigger><SelectValue placeholder="Select room" /></SelectTrigger>
+            <SelectTrigger><SelectValue placeholder="Select room or public area" /></SelectTrigger>
             <SelectContent>
               {rooms.map((r) => (
-                <SelectItem key={r.id} value={r.id}>{formatRoomLabel(r.room_number)}</SelectItem>
+                <SelectItem key={r.id} value={r.id}>
+                  <span className="inline-flex items-center gap-2">
+                    {formatRoomLabel(r.room_number)}
+                    {r.is_public ? (
+                      <span className="rounded border border-sky-300 bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-sky-800">
+                        Public
+                      </span>
+                    ) : null}
+                  </span>
+                </SelectItem>
               ))}
             </SelectContent>
           </Select>
+          <p className="text-[11px] text-muted-foreground">
+            Bedroom stay, or a Public QR location (lobby, bar, restaurant, pool, spa, conference). Room number is not required for walk-ins — pick the area.
+          </p>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label>Guest name / table (optional)</Label>
+          <Input
+            value={guestNote}
+            onChange={(e) => setGuestNote(e.target.value)}
+            placeholder="e.g. Table 4 · Sara"
+            maxLength={80}
+          />
+          <p className="text-[11px] text-muted-foreground">
+            Prepended to the order summary so walk-ups are easy to spot on Operations.
+          </p>
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2">
@@ -376,8 +420,13 @@ export default function LogOrderDialog({
               onChange={(e) => setChargeable(e.target.checked)}
               className="h-4 w-4 rounded border-emerald-300"
             />
-            Chargeable (bill to room / collect at checkout)
+            {logOrderChargeableLabel(selectedIsPublic)}
           </label>
+          {chargeable && selectedIsPublic && (
+            <p className="text-[11px] leading-snug text-emerald-900/75">
+              Public / walk-in orders: collect pay now, at the counter, or on delivery — not charged to a room bill.
+            </p>
+          )}
           {chargeable && (
             <div className="space-y-1.5">
               <Label>Amount</Label>

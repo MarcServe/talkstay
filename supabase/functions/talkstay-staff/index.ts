@@ -34,17 +34,21 @@ const json = (body: unknown, status = 200) =>
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 
-function normalizeDept(raw: unknown): string | null {
+function normalizeDept(raw: unknown, hotelKeys?: Set<string> | null): string | null {
   if (raw == null || raw === "") return null;
   const key = String(raw).trim().toLowerCase().replace(/[\s-]+/g, "_").replace(/_+/g, "_");
   const spaced = String(raw).trim().toLowerCase().replace(/[_-]+/g, " ");
   const hit = DEPT_ALIASES[key] ?? DEPT_ALIASES[spaced];
   if (hit === "") return null;
   if (hit) return hit;
-  // Already a known slug?
+  // Already a known default slug?
   if (["housekeeping", "laundry", "kitchen", "bar", "maintenance", "concierge", "front_desk", "duty_manager"].includes(key)) {
     return key;
   }
+  // Custom hotel department (e.g. spa, pool) — keep slug if it exists for this hotel.
+  if (hotelKeys?.has(key)) return key;
+  // Allow display-name match against hotel keys via simple slug of the raw string.
+  if (hotelKeys?.has(key.replace(/[^a-z0-9_]/g, ""))) return key;
   return null;
 }
 
@@ -141,6 +145,15 @@ serve(async (req) => {
     const { data: hotel } = await admin
       .from("ts_hotels").select("id, user_id, name, slug, branding, default_language").eq("id", hotelId).maybeSingle();
     if (!hotel) return json({ error: "Not found" }, 404);
+
+    // Active + inactive keys so staff can still be assigned to a recently toggled dept.
+    const { data: hotelDepts } = await admin
+      .from("ts_departments").select("key").eq("hotel_id", hotelId);
+    const hotelDeptKeys = new Set(
+      ((hotelDepts ?? []) as { key: string }[]).map((d) => String(d.key).toLowerCase()),
+    );
+    const nd = (raw: unknown) => normalizeDept(raw, hotelDeptKeys);
+
     const isOwner = hotel.user_id === caller.id;
     let isManager = false;
     let callerStaff: { role: string; status: string; name: string | null; department_key: string | null } | null = null;
@@ -217,7 +230,7 @@ serve(async (req) => {
       const staffName = (opts.name ? String(opts.name).trim() : "") || null;
       const dept = opts.departmentKey === undefined
         ? null
-        : (opts.departmentKey === null ? null : normalizeDept(opts.departmentKey));
+        : (opts.departmentKey === null ? null : nd(opts.departmentKey));
       const department_key = dept;
       const redirectTo = `${PUBLIC_BASE_URL}/app?type=invite&property=${encodeURIComponent(hotel.slug ?? "")}`;
 
@@ -635,7 +648,7 @@ serve(async (req) => {
     // ------- forward_request: move ticket to another department -------
     if (action === "forward_request") {
       const requestId = String(body.requestId ?? "").trim();
-      const toDept = normalizeDept(body.departmentKey ?? body.toDepartment);
+      const toDept = nd(body.departmentKey ?? body.toDepartment);
       const note = String(body.note ?? "").trim().slice(0, 500);
       if (!requestId) return json({ error: "requestId required" }, 400);
       if (!toDept) return json({ error: "departmentKey required" }, 400);
@@ -694,7 +707,7 @@ serve(async (req) => {
     if (action === "create_request") {
       const roomId = String(body.roomId ?? "").trim();
       const summary = String(body.summary ?? "").trim().slice(0, 500);
-      let dept = normalizeDept(body.departmentKey ?? departmentKey);
+      let dept = nd(body.departmentKey ?? departmentKey);
       const sourceRaw = String(body.source ?? "phone").trim().toLowerCase();
       const SOURCE_OK = new Set(["phone", "walk_in", "front_desk"]);
       const source = SOURCE_OK.has(sourceRaw) ? sourceRaw : "phone";
@@ -821,7 +834,7 @@ serve(async (req) => {
       if (departmentKey !== undefined) {
         patch.department_key = departmentKey == null || departmentKey === ""
           ? null
-          : normalizeDept(departmentKey);
+          : nd(departmentKey);
       }
       if (Object.keys(patch).length === 0) return json({ error: "Nothing to update" }, 400);
       const { error } = await admin.from("ts_staff").update(patch).eq("id", staffId).eq("hotel_id", hotelId);

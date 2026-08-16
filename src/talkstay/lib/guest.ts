@@ -14,7 +14,7 @@ export interface GuestRequest {
   payment_status?: "unpaid" | "paid" | "waived" | null;
 }
 
-export type GuestPaymentTiming = "pay_now" | "at_checkout";
+export type GuestPaymentTiming = "pay_now" | "at_checkout" | "charge_to_room";
 
 export interface GuestBalance {
   unpaidCount: number;
@@ -25,6 +25,8 @@ export interface GuestBalance {
 export interface MyRequestsPayload {
   requests: GuestRequest[];
   paymentTiming: GuestPaymentTiming | null;
+  billingRoomId?: string | null;
+  billingRoomNumber?: string | null;
   balance: GuestBalance;
 }
 
@@ -140,6 +142,8 @@ export async function fetchContext(hotelSlug: string, roomId: string, token: str
     hotelName: string; roomNumber: string; language: string; greeting: string;
     departments: string[]; branding?: GuestBranding; assistantId?: string | null;
     pulseAsk?: boolean;
+    /** Public QR area — payment options exclude room charge. */
+    isPublic?: boolean;
   };
 }
 
@@ -162,6 +166,7 @@ export async function fetchDemoContext() {
     hotelName: string; roomNumber: string; language: string; greeting: string;
     departments: string[]; branding?: GuestBranding; assistantId?: string | null;
     pulseAsk?: boolean;
+    isPublic?: boolean;
   };
 }
 
@@ -198,6 +203,8 @@ export async function fetchMyRequests(hotelSlug: string, roomId: string, token: 
   return {
     requests: (payload?.requests ?? []) as GuestRequest[],
     paymentTiming: (payload?.paymentTiming ?? null) as GuestPaymentTiming | null,
+    billingRoomId: (payload?.billingRoomId ?? null) as string | null,
+    billingRoomNumber: (payload?.billingRoomNumber ?? null) as string | null,
     balance: {
       unpaidCount: Number(payload?.balance?.unpaidCount ?? 0),
       owedTotal: payload?.balance?.owedTotal ?? null,
@@ -206,15 +213,38 @@ export async function fetchMyRequests(hotelSlug: string, roomId: string, token: 
   };
 }
 
-/** Guest chooses to settle at checkout (no staff visit yet). */
+/** Guest chooses to settle at checkout / counter (clears public charge-to-room link). */
 export async function setPaymentTiming(args: {
   hotelSlug: string; roomId: string; token: string; sessionId: string;
-  timing: GuestPaymentTiming;
+  timing: Exclude<GuestPaymentTiming, "charge_to_room">;
 }) {
   const { data, error } = await fn({ action: "set_payment_timing", ...args });
   if (error) throw await realError(error);
   if ((data as any)?.error) throw new Error((data as any).error);
   return data as { ok: true; timing: GuestPaymentTiming };
+}
+
+/**
+ * Public QR only: prove an occupied stay with the room check-in code, then
+ * charge open items to that room. Never accepts a typed room number.
+ */
+export async function chargeToRoomWithCode(args: {
+  hotelSlug: string; roomId: string; token: string; sessionId: string;
+  code: string;
+}) {
+  const { data, error } = await fn({ action: "charge_to_room", ...args });
+  if (error) throw await realError(error);
+  if ((data as any)?.error) {
+    const e = new Error((data as any).error) as GuestFnError;
+    e.code = (data as any).error;
+    throw e;
+  }
+  return data as {
+    ok: true;
+    timing: "charge_to_room";
+    billingRoomId: string;
+    billingRoomNumber: string;
+  };
 }
 
 /** Guest asks staff to come collect payment now (cash/POS — no card kit). */
@@ -231,7 +261,7 @@ export async function requestPaymentNow(args: {
 /** Store where this guest device wants email updates for their stay. */
 export async function saveGuestContact(args: {
   hotelSlug: string; roomId: string; token: string; sessionId: string;
-  channel: string; contact: string;
+  channel?: string; contact?: string; guestFirstName?: string;
 }) {
   const { data, error } = await fn({ action: "set_contact", ...args });
   if (error) throw error;

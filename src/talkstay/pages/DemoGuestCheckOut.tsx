@@ -56,6 +56,7 @@ function DemoCheckOutInner() {
             demo.guestSetPaymentTiming("at_checkout");
             toast.success("We'll settle this at the desk on checkout.");
           }}
+          isPublic={false}
           variant="page"
         />
 

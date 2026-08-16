@@ -711,6 +711,7 @@ export default function Landing() {
             <span>© {new Date().getFullYear()} TalkStay by TalkWeb</span>
           </Link>
           <div className="flex flex-wrap gap-x-4 gap-y-2">
+            <Link to="/support" className="transition-colors hover:text-foreground">Support</Link>
             <Link to="/privacy" className="transition-colors hover:text-foreground">Privacy</Link>
             <Link to="/terms" className="transition-colors hover:text-foreground">Terms</Link>
             <Link to="/cookies" className="transition-colors hover:text-foreground">Cookies</Link>

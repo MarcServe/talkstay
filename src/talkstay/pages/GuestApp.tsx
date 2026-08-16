@@ -18,11 +18,12 @@ import {
   fetchStaffMessages, enableDevicePush, disableDevicePush,
   getSessionId, getDeviceId, loadHistory, saveHistory, getNotifyChoice, setNotifyChoice,
   submitPulse, transcribePulseAudio, getPulseState, setPulseState,
-  requestPaymentNow, setPaymentTiming,
+  requestPaymentNow, setPaymentTiming, chargeToRoomWithCode,
   type ChatMsg, type GuestCard, type GuestRequest, type GuestBranding, type GuestPaymentTiming,
 } from "@/talkstay/lib/guest";
 import { formatMoney, PAYMENT_STYLE, paymentLabel, statusBadge, statusDot, statusLabel } from "@/talkstay/lib/statusStyles";
 import { GuestFolio } from "@/talkstay/components/GuestFolio";
+import { folioPayCopy, orderLocationKind } from "@/talkstay/lib/locationOrders";
 import { guestStayPath } from "@/talkstay/lib/guestUrls";
 
 /** Guest My-requests card washes — kept in this file so Tailwind always emits them. */
@@ -42,6 +43,7 @@ type Ctx = {
   hotelName: string; roomNumber: string; greeting: string;
   branding?: GuestBranding; assistantId?: string | null;
   pulseAsk?: boolean;
+  isPublic?: boolean;
 };
 
 type Msg =
@@ -857,6 +859,7 @@ function GuestAppInner({ hotelSlug, roomId, token }: { hotelSlug: string; roomId
       {requestsOpen && (
         <RequestsSheet
           hotelSlug={hotelSlug} roomId={roomId} token={token} sid={sid}
+          isPublic={!!ctx?.isPublic}
           onClose={() => setRequestsOpen(false)}
         />
       )}
@@ -1155,10 +1158,17 @@ function NotifySheet({ hotelSlug, roomId, token, sid, onDone, onClose }: {
   const [pushBusy, setPushBusy] = useState(false);
   const [emailOn, setEmailOn] = useState(false);
   const [email, setEmail] = useState("");
+  const [firstName, setFirstName] = useState("");
   const [saving, setSaving] = useState(false);
   const emailValid = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim());
+  const wantsNotify = pushOn || emailOn;
+  const nameOk = firstName.trim().length >= 1;
 
   const togglePush = async (next: boolean) => {
+    if (next && !firstName.trim()) {
+      toast.message("Add your first name so the team knows who to update.");
+      return;
+    }
     setPushBusy(true);
     try {
       if (next) {
@@ -1170,6 +1180,12 @@ function NotifySheet({ hotelSlug, roomId, token, sid, onDone, onClose }: {
         const { enableAlertSounds } = await import("@/talkstay/lib/alerts");
         await enableAlertSounds();
         await enableDevicePush({ hotelSlug, roomId, token, sessionId: sid });
+        try {
+          await saveGuestContact({
+            hotelSlug, roomId, token, sessionId: sid,
+            guestFirstName: firstName.trim(),
+          });
+        } catch { /* non-blocking — push already registered */ }
         setPushOn(true);
         toast.success("You'll hear and see updates on this device.");
       } else {
@@ -1185,10 +1201,19 @@ function NotifySheet({ hotelSlug, roomId, token, sid, onDone, onClose }: {
   };
 
   const save = async () => {
+    if (wantsNotify && !nameOk) {
+      toast.error("Please add your first name.");
+      return;
+    }
     setSaving(true);
     try {
-      if (emailOn && emailValid) {
-        await saveGuestContact({ hotelSlug, roomId, token, sessionId: sid, channel: "email", contact: email.trim() });
+      if (wantsNotify || firstName.trim()) {
+        await saveGuestContact({
+          hotelSlug, roomId, token, sessionId: sid,
+          channel: emailOn && emailValid ? "email" : undefined,
+          contact: emailOn && emailValid ? email.trim() : undefined,
+          guestFirstName: firstName.trim() || undefined,
+        });
       }
       onDone();
     } catch {
@@ -1205,6 +1230,22 @@ function NotifySheet({ hotelSlug, roomId, token, sid, onDone, onClose }: {
         <p className="mb-4 text-sm text-muted-foreground">How would you like updates? Choose as many as you like.</p>
 
         <div className="space-y-3">
+          <div className="rounded-xl border p-3">
+            <label className="mb-1 block text-xs text-muted-foreground">
+              First name{wantsNotify ? "" : " (optional until you choose updates)"}
+            </label>
+            <Input
+              value={firstName}
+              onChange={(e) => setFirstName(e.target.value)}
+              placeholder="Timothy"
+              autoComplete="given-name"
+              maxLength={80}
+            />
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              So the team can find you — shown as “Timothy · Room …”
+            </p>
+          </div>
+
           {canPush && (
             <label className="flex items-center gap-3 rounded-xl border p-3">
               <input
@@ -1244,7 +1285,11 @@ function NotifySheet({ hotelSlug, roomId, token, sid, onDone, onClose }: {
 
         <div className="mt-4 flex gap-2">
           <Button variant="ghost" className="flex-1" onClick={onClose}>Not now</Button>
-          <Button className="flex-1" disabled={saving || (emailOn && !emailValid)} onClick={save}>
+          <Button
+            className="flex-1"
+            disabled={saving || (emailOn && !emailValid) || (wantsNotify && !nameOk)}
+            onClick={save}
+          >
             {saving ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null} Save
           </Button>
         </div>
@@ -1254,11 +1299,12 @@ function NotifySheet({ hotelSlug, roomId, token, sid, onDone, onClose }: {
   );
 }
 
-function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
-  hotelSlug: string; roomId: string; token: string; sid: string; onClose: () => void;
+function RequestsSheet({ hotelSlug, roomId, token, sid, isPublic = false, onClose }: {
+  hotelSlug: string; roomId: string; token: string; sid: string; isPublic?: boolean; onClose: () => void;
 }) {
   const [reqs, setReqs] = useState<GuestRequest[] | null>(null);
   const [paymentTiming, setPaymentTimingState] = useState<GuestPaymentTiming | null>(null);
+  const [billingRoomNumber, setBillingRoomNumber] = useState<string | null>(null);
   const [payBusy, setPayBusy] = useState(false);
   // Optimistic guest close-out: id → "confirmed" | "reopened".
   const [resolved, setResolved] = useState<Record<string, "confirmed" | "reopened">>({});
@@ -1271,12 +1317,14 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
   const [editText, setEditText] = useState<Record<string, string>>({});
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [cancelReason, setCancelReason] = useState("");
+  const payCopy = folioPayCopy(orderLocationKind(isPublic));
 
   const reload = () =>
     fetchMyRequests(hotelSlug, roomId, token, sid)
       .then((payload) => {
         setReqs(payload.requests);
         setPaymentTimingState(payload.paymentTiming);
+        setBillingRoomNumber(payload.billingRoomNumber ?? null);
       })
       .catch(() => setReqs([]));
 
@@ -1289,7 +1337,8 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
     try {
       await requestPaymentNow({ hotelSlug, roomId, token, sessionId: sid });
       setPaymentTimingState("pay_now");
-      toast.success("We've asked the team to come collect payment.");
+      setBillingRoomNumber(null);
+      toast.success(payCopy.payNowToast);
     } catch (e: any) {
       const msg = String(e?.message ?? e?.code ?? "");
       toast.error(
@@ -1309,9 +1358,35 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
     try {
       await setPaymentTiming({ hotelSlug, roomId, token, sessionId: sid, timing: "at_checkout" });
       setPaymentTimingState("at_checkout");
-      toast.success("We'll settle this at checkout.");
+      setBillingRoomNumber(null);
+      toast.success(payCopy.deferToast);
     } catch {
       toast.error("Couldn't save that preference. Please try again.");
+    } finally {
+      setPayBusy(false);
+    }
+  };
+
+  const chargeToRoom = async (code: string) => {
+    setPayBusy(true);
+    try {
+      const out = await chargeToRoomWithCode({ hotelSlug, roomId, token, sessionId: sid, code });
+      setPaymentTimingState("charge_to_room");
+      setBillingRoomNumber(out.billingRoomNumber);
+      toast.success(`${payCopy.chargeRoomToast} ${formatRoomLabel(out.billingRoomNumber)}`);
+      await reload();
+    } catch (e: any) {
+      const msg = String(e?.message ?? e?.code ?? "");
+      toast.error(
+        msg.includes("locked")
+          ? payCopy.codeLocked
+          : msg.includes("bad_code") || msg.includes("need_code")
+            ? payCopy.codeBad
+            : msg.includes("billing_link_unavailable")
+              ? "Room charge verification isn’t available yet — pay at the counter or ask reception."
+              : "Couldn't verify that code. Please try again.",
+      );
+      throw e;
     } finally {
       setPayBusy(false);
     }
@@ -1476,6 +1551,9 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, onClose }: {
               payBusy={payBusy}
               onPayNow={() => void payNow()}
               onPayAtCheckout={() => void payAtCheckout()}
+              onChargeToRoom={isPublic ? (c) => chargeToRoom(c) : undefined}
+              isPublic={isPublic}
+              billingRoomNumber={billingRoomNumber}
               variant="compact"
             />
             <Button variant="outline" size="sm" className="h-9 w-full" asChild>

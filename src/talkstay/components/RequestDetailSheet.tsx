@@ -17,7 +17,7 @@ import { DEPARTMENTS } from "@/talkstay/lib/hotels";
 import { talkstayKeys, type PaymentStatus, type RequestDetailData } from "@/talkstay/lib/data";
 import { useRequestDetail } from "@/talkstay/hooks/useTalkStayQueries";
 import { formatMoney, PAYMENT_STYLE, paymentLabel, statusAccent, statusBadge, statusLabel } from "@/talkstay/lib/statusStyles";
-import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
+import { guestStayLabel } from "@/talkstay/lib/roomLabel";
 import { useDemo } from "@/talkstay/demo/DemoContext";
 
 const deptLabel = (k: string) => DEPARTMENTS.find((d) => d.key === k)?.display_name ?? k;
@@ -416,7 +416,7 @@ export default function RequestDetailSheet({
       <SheetContent side="right" className="ts-glass-strong flex w-full flex-col gap-0 overflow-y-auto border-l p-0 sm:max-w-lg">
         <SheetHeader className="border-b px-6 py-5 text-left">
           <SheetTitle>
-            {req ? formatRoomLabel(req.ts_rooms?.room_number) : "Request"}
+            {req ? guestStayLabel(req.guest_first_name, req.ts_rooms?.room_number) : "Request"}
           </SheetTitle>
           <SheetDescription>
             {req

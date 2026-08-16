@@ -1259,7 +1259,7 @@ export function addDemoStaffOrder(
     payment_status: (input.isChargeable || ["kitchen", "bar", "laundry"].includes(input.departmentKey)) ? "unpaid" : null,
     created_at: new Date().toISOString(),
     source: input.source,
-    ts_rooms: { room_number: room.room_number },
+    ts_rooms: { room_number: room.room_number, is_public: !!room.is_public },
   };
   const detail = seedDetail(req);
   const next: DemoState = {

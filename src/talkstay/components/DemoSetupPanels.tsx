@@ -1037,6 +1037,20 @@ export function DemoStaffPanel() {
   const [role, setRole] = useState("staff");
   const [drafts, setDrafts] = useState<Record<string, string>>({});
 
+  const deptOptions = useMemo(() => {
+    const active = demo.state.departments.filter((d) => d.is_active);
+    const list = active.length ? active : demo.state.departments;
+    const map = new Map(list.map((d) => [d.key, d.display_name]));
+    for (const s of demo.state.staff) {
+      if (s.department_key && !map.has(s.department_key)) {
+        map.set(s.department_key, s.department_key.replace(/_/g, " "));
+      }
+    }
+    return [...map.entries()]
+      .map(([key, display_name]) => ({ key, display_name }))
+      .sort((a, b) => a.display_name.localeCompare(b.display_name));
+  }, [demo.state.departments, demo.state.staff, demo.version]);
+
   const add = (e: React.FormEvent) => {
     e.preventDefault();
     if (!email.trim()) {
@@ -1071,7 +1085,7 @@ export function DemoStaffPanel() {
             <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value={ALL_DEPTS}>All departments</SelectItem>
-              {DEPARTMENTS.map((d) => <SelectItem key={d.key} value={d.key}>{d.display_name}</SelectItem>)}
+              {deptOptions.map((d) => <SelectItem key={d.key} value={d.key}>{d.display_name}</SelectItem>)}
             </SelectContent>
           </Select>
         </div>
@@ -1169,7 +1183,7 @@ export function DemoStaffPanel() {
                     <SelectTrigger className="h-8 w-44"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value={ALL_DEPTS}>All departments</SelectItem>
-                      {DEPARTMENTS.map((d) => (
+                      {deptOptions.map((d) => (
                         <SelectItem key={d.key} value={d.key}>{d.display_name}</SelectItem>
                       ))}
                     </SelectContent>
