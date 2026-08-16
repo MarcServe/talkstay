@@ -28,6 +28,7 @@ export default function AccountPanel({
     hotelName: hotel.name,
     email,
     roleLabel,
+    contactEmail: hotel.contact_email,
   });
 
   return (
@@ -35,11 +36,23 @@ export default function AccountPanel({
       <div className="rounded-2xl border bg-card p-5 shadow-sm">
         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Profile</p>
         <h2 className="mt-1 text-xl font-semibold tracking-tight">{displayName}</h2>
-        {email && <p className="mt-0.5 text-sm text-muted-foreground">{email}</p>}
+        {email && (
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            Login: {email}
+          </p>
+        )}
         <dl className="mt-4 space-y-2 text-sm">
           <div className="flex justify-between gap-3 border-b border-border/60 pb-2">
             <dt className="text-muted-foreground">Property</dt>
             <dd className="text-right font-medium">{hotel.name}</dd>
+          </div>
+          <div className="flex justify-between gap-3 border-b border-border/60 pb-2">
+            <dt className="text-muted-foreground">Property contact</dt>
+            <dd className="text-right font-medium">
+              {hotel.contact_email || (
+                <span className="font-normal text-muted-foreground">Not set — edit in Branding</span>
+              )}
+            </dd>
           </div>
           <div className="flex justify-between gap-3 border-b border-border/60 pb-2">
             <dt className="text-muted-foreground">Role</dt>

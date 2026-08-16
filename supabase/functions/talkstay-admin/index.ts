@@ -492,6 +492,13 @@ serve(async (req) => {
         const v = String(body.referral_code).trim();
         patch.referral_code = v || null;
       }
+      if (body?.contact_email !== undefined) {
+        const v = String(body.contact_email ?? "").trim().toLowerCase();
+        if (v && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) {
+          return json({ error: "Invalid contact_email" }, 400);
+        }
+        patch.contact_email = v || null;
+      }
 
       if (!Object.keys(patch).length) return json({ error: "No fields to update" }, 400);
 

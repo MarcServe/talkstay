@@ -117,6 +117,8 @@ export interface Hotel {
   max_devices_per_room?: number;
   /** Marketing partner / referral code from signup (?ref=). */
   referral_code?: string | null;
+  /** Property contact / ops email — not the owner login. */
+  contact_email?: string | null;
   created_at?: string;
 }
 
@@ -504,6 +506,7 @@ export async function updatePropertyProfile(
 export async function createHotel(input: {
   name: string;
   website_url?: string;
+  contact_email?: string | null;
   default_language?: string;
   timezone?: string;
   property?: PropertyProfile;
@@ -512,6 +515,7 @@ export async function createHotel(input: {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Not signed in");
   const websiteUrl = normalizeUrl(input.website_url);
+  const contactEmail = normalizeContactEmail(input.contact_email);
 
   // 1. Linked assistant — reuses TalkWeb's voice + knowledge-base pipeline.
   const { data: assistant, error: aErr } = await supabase
@@ -541,7 +545,7 @@ export async function createHotel(input: {
       : null;
 
   // 2. Hotel row.
-  const baseRow = {
+  const baseRow: Record<string, unknown> = {
     user_id: user.id,
     assistant_id: assistant.id,
     name: input.name,
@@ -550,16 +554,21 @@ export async function createHotel(input: {
     timezone: input.timezone ?? "Europe/London",
     branding,
   };
+  if (referral) baseRow.referral_code = referral;
+  if (contactEmail) baseRow.contact_email = contactEmail;
+
   let { data: hotel, error: hErr } = await supabase
     .from("ts_hotels")
-    .insert(referral ? { ...baseRow, referral_code: referral } : baseRow)
+    .insert(baseRow)
     .select("*")
     .single();
-  // Before referral_code migration lands, retry without that column.
-  if (hErr?.message?.includes("referral_code") && referral) {
+
+  // Before optional columns land, retry without them.
+  if (hErr?.message?.includes("referral_code") || hErr?.message?.includes("contact_email")) {
+    const { referral_code: _r, contact_email: _c, ...withoutOptional } = baseRow;
     ({ data: hotel, error: hErr } = await supabase
       .from("ts_hotels")
-      .insert(baseRow)
+      .insert(withoutOptional)
       .select("*")
       .single());
   }
@@ -575,6 +584,34 @@ export async function createHotel(input: {
   );
 
   return hotel as Hotel;
+}
+
+/** Normalize / validate optional property contact email (not login). */
+export function normalizeContactEmail(raw: string | null | undefined): string | null {
+  const v = String(raw ?? "").trim().toLowerCase();
+  if (!v) return null;
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) {
+    throw new Error("Enter a valid property contact email, or leave it blank");
+  }
+  return v.slice(0, 254);
+}
+
+export async function updateHotelContactEmail(
+  hotelId: string,
+  contactEmail: string | null | undefined,
+): Promise<string | null> {
+  const normalized = normalizeContactEmail(contactEmail);
+  const { error } = await supabase
+    .from("ts_hotels")
+    .update({ contact_email: normalized })
+    .eq("id", hotelId);
+  if (error) {
+    if (/contact_email|does not exist|column/i.test(error.message)) {
+      throw new Error("Property contact email isn’t available yet — apply the contact_email migration.");
+    }
+    throw error;
+  }
+  return normalized;
 }
 
 /**
