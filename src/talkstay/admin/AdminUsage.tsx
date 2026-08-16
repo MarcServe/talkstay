@@ -519,7 +519,7 @@ export default function AdminUsage() {
             Period {new Date(data.since).toLocaleString()} → {new Date(data.until).toLocaleString()}.
             Rates come from{" "}
             <Link to="/admin/settings" className="underline hover:text-foreground">System settings</Link>
-            {" "}(or per-hotel overrides on the hotel page). Suggested charge uses the primary meter only.
+            {" "}(or per-hotel overrides on the hotel page). Suggested charge uses the primary meter only — room Suggested column breaks that same formula down per QR.
           </p>
         </>
       ) : null}
