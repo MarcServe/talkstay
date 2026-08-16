@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Building2, Inbox, Link2, Loader2, DoorOpen, QrCode, Settings, Users } from "lucide-react";
+import { Building2, Inbox, Link2, Loader2, DoorOpen, QrCode, Settings, Sparkles, Users } from "lucide-react";
 import { adminApi } from "@/talkstay/admin/adminApi";
 
 type Overview = {
@@ -72,6 +72,17 @@ export default function AdminOverview() {
           </div>
           <div className="mt-2 text-lg font-semibold tracking-tight text-violet-900">Per-QR meters</div>
           <div className="mt-1 text-xs text-muted-foreground">Sessions, turns, suggested charges</div>
+        </Link>
+        <Link
+          to="/admin/ai"
+          className="rounded-2xl border border-dashed border-emerald-200 bg-emerald-50/40 p-5 shadow-sm transition hover:border-emerald-400 hover:shadow-md"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-muted-foreground">AI performance</span>
+            <Sparkles className="h-4 w-4 text-emerald-700" />
+          </div>
+          <div className="mt-2 text-lg font-semibold tracking-tight text-emerald-950">Daily quality</div>
+          <div className="mt-1 text-xs text-muted-foreground">Routing, triage, scale readiness</div>
         </Link>
         <Link
           to="/admin/settings"
