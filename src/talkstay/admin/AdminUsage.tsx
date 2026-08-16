@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Download, Loader2, QrCode, RefreshCw } from "lucide-react";
+import { Download, ExternalLink, Loader2, QrCode, RefreshCw } from "lucide-react";
 import { loadUsageSummary } from "@/talkstay/admin/adminApi";
 
 type Charge = {
@@ -332,7 +332,7 @@ export default function AdminUsage() {
                   <thead className="bg-muted/50 text-xs uppercase text-muted-foreground">
                     <tr>
                       <th className="px-4 py-2 font-medium">Room / QR</th>
-                      <th className="px-4 py-2 font-medium">Token</th>
+                      <th className="px-4 py-2 font-medium">Token / guest link</th>
                       <th className="px-4 py-2 font-medium">Sessions</th>
                       <th className="px-4 py-2 font-medium">Turns</th>
                       <th className="px-4 py-2 font-medium">Requests</th>
@@ -343,13 +343,38 @@ export default function AdminUsage() {
                     {(detail.rooms ?? []).map((r) => (
                       <tr key={r.room_id} className="border-t">
                         <td className="px-4 py-2 font-medium">
-                          {r.room_number}
+                          {r.guest_url ? (
+                            <a
+                              href={r.guest_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-violet-700 underline-offset-2 hover:underline"
+                              title="Open guest QR link"
+                            >
+                              {r.room_number}
+                            </a>
+                          ) : (
+                            r.room_number
+                          )}
                           {r.is_public && (
                             <span className="ml-2 text-xs font-normal text-muted-foreground">public</span>
                           )}
                         </td>
                         <td className="px-4 py-2 font-mono text-xs text-muted-foreground">
-                          {r.token_preview ?? "—"}
+                          {r.guest_url && r.token_preview ? (
+                            <a
+                              href={r.guest_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-violet-700 underline-offset-2 hover:underline"
+                              title="Open guest QR link"
+                            >
+                              {r.token_preview}
+                              <ExternalLink className="h-3 w-3 shrink-0 opacity-70" aria-hidden />
+                            </a>
+                          ) : (
+                            r.token_preview ?? "—"
+                          )}
                         </td>
                         <td className="px-4 py-2">{r.sessions}</td>
                         <td className="px-4 py-2">{r.guest_turns}</td>
