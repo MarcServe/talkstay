@@ -10,7 +10,7 @@ import {
 import { toast } from "sonner";
 import { ChevronDown, Loader2, Phone, AlertTriangle, X, Plus, Minus } from "lucide-react";
 import { listRooms, listCatalogItems, type CatalogItem, type Hotel, type Room } from "@/talkstay/lib/hotels";
-import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
+import { formatRoomLabel, guestStayLabel } from "@/talkstay/lib/roomLabel";
 import { useDemo } from "@/talkstay/demo/DemoContext";
 import { OPEN_STATUSES } from "@/talkstay/lib/data";
 import { useOpsQueue } from "@/talkstay/hooks/useTalkStayQueries";
@@ -28,6 +28,11 @@ type OpenRow = {
   status: string;
   source?: string | null;
   created_at: string;
+  /** Who and where — shown on the card so nobody opens a ticket just to find
+   *  out it's Table 24. */
+  guest_first_name?: string | null;
+  guest_locator?: string | null;
+  ts_rooms?: { room_number?: string | null } | null;
 };
 
 const SOURCE_LABEL: Record<OrderSource, string> = {
@@ -547,8 +552,16 @@ export default function LogOrderDialog({
             </p>
             <ul className="space-y-1.5">
               {openRows.map((o) => {
+                const who = guestStayLabel(
+                  o.guest_first_name,
+                  o.ts_rooms?.room_number ?? selectedRoom?.room_number,
+                  { locator: o.guest_locator, fallback: "" },
+                );
                 const body = (
                   <>
+                    {who && (
+                      <div className="text-sm font-semibold text-amber-950">{who}</div>
+                    )}
                     <span className="font-medium">
                       {deptLabel(o.department_key)}
                     </span>

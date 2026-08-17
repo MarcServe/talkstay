@@ -532,14 +532,14 @@ serve(async (req) => {
       let open: any[] | null = null;
       {
         const full = await admin.from("ts_service_requests")
-          .select("id, department_key, summary, summary_staff, status, priority, source, created_at, classification_method")
+          .select("id, department_key, summary, summary_staff, status, priority, source, session_id, created_at, classification_method")
           .eq("hotel_id", hotelId).eq("room_id", roomId)
           .in("status", ["new", "accepted", "in_progress", "on_the_way", "reopened", "escalated"])
           .order("created_at", { ascending: false })
           .limit(20);
         if (full.error?.message?.includes("source")) {
           const legacy = await admin.from("ts_service_requests")
-            .select("id, department_key, summary, summary_staff, status, priority, created_at, classification_method")
+            .select("id, department_key, summary, summary_staff, status, priority, session_id, created_at, classification_method")
             .eq("hotel_id", hotelId).eq("room_id", roomId)
             .in("status", ["new", "accepted", "in_progress", "on_the_way", "reopened", "escalated"])
             .order("created_at", { ascending: false })
@@ -548,6 +548,25 @@ serve(async (req) => {
         } else {
           open = full.data ?? [];
         }
+      }
+      // Attach who and where, so the duplicate warning can be read without
+      // opening each ticket — a table number is the whole point of the card.
+      const sids = [...new Set((open ?? []).map((r: any) => r.session_id).filter(Boolean))];
+      if (sids.length) {
+        const { data: sess } = await admin.from("ts_guest_sessions")
+          .select("session_id, guest_first_name, guest_locator")
+          .eq("hotel_id", hotelId).in("session_id", sids);
+        const bySession = new Map(
+          ((sess ?? []) as any[]).map((x) => [x.session_id, x]),
+        );
+        open = (open ?? []).map((r: any) => {
+          const g = bySession.get(r.session_id);
+          return {
+            ...r,
+            guest_first_name: g?.guest_first_name ?? null,
+            guest_locator: g?.guest_locator ?? null,
+          };
+        });
       }
       return json({ ok: true, open: open ?? [] });
     }
