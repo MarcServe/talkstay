@@ -54,7 +54,26 @@ createRoot(document.getElementById("root")!).render(<App />);
 // Register service worker for PWA
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => {
+    navigator.serviceWorker.register('/sw.js').then((reg) => {
+      // An installed iOS PWA resumes rather than reloads, so it can keep running
+      // a build from days ago. The worker already skipWaiting()s and claims
+      // clients — but claiming swaps the controller without touching the page
+      // that's already rendered, so the old CSS/JS stays on screen. Reload once
+      // when control actually changes.
+      let reloading = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (reloading) return;          // controllerchange can fire more than once
+        if (!navigator.serviceWorker.controller) return;  // first-ever install: nothing stale to replace
+        reloading = true;
+        window.location.reload();
+      });
+
+      // Resuming from the app switcher isn't a navigation, so nothing would
+      // otherwise check for a newer worker. Ask on every return to foreground.
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) void reg.update().catch(() => {});
+      });
+    }).catch(() => {
       // Service worker registration failed, app will work without PWA features
     });
   });
