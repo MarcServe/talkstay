@@ -471,3 +471,21 @@
   background: linear-gradient(to right, hsl(271 81% 56% / 0.1), hsl(271 81% 66% / 0.1));
   opacity: 1;
 }
+/* iOS Safari force-zooms the page whenever a focused form control renders below
+   16px, and never zooms back out — which is what pushed the guest chat's send
+   button off-screen mid-message. Nothing in the app is small enough for 16px to
+   hurt on a phone, so guarantee it for every control rather than relying on each
+   call site remembering. Desktop keeps its denser sizing. */
+@media (max-width: 767px) {
+  input,
+  textarea,
+  select,
+  /* [class] lifts specificity to 0,1,1 so this also beats a utility class like
+     .text-sm (0,1,0). Without it the rule silently loses exactly where it is
+     needed most — on inputs that were given an explicit small text size. */
+  input[class],
+  textarea[class],
+  select[class] {
+    font-size: 16px;
+  }
+}

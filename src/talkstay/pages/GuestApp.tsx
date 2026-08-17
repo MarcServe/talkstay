@@ -841,7 +841,8 @@ function GuestAppInner({ hotelSlug, roomId, token }: { hotelSlug: string; roomId
                   : "Type your message…"
             }
             disabled={busy}
-            className="h-9 text-sm"
+            /* 16px on phones or iOS zooms the composer on focus. */
+            className="h-10 text-base sm:h-9 sm:text-sm"
           />
           <Button type="submit" size="icon" className="h-9 w-9 shrink-0" disabled={busy || !input.trim()} style={{ backgroundColor: brand }}>
             <Send className="h-4 w-4" />
