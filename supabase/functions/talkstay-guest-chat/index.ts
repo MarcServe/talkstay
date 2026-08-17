@@ -203,6 +203,22 @@ async function resolveRoom(
   };
 }
 
+/** Scope a ts_service_requests query to THIS guest's bill.
+ *
+ *  A private room's charges belong to the stay, so any device that scans the
+ *  room QR sees them; a public area's belong to the ordering session, so one
+ *  table's tab isn't shown to everyone who scans the bar QR.
+ *
+ *  Every read that answers "what do I owe?" must use this. When the folio and
+ *  the pay action disagreed, the guest was shown a balance and then told there
+ *  was nothing to pay.
+ */
+function scopeToGuestBill(q: any, ctx: RoomCtx, sessionId: string | null | undefined) {
+  return !ctx.isPublic && ctx.checkedInAt
+    ? q.eq("room_id", ctx.roomId).gte("created_at", ctx.checkedInAt)
+    : q.eq("session_id", sessionId || "");
+}
+
 async function embedQuery(
   query: string,
   apiKey: string,
@@ -893,25 +909,23 @@ serve(async (req) => {
         // staff saw the charge. Bounded by checked_in_at so a previous guest's
         // orders can never appear. Public areas stay session-scoped — a bar tab
         // belongs to whoever ordered it, not to everyone who scans that QR.
-        const scopeToRoom = !ctx.isPublic && !!ctx.checkedInAt;
         const cols = "id, department_key, summary, status, is_complaint, created_at, is_chargeable, price, currency, payment_status";
-        let q = admin.from("ts_service_requests").select(cols).eq("hotel_id", ctx.hotelId);
-        q = scopeToRoom
-          ? q.eq("room_id", ctx.roomId).gte("created_at", ctx.checkedInAt as string)
-          : q.eq("session_id", sessionId || "");
+        const q = scopeToGuestBill(
+          admin.from("ts_service_requests").select(cols).eq("hotel_id", ctx.hotelId),
+          ctx, sessionId,
+        );
         const full = await q.neq("status", "cancelled")
           .order("created_at", { ascending: false }).limit(50);
         data = full.data as any[] | null;
         error = full.error;
       }
       if (error?.message?.includes("payment_status") || error?.message?.includes("is_chargeable") || error?.message?.includes("price")) {
-        const scopeToRoom = !ctx.isPublic && !!ctx.checkedInAt;
-        let lq = admin.from("ts_service_requests")
-          .select("id, department_key, summary, status, is_complaint, created_at")
-          .eq("hotel_id", ctx.hotelId);
-        lq = scopeToRoom
-          ? lq.eq("room_id", ctx.roomId).gte("created_at", ctx.checkedInAt as string)
-          : lq.eq("session_id", sessionId || "");
+        const lq = scopeToGuestBill(
+          admin.from("ts_service_requests")
+            .select("id, department_key, summary, status, is_complaint, created_at")
+            .eq("hotel_id", ctx.hotelId),
+          ctx, sessionId,
+        );
         const legacy = await lq
           .neq("status", "cancelled")
           .order("created_at", { ascending: false }).limit(50);
@@ -1128,12 +1142,12 @@ serve(async (req) => {
         ...(ctx.isPublic ? { billing_room_id: null, billing_verified_at: null } : {}),
       }, { onConflict: "hotel_id,session_id" }).then(() => {}, () => {});
 
-      let q = admin.from("ts_service_requests")
-        .select("id, session_id, summary, is_chargeable, price, currency, payment_status")
-        .eq("hotel_id", ctx.hotelId)
-        .eq("session_id", sessionId)
-        .eq("is_chargeable", true)
-        .neq("status", "cancelled");
+      let q = scopeToGuestBill(
+        admin.from("ts_service_requests")
+          .select("id, session_id, summary, is_chargeable, price, currency, payment_status")
+          .eq("hotel_id", ctx.hotelId),
+        ctx, sessionId,
+      ).eq("is_chargeable", true).neq("status", "cancelled");
       if (requestId) q = q.eq("id", requestId);
       let { data: rows, error: listErr } = await q;
       if (listErr?.message?.includes("payment_status") || listErr?.message?.includes("is_chargeable")) {
