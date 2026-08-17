@@ -95,6 +95,7 @@ export interface OpsRequest {
   session_id?: string | null;
   /** From ts_guest_sessions when the guest opted in with a name. */
   guest_first_name?: string | null;
+  guest_locator?: string | null;
   /** Public-QR session verified a private room via check-in code. */
   billing_room_number?: string | null;
   billing_room_id?: string | null;
@@ -213,15 +214,18 @@ export async function fetchOpsQueue(hotelId: string, timeRange: OpsTimeRange): P
   if (sessionIds.length) {
     const nameBySession = new Map<string, string>();
     const billingBySession = new Map<string, { id: string; timing: string | null }>();
+    const locatorBySession = new Map<string, string>();
     // Chunk to stay under PostgREST URL limits.
     for (let i = 0; i < sessionIds.length; i += 80) {
       const chunk = sessionIds.slice(i, i + 80);
-      let sessRes = await supabase
+      // Typed loose: the legacy fallback below selects fewer columns, and the
+      // narrower shape isn't assignable back to this binding.
+      let sessRes: { data: unknown; error: { message?: string } | null } = await supabase
         .from("ts_guest_sessions")
-        .select("session_id, guest_first_name, billing_room_id, payment_timing")
+        .select("session_id, guest_first_name, guest_locator, billing_room_id, payment_timing")
         .eq("hotel_id", hotelId)
         .in("session_id", chunk);
-      if (sessRes.error?.message?.includes("billing_room_id") || sessRes.error?.message?.includes("payment_timing")) {
+      if (sessRes.error?.message?.includes("billing_room_id") || sessRes.error?.message?.includes("payment_timing") || sessRes.error?.message?.includes("guest_locator")) {
         sessRes = await supabase
           .from("ts_guest_sessions")
           .select("session_id, guest_first_name")
@@ -235,11 +239,14 @@ export async function fetchOpsQueue(hotelId: string, timeRange: OpsTimeRange): P
       for (const s of (sessRes.data ?? []) as {
         session_id: string;
         guest_first_name: string | null;
+        guest_locator?: string | null;
         billing_room_id?: string | null;
         payment_timing?: string | null;
       }[]) {
         const n = String(s.guest_first_name ?? "").trim();
         if (n) nameBySession.set(s.session_id, n);
+        const loc = String(s.guest_locator ?? "").trim();
+        if (loc) locatorBySession.set(s.session_id, loc);
         if (s.billing_room_id) {
           billingBySession.set(s.session_id, {
             id: s.billing_room_id,
@@ -269,6 +276,9 @@ export async function fetchOpsQueue(hotelId: string, timeRange: OpsTimeRange): P
     for (const r of requests) {
       if (r.session_id && nameBySession.has(r.session_id)) {
         r.guest_first_name = nameBySession.get(r.session_id) ?? null;
+      }
+      if (r.session_id && locatorBySession.has(r.session_id)) {
+        r.guest_locator = locatorBySession.get(r.session_id) ?? null;
       }
       if (r.session_id && billingBySession.has(r.session_id)) {
         const b = billingBySession.get(r.session_id)!;
@@ -356,6 +366,7 @@ export interface RequestDetailRow {
   created_at: string;
   updated_at: string;
   guest_first_name?: string | null;
+  guest_locator?: string | null;
   ts_rooms?: { room_number: string } | null;
 }
 

@@ -86,7 +86,7 @@ export default function StaffAlertsHost({
         const r = fresh[0];
         const title =
           fresh.length === 1
-            ? `New request · ${guestStayLabel(r.guest_first_name, r.ts_rooms?.room_number)}`
+            ? `New request · ${guestStayLabel(r.guest_first_name, r.ts_rooms?.room_number, { locator: r.guest_locator })}`
             : `${fresh.length} new requests`;
         const body =
           fresh.length === 1
@@ -127,11 +127,11 @@ export default function StaffAlertsHost({
               : e0.note?.toLowerCase().includes("cancel") ? "cancel"
                 : "followup");
         const title =
-          kind === "payment" ? `Guest wants to pay · ${guestStayLabel(r0?.guest_first_name, r0?.ts_rooms?.room_number)}`
-          : kind === "update" ? `Guest updated order · ${guestStayLabel(r0?.guest_first_name, r0?.ts_rooms?.room_number)}`
-          : kind === "remind" ? `Guest reminded you · ${guestStayLabel(r0?.guest_first_name, r0?.ts_rooms?.room_number)}`
-          : kind === "cancel" ? `Guest cancelled · ${guestStayLabel(r0?.guest_first_name, r0?.ts_rooms?.room_number)}`
-          : `Guest followed up · ${guestStayLabel(r0?.guest_first_name, r0?.ts_rooms?.room_number)}`;
+          kind === "payment" ? `Guest wants to pay · ${guestStayLabel(r0?.guest_first_name, r0?.ts_rooms?.room_number, { locator: r0?.guest_locator })}`
+          : kind === "update" ? `Guest updated order · ${guestStayLabel(r0?.guest_first_name, r0?.ts_rooms?.room_number, { locator: r0?.guest_locator })}`
+          : kind === "remind" ? `Guest reminded you · ${guestStayLabel(r0?.guest_first_name, r0?.ts_rooms?.room_number, { locator: r0?.guest_locator })}`
+          : kind === "cancel" ? `Guest cancelled · ${guestStayLabel(r0?.guest_first_name, r0?.ts_rooms?.room_number, { locator: r0?.guest_locator })}`
+          : `Guest followed up · ${guestStayLabel(r0?.guest_first_name, r0?.ts_rooms?.room_number, { locator: r0?.guest_locator })}`;
         const body = e0.note || r0?.summary_staff || r0?.summary || "A guest needs attention.";
         void alertIncoming({
           title,

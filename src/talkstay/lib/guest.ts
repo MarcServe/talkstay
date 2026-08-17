@@ -262,6 +262,8 @@ export async function requestPaymentNow(args: {
 export async function saveGuestContact(args: {
   hotelSlug: string; roomId: string; token: string; sessionId: string;
   channel?: string; contact?: string; guestFirstName?: string;
+  /** Public areas only — 'Table 12', 'Sunbed 4'. Ignored for private rooms. */
+  guestLocator?: string;
 }) {
   const { data, error } = await fn({ action: "set_contact", ...args });
   if (error) throw error;

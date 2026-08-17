@@ -1226,21 +1226,25 @@ serve(async (req) => {
 
     // ---- set_contact: guest wants email updates / shared first name ----
     if (action === "set_contact") {
-      const { channel, contact, guestFirstName } = body;
+      const { channel, contact, guestFirstName, guestLocator } = body;
       if (!sessionId) return json({ error: "sessionId required" }, 400);
       const first = String(guestFirstName ?? "").trim().slice(0, 80);
+      // Public areas only: "Table 12" / "Sunbed 4" — a room number already
+      // locates a private-room guest.
+      const locator = ctx.isPublic ? String(guestLocator ?? "").trim().slice(0, 60) : "";
       const patch: Record<string, unknown> = {
         hotel_id: ctx.hotelId, room_id: ctx.roomId, session_id: sessionId,
         language: ctx.language,
       };
       if (first) patch.guest_first_name = first;
+      if (locator) patch.guest_locator = locator;
       if (channel != null && String(channel).trim()) {
         const clean = String(contact ?? "").trim().slice(0, 200).toLowerCase();
         patch.notify_channel = String(channel);
         patch.contact_email = clean || null;
       }
-      if (!first && !patch.notify_channel) {
-        return json({ error: "guestFirstName or channel required" }, 400);
+      if (!first && !locator && !patch.notify_channel) {
+        return json({ error: "guestFirstName, guestLocator or channel required" }, 400);
       }
       const { error } = await admin.from("ts_guest_sessions").upsert(patch, {
         onConflict: "hotel_id,session_id",
@@ -1699,12 +1703,26 @@ serve(async (req) => {
     // was being reproduced verbatim for public-area guests, who have no room.
     const guestLocation = formatRoomLabel(ctx.roomNumber);
 
+    // In a public area the area name doesn't locate anyone, so we also carry the
+    // guest's own spot ("Table 12") when they've given one.
+    let guestSpot = "";
+    if (ctx.isPublic && sessionId) {
+      const { data: sess, error: spotErr } = await admin.from("ts_guest_sessions")
+        .select("guest_locator")
+        .eq("hotel_id", ctx.hotelId).eq("session_id", sessionId).maybeSingle();
+      if (!spotErr) guestSpot = String((sess as any)?.guest_locator ?? "").trim();
+    }
+    const deliverTo = guestSpot ? `${guestLocation} · ${guestSpot}` : guestLocation;
+
     const system = `You are the guest assistant for ${ctx.hotelName}, ${guestLocation}.
 Be warm, brief and natural — like a helpful concierge, not a form. The guest should feel they just ask and it's handled.
 
-LOCATION — the single source of truth for where this guest is: ${guestLocation}.
+LOCATION — the single source of truth for where this guest is: ${deliverTo}.
 ${ctx.isPublic
-  ? `This is a PUBLIC AREA of the property. This guest has NO room number. NEVER write "Room <number>" in a summary and NEVER guess or invent one — deliveries go to ${guestLocation}. If the guest wants it charged to their room, they must verify with their check-in code first; do not put a room in the summary.`
+  ? `This is a PUBLIC AREA of the property. This guest has NO room number. NEVER write "Room <number>" in a summary and NEVER guess or invent one. If the guest wants it charged to their room, they must verify with their check-in code first; do not put a room in the summary.
+${guestSpot
+    ? `The guest is at "${guestSpot}" — end delivery summaries with "${deliverTo}" so staff know exactly where to go.`
+    : `You do NOT yet know where in ${guestLocation} they are sitting. Before creating a request that has to be DELIVERED to them (food, drinks, anything carried over), ask once, warmly and in one short line, for their table/sunbed/seat number — the team can't find them otherwise. If they give it, call set_guest_spot with it and include it in the summary. If they decline or don't know, create the request anyway with "${guestLocation}" and don't ask again.`}`
   : `Always write the location exactly as "${guestLocation}" — never a different room, and never a number you were not given.`}
 
 LANGUAGE: Reply in the same language the guest writes in (their hotel default is ${ctx.language}). The "summary" you pass to tools MUST be in English for staff.
@@ -1768,7 +1786,7 @@ what you just said. Vary your phrasing so it doesn't sound like a scripted closi
             type: "object",
             properties: {
               department: { type: "string", enum: activeDepts },
-              summary: { type: "string", description: `Short task description in ENGLISH for staff, incl. quantities, ending with the guest's location EXACTLY as given in LOCATION — e.g. 'Deliver 3 extra towels to ${guestLocation}'. Never invent or substitute a room number.` },
+              summary: { type: "string", description: `Short task description in ENGLISH for staff, incl. quantities, ending with the guest's location EXACTLY as given in LOCATION — e.g. 'Deliver 3 extra towels to ${deliverTo}'. Never invent or substitute a room number.` },
               priority: { type: "string", enum: ["low", "normal", "high", "urgent"] },
               is_complaint: { type: "boolean" },
               is_chargeable: { type: "boolean" },
@@ -1778,6 +1796,20 @@ what you just said. Vary your phrasing so it doesn't sound like a scripted closi
           },
         },
       },
+      ...(ctx.isPublic ? [{
+        type: "function",
+        function: {
+          name: "set_guest_spot",
+          description: "Record where in this public area the guest is sitting so staff can find them. Call this as soon as they tell you, then use it in delivery summaries.",
+          parameters: {
+            type: "object",
+            properties: {
+              spot: { type: "string", description: "Exactly as the guest said it — 'Table 12', 'Sunbed 4', 'by the piano'." },
+            },
+            required: ["spot"],
+          },
+        },
+      }] : []),
       {
         type: "function",
         function: {
@@ -1989,6 +2021,23 @@ what you just said. Vary your phrasing so it doesn't sound like a scripted closi
                     is_chargeable: !!args.is_chargeable,
                     price: reqRow.price ?? null,
                   }
+                : { ok: false }),
+            });
+          } else if (tc.function.name === "set_guest_spot") {
+            const spot = String(args.spot ?? "").trim().slice(0, 60);
+            let saved = false;
+            if (spot && sessionId && ctx.isPublic) {
+              const { error: spotSaveErr } = await admin.from("ts_guest_sessions").upsert({
+                hotel_id: ctx.hotelId, room_id: ctx.roomId, session_id: sessionId,
+                language: ctx.language, guest_locator: spot,
+              }, { onConflict: "hotel_id,session_id" });
+              saved = !spotSaveErr;
+              if (saved) guestSpot = spot;
+            }
+            messages.push({
+              role: "tool", tool_call_id: tc.id,
+              content: JSON.stringify(saved
+                ? { ok: true, deliverTo: `${guestLocation} · ${spot}` }
                 : { ok: false }),
             });
           } else if (tc.function.name === "escalate_request") {

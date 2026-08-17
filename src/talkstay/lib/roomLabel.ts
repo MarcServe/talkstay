@@ -29,9 +29,13 @@ export function formatRoomLabel(
 export function guestStayLabel(
   guestFirstName: string | null | undefined,
   roomNumber: string | null | undefined,
-  opts?: { fallback?: string },
+  opts?: { fallback?: string; locator?: string | null },
 ): string {
-  const room = formatRoomLabel(roomNumber, opts);
+  // In a public area the area name alone doesn't locate anyone — the bar has
+  // twenty tables — so the guest's spot is appended when they've given one.
+  const locator = String(opts?.locator ?? "").trim();
+  const base = formatRoomLabel(roomNumber, opts);
+  const room = locator ? `${base} · ${locator}` : base;
   const first = String(guestFirstName ?? "").trim();
   if (!first) return room;
   // Title-case lightly for display (Timothy, not TIMOTHY).

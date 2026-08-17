@@ -707,7 +707,7 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
                     >
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-semibold">{guestStayLabel(r.guest_first_name, r.ts_rooms?.room_number)}</span>
+                          <span className="font-semibold">{guestStayLabel(r.guest_first_name, r.ts_rooms?.room_number, { locator: r.guest_locator })}</span>
                           <Badge variant="outline" className={`capitalize ${statusBadge(r.status)}`}>
                             {statusLabel(r.status)}
                           </Badge>
@@ -915,7 +915,7 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
                     {r.ts_rooms?.room_number ?? "—"}
                   </div>
                   <div className="min-w-0 flex-1 overflow-hidden">
-                    <p className="truncate text-sm font-medium">{guestStayLabel(r.guest_first_name, r.ts_rooms?.room_number)}</p>
+                    <p className="truncate text-sm font-medium">{guestStayLabel(r.guest_first_name, r.ts_rooms?.room_number, { locator: r.guest_locator })}</p>
                     <p className="truncate text-xs text-muted-foreground">
                       {deptLabel(r.department_key)} · {timeAgo(r.created_at)}
                     </p>
@@ -1124,7 +1124,7 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
                   </div>
                   <div className="min-w-0 flex-1 overflow-hidden">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-semibold">{guestStayLabel(r.guest_first_name, r.ts_rooms?.room_number)}</span>
+                      <span className="font-semibold">{guestStayLabel(r.guest_first_name, r.ts_rooms?.room_number, { locator: r.guest_locator })}</span>
                       {r.ts_rooms?.is_public ? (
                         <Badge variant="outline" className="border-sky-300 bg-sky-50 text-sky-800">Public</Badge>
                       ) : null}

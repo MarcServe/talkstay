@@ -853,6 +853,8 @@ function GuestAppInner({ hotelSlug, roomId, token }: { hotelSlug: string; roomId
       {notifyOpen && (
         <NotifySheet
           hotelSlug={hotelSlug} roomId={roomId} token={token} sid={sid}
+          isPublic={!!ctx?.isPublic}
+          locationLabel={ctx?.roomNumber}
           onDone={() => { setNotifyChoice(sid, "on"); setNotifyOpen(false); }}
           onClose={() => setNotifyOpen(false)}
         />
@@ -1144,8 +1146,11 @@ function PulseCard({ hotelSlug, roomId, token, sid, brand, onFinished, onBeforeL
   );
 }
 
-function NotifySheet({ hotelSlug, roomId, token, sid, onDone, onClose }: {
+function NotifySheet({ hotelSlug, roomId, token, sid, isPublic = false, locationLabel, onDone, onClose }: {
   hotelSlug: string; roomId: string; token: string; sid: string;
+  /** Public QR area — the area name alone doesn't tell staff where to walk. */
+  isPublic?: boolean;
+  locationLabel?: string;
   onDone: () => void; onClose: () => void;
 }) {
   // Independent, multi-selectable channels — a guest can have either, both,
@@ -1160,6 +1165,7 @@ function NotifySheet({ hotelSlug, roomId, token, sid, onDone, onClose }: {
   const [emailOn, setEmailOn] = useState(false);
   const [email, setEmail] = useState("");
   const [firstName, setFirstName] = useState("");
+  const [spot, setSpot] = useState("");
   const [saving, setSaving] = useState(false);
   const emailValid = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim());
   const wantsNotify = pushOn || emailOn;
@@ -1185,6 +1191,7 @@ function NotifySheet({ hotelSlug, roomId, token, sid, onDone, onClose }: {
           await saveGuestContact({
             hotelSlug, roomId, token, sessionId: sid,
             guestFirstName: firstName.trim(),
+            guestLocator: isPublic ? (spot.trim() || undefined) : undefined,
           });
         } catch { /* non-blocking — push already registered */ }
         setPushOn(true);
@@ -1214,6 +1221,7 @@ function NotifySheet({ hotelSlug, roomId, token, sid, onDone, onClose }: {
           channel: emailOn && emailValid ? "email" : undefined,
           contact: emailOn && emailValid ? email.trim() : undefined,
           guestFirstName: firstName.trim() || undefined,
+          guestLocator: isPublic ? (spot.trim() || undefined) : undefined,
         });
       }
       onDone();
@@ -1243,9 +1251,28 @@ function NotifySheet({ hotelSlug, roomId, token, sid, onDone, onClose }: {
               maxLength={80}
             />
             <p className="mt-1 text-[11px] text-muted-foreground">
-              So the team can find you — shown as “Timothy · Room …”
+              So the team can find you{isPublic ? "" : " — shown with your room number"}.
             </p>
           </div>
+
+          {/* "Bar Area" doesn't tell anyone which of twenty tables to walk to. */}
+          {isPublic && (
+            <div className="rounded-xl border p-3">
+              <label className="mb-1 block text-xs text-muted-foreground">
+                Where are you sitting? (optional)
+              </label>
+              <Input
+                value={spot}
+                onChange={(e) => setSpot(e.target.value)}
+                placeholder="Table 12"
+                maxLength={60}
+              />
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Table, sunbed or seat number, so we bring it to you rather than
+                looking around {locationLabel || "the area"}.
+              </p>
+            </div>
+          )}
 
           {canPush && (
             <label className="flex items-center gap-3 rounded-xl border p-3">
