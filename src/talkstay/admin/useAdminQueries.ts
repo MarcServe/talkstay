@@ -18,6 +18,7 @@ export type AdminHotelRow = {
   name: string;
   slug: string;
   is_active: boolean;
+  branding?: { white_label?: boolean } | null;
   created_at: string;
   billing_mode?: string;
   owner: { email: string | null; first_name: string | null; last_name: string | null } | null;
@@ -52,6 +53,7 @@ export type AdminLiveLinkRow = {
   hotel_slug: string | null;
   label: string | null;
   is_active: boolean;
+  branding?: { white_label?: boolean } | null;
   expires_at: string | null;
   last_seen_at: string | null;
   created_at: string;

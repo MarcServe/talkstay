@@ -452,7 +452,7 @@ async function loadUsageSummaryDirect(opts: {
 
   let hotelQuery = supabase
     .from("ts_hotels")
-    .select("id, name, slug, is_active, billing_mode, billing_notes, billing_rates, referral_code, created_at", { count: "exact" })
+    .select("id, name, slug, is_active, billing_mode, billing_notes, billing_rates, referral_code, branding, created_at", { count: "exact" })
     .order("name");
   if (hotelId) hotelQuery = hotelQuery.eq("id", hotelId);
   else {

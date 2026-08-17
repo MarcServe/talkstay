@@ -99,9 +99,18 @@ export default function AdminHotels() {
                       {h.owner?.email ?? "—"}
                     </td>
                     <td className="px-4 py-3">
-                      <Badge variant="outline" className={h.is_active ? "border-emerald-300 text-emerald-700" : "text-muted-foreground"}>
-                        {h.is_active ? "Active" : "Inactive"}
-                      </Badge>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <Badge variant="outline" className={h.is_active ? "border-emerald-300 text-emerald-700" : "text-muted-foreground"}>
+                          {h.is_active ? "Active" : "Inactive"}
+                        </Badge>
+                        {/* Surfaced here so you can see who's on the paid branding
+                            tier without opening every property in turn. */}
+                        {h.branding?.white_label && (
+                          <Badge className="bg-violet-600 text-white" title="White label — TalkStay marks hidden">
+                            White label
+                          </Badge>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex justify-end gap-2">
