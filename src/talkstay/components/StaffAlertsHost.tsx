@@ -1,8 +1,48 @@
 import { useEffect, useRef } from "react";
 import { toast } from "sonner";
+import { ChevronRight } from "lucide-react";
 import { useOpsQueue, useOpsRealtime } from "@/talkstay/hooks/useTalkStayQueries";
 import { alertIncoming } from "@/talkstay/lib/alerts";
 import { guestStayLabel } from "@/talkstay/lib/roomLabel";
+
+
+/** A staff alert is only useful if it takes you to the thing it is about. The
+ *  whole card is the target — hunting a small "Open" button on a phone, mid
+ *  service, is the opposite of helpful. Falls back to a plain card when there
+ *  is nothing specific to open. */
+function alertToast(opts: {
+  title: string;
+  body: string;
+  duration: number;
+  onOpen?: () => void;
+}) {
+  toast.custom((id) => {
+    const inner = (
+      <>
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-semibold text-foreground">{opts.title}</span>
+          <span className="mt-0.5 block text-sm text-muted-foreground">{opts.body}</span>
+        </span>
+        {opts.onOpen && (
+          <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+        )}
+      </>
+    );
+    const shell = "flex w-full items-start gap-3 rounded-xl border bg-background p-4 text-left shadow-lg";
+    return opts.onOpen ? (
+      <button
+        type="button"
+        aria-label={`${opts.title} — open this request`}
+        className={`${shell} transition-colors hover:bg-muted/60 active:bg-muted`}
+        onClick={() => { opts.onOpen?.(); toast.dismiss(id); }}
+      >
+        {inner}
+      </button>
+    ) : (
+      <div className={shell}>{inner}</div>
+    );
+  }, { duration: opts.duration });
+}
 
 /**
  * App-wide staff alerts — mounted for the whole dashboard so a chime + browser
@@ -59,11 +99,12 @@ export default function StaffAlertsHost({
           url: `/app?tab=operations&request=${r.id}`,
           urgent: !!r.is_complaint || r.priority === "urgent" || r.priority === "high",
         });
-        toast.message(title, {
-          description: body,
+        alertToast({
+          title,
+          body,
           duration: 10_000,
-          action: fresh.length === 1 && openRef.current
-            ? { label: "Open", onClick: () => openRef.current?.(r.id) }
+          onOpen: fresh.length === 1 && openRef.current
+            ? () => openRef.current?.(r.id)
             : undefined,
         });
       }
@@ -99,11 +140,12 @@ export default function StaffAlertsHost({
           url: e0.request_id ? `/app?tab=operations&request=${e0.request_id}` : "/app",
           urgent: true,
         });
-        toast.message(title, {
-          description: body,
+        alertToast({
+          title,
+          body,
           duration: 12_000,
-          action: e0.request_id && openRef.current
-            ? { label: "Open", onClick: () => openRef.current?.(e0.request_id) }
+          onOpen: e0.request_id && openRef.current
+            ? () => openRef.current?.(e0.request_id)
             : undefined,
         });
       }
