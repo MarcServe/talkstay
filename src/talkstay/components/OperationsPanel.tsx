@@ -167,6 +167,18 @@ const TIME_RANGES: { id: TimeRange; short: string; ms: number | null }[] = [
 const OVERDUE_MIN = 5; // a 'new' request older than this is flagged overdue
 const minsSince = (iso: string) => (Date.now() - new Date(iso).getTime()) / 60000;
 
+/** Who settles this ticket — the key a running tab is grouped under. */
+function tabKeyFor(r: {
+  billing_room_id?: string | null;
+  room_id?: string | null;
+  session_id?: string | null;
+  ts_rooms?: { is_public?: boolean | null } | null;
+}): string | null {
+  if (r.billing_room_id) return `room:${r.billing_room_id}`;
+  if (!r.ts_rooms?.is_public && r.room_id) return `room:${r.room_id}`;
+  return r.session_id ? `sess:${r.session_id}` : null;
+}
+
 export default function OperationsPanel({ hotel, lockedDepartment = null, onClearDepartmentLock, focusRequestId = null }: {
   hotel: Hotel;
   lockedDepartment?: string | null;
@@ -213,6 +225,35 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
   }, [focusRequestId]);
 
   const reqs = queue?.requests ?? [];
+
+  // Running tab per payer, so staff see one number instead of adding line items
+  // in their head at the counter. Built from the FULL queue, never the filtered
+  // view — a total that changes when you flip a filter is worse than none.
+  //
+  // Grouped by who actually settles it: a verified charge-to-room or a private
+  // room bills to the room (that IS the hotel folio, even across guests in it);
+  // a public-area session pays for itself.
+  const tabs = useMemo(() => {
+    const map = new Map<string, { total: number; count: number; currency: string | null; roomNumber: string | null }>();
+    for (const r of reqs) {
+      if (!r.is_chargeable) continue;
+      if ((r.payment_status ?? "unpaid") !== "unpaid") continue;
+      if (r.status === "cancelled") continue;
+      const price = typeof r.price === "number" ? r.price : 0;
+      const key = tabKeyFor(r);
+      if (!key) continue;
+      const cur = map.get(key) ?? { total: 0, count: 0, currency: r.currency ?? null, roomNumber: null };
+      cur.total += price;
+      cur.count += 1;
+      cur.currency = cur.currency ?? r.currency ?? null;
+      cur.roomNumber = cur.roomNumber
+        ?? r.billing_room_number
+        ?? (r.ts_rooms?.is_public ? null : r.ts_rooms?.room_number ?? null);
+      map.set(key, cur);
+    }
+    return map;
+  }, [reqs]);
+
   const ack = queue?.ack ?? {};
   const escalations = queue?.escalations ?? {};
   const handlers = queue?.handlers ?? {};
@@ -728,6 +769,21 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
                               {r.price != null ? ` · ${formatMoney(r.price, r.currency)}` : ""}
                             </Badge>
                           )}
+                          {(() => {
+                            // Only worth showing once there is arithmetic to do.
+                            const tab = tabs.get(tabKeyFor(r) ?? "");
+                            if (!tab || tab.count < 2) return null;
+                            return (
+                              <Badge
+                                variant="outline"
+                                className="border-amber-300 bg-amber-50 text-amber-900"
+                                title={`${tab.count} unpaid items on this tab`}
+                              >
+                                {tab.roomNumber ? `Room ${tab.roomNumber} tab` : "Tab"}
+                                {` · ${formatMoney(tab.total, tab.currency)} · ${tab.count} items`}
+                              </Badge>
+                            );
+                          })()}
                         </div>
                         <p className="mt-0.5 truncate text-xs text-muted-foreground">
                           {r.summary_staff || r.summary}
