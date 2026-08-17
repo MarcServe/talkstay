@@ -817,6 +817,23 @@ export interface CatalogItem {
   sort_order: number;
 }
 
+
+/** Comparison key for menu items. A menu photographed twice, or a second page
+ *  overlapping the first, yields the same dish typed slightly differently:
+ *  "Club Sandwich.", "club  sandwich", "Crème brûlée" vs "Creme brulee". Match
+ *  on the shape of the words, not the exact characters. Used for both
+ *  within-scan dedupe and matching against what's already on the menu — the
+ *  two must agree, or an item slips through one and is caught by the other. */
+export function menuItemKey(name: string): string {
+  return String(name ?? "")
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")  // strip accents
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")                       // punctuation → space
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
 export async function listCatalogItems(hotelId: string, departmentKey?: string): Promise<CatalogItem[]> {
   let q = supabase
     .from("ts_catalog_items")

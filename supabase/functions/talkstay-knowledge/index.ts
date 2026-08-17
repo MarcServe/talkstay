@@ -124,14 +124,24 @@ async function extractMenuItems(
   const data = await r.json();
   const parsed = JSON.parse(String(data?.choices?.[0]?.message?.content ?? "{}"));
 
+  // Must match menuItemKey() on the client — the two guard different moments
+  // (within one scan here, against the saved menu there) and disagreeing would
+  // let an item through both.
+  const key = (n: string) => n
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim().replace(/\s+/g, " ");
+
   const seen = new Set<string>();
   const items: { name: string; price: number | null }[] = [];
   for (const raw of Array.isArray(parsed.items) ? parsed.items : []) {
     const name = String(raw?.name ?? "").trim().replace(/^[-•*\d.)\s]+/, "").slice(0, 80);
     if (!name) continue;
-    const key = name.toLowerCase();
-    if (seen.has(key)) continue;       // the unique index would reject it later anyway
-    seen.add(key);
+    const k = key(name);
+    if (!k || seen.has(k)) continue;   // same dish printed twice on the page
+    seen.add(k);
     const n = Number(raw?.price);
     items.push({
       name,
