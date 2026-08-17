@@ -12,7 +12,7 @@ import {
   Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle,
 } from "@/components/ui/sheet";
 import { toast } from "sonner";
-import { ArrowRightLeft, Loader2, MessageCircle, Send, UserRound, StickyNote, Banknote } from "lucide-react";
+import { ArrowRightLeft, ChevronDown, Loader2, MessageCircle, Send, UserRound, StickyNote, Banknote } from "lucide-react";
 import { talkstayKeys, type PaymentStatus, type RequestDetailData } from "@/talkstay/lib/data";
 import { useRequestDetail } from "@/talkstay/hooks/useTalkStayQueries";
 import { useHotelDepartments } from "@/talkstay/hooks/useHotelDepartments";
@@ -77,7 +77,10 @@ export default function RequestDetailSheet({
   const [forwardDept, setForwardDept] = useState("");
   const [forwardNote, setForwardNote] = useState("");
   const [forwardBusy, setForwardBusy] = useState(false);
-  const [teamAction, setTeamAction] = useState<"message" | "handler" | "forward" | null>("message");
+  const [teamAction, setTeamAction] = useState<"message" | "handler" | "forward" | null>(null);
+  // Collapsed by default — staff open this sheet to read the request far more
+  // often than to write to each other, and the block is tall.
+  const [teamOpen, setTeamOpen] = useState(false);
   const [priceDraft, setPriceDraft] = useState("");
   const [billingBusy, setBillingBusy] = useState(false);
 
@@ -599,18 +602,31 @@ export default function RequestDetailSheet({
 
             {isOpen && (
               <section className="space-y-3 rounded-2xl border-2 border-amber-300/80 bg-amber-50/50 p-4 shadow-sm">
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div>
-                    <h3 className="text-sm font-semibold text-amber-950">Talk to your team (not the guest)</h3>
-                    <p className="mt-1 text-xs text-amber-900/80">
-                      Pick one action below. Guests never see these — scroll down to the green box to message the guest.
-                    </p>
-                  </div>
-                  <span className="shrink-0 rounded-full border border-amber-300 bg-amber-100 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-900">
-                    Staff only
+                <button
+                  type="button"
+                  onClick={() => setTeamOpen((o) => !o)}
+                  aria-expanded={teamOpen}
+                  className="flex w-full flex-wrap items-center justify-between gap-2 text-left"
+                >
+                  <span className="min-w-0">
+                    <span className="block text-sm font-semibold text-amber-950">Talk to your team (not the guest)</span>
+                    <span className="mt-0.5 block text-xs text-amber-900/80">
+                      {teamOpen
+                        ? "Guests never see these — scroll down to the green box to message the guest."
+                        : "Send a note, say who’s on it, or move the ticket."}
+                    </span>
                   </span>
-                </div>
+                  <span className="flex shrink-0 items-center gap-2">
+                    <span className="rounded-full border border-amber-300 bg-amber-100 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-900">
+                      Staff only
+                    </span>
+                    <ChevronDown
+                      className={`h-4 w-4 text-amber-800 transition-transform ${teamOpen ? "rotate-180" : ""}`}
+                    />
+                  </span>
+                </button>
 
+                {teamOpen && (<>
                 <div className="grid gap-2 sm:grid-cols-3">
                   {(
                     [
@@ -645,17 +661,13 @@ export default function RequestDetailSheet({
                   <div className="space-y-2 rounded-xl border border-amber-300 bg-white p-3">
                     <p className="text-sm font-medium text-amber-950">Send an internal note</p>
                     <p className="text-xs text-amber-900/80">
-                      Use this when reception or a manager needs to tell {deptLabel(req.department_key)} something
-                      about this order — for example that the guest called again, or to hurry up.
-                    </p>
-                    <p className="text-[11px] text-amber-800/70">
-                      Example: “Room called — please hurry breakfast, or message them you’re almost done.”
+                      Tell {deptLabel(req.department_key)} something about this order. The guest never sees it.
                     </p>
                     <Textarea
                       value={teamNote}
                       onChange={(e) => setTeamNote(e.target.value)}
                       rows={3}
-                      placeholder="Write your message to the team…"
+                      placeholder="e.g. Room called — please hurry breakfast"
                       className="border-amber-200 bg-amber-50/30 focus-visible:ring-amber-400"
                     />
                     <Button
@@ -756,6 +768,7 @@ export default function RequestDetailSheet({
                     </Button>
                   </div>
                 )}
+                </>)}
               </section>
             )}
 
