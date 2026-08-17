@@ -8,6 +8,7 @@ import AdminUsers from "@/talkstay/admin/AdminUsers";
 import AdminUsage from "@/talkstay/admin/AdminUsage";
 import AdminAiPerformance from "@/talkstay/admin/AdminAiPerformance";
 import AdminSettings from "@/talkstay/admin/AdminSettings";
+import AdminDemoRequests from "@/talkstay/admin/AdminDemoRequests";
 import NoIndexMeta from "@/talkstay/components/NoIndexMeta";
 
 /** TalkStay platform admin — /admin/* */
@@ -24,6 +25,7 @@ export default function TalkStayAdminApp() {
           <Route path="ai" element={<AdminAiPerformance />} />
           <Route path="live-links" element={<AdminLiveLinks />} />
           <Route path="users" element={<AdminUsers />} />
+          <Route path="demos" element={<AdminDemoRequests />} />
           <Route path="settings" element={<AdminSettings />} />
         </Route>
       </Routes>

@@ -9,6 +9,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
+import BookDemoDialog from "@/talkstay/components/BookDemoDialog";
 import { useAuth } from "@/hooks/useAuth";
 import { GUEST_ACCESS_MARKETING } from "@/talkstay/lib/guestAccessCopy";
 import { captureReferralFromSearch, ensurePartnersLoaded } from "@/talkstay/lib/partners";
@@ -411,6 +412,7 @@ const cases: {
 ];
 
 export default function Landing() {
+  const [demoOpen, setDemoOpen] = useState(false);
   const { user } = useAuth();
 
   useEffect(() => {
@@ -700,11 +702,11 @@ export default function Landing() {
                 <Button asChild size="lg" className="bg-violet-600 hover:bg-violet-700">
                   <Link to="/app">Get started <ArrowRight className="ml-1.5 h-4 w-4" /></Link>
                 </Button>
-                <Button asChild size="lg" variant="outline">
-                  <Link to="/demo">Try demo</Link>
+                <Button size="lg" variant="outline" onClick={() => setDemoOpen(true)}>
+                  Book a live demo
                 </Button>
                 <Button asChild size="lg" variant="outline">
-                  <Link to="/app">Property sign in</Link>
+                  <Link to="/demo">Try demo</Link>
                 </Button>
               </div>
             </div>
@@ -731,6 +733,8 @@ export default function Landing() {
           </div>
         </div>
       </footer>
+
+      {demoOpen && <BookDemoDialog onClose={() => setDemoOpen(false)} />}
     </div>
   );
 }

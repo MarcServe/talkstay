@@ -275,19 +275,6 @@ export default function AdminHotelDetail() {
           <Field label="Display name">
             <Input value={name} onChange={(e) => setName(e.target.value)} />
           </Field>
-          <Field label="Sending email address">
-            <Input
-              type="email"
-              value={fromEmail}
-              onChange={(e) => setFromEmail(e.target.value)}
-              placeholder="notifications@theirhotel.com"
-            />
-            <p className="mt-1 text-[11px] text-muted-foreground">
-              Only after they verify that domain in Resend. Leave blank to send from
-              TalkStay. If the domain stops verifying, emails fall back to TalkStay
-              rather than failing.
-            </p>
-          </Field>
           <Field label="Billing mode">
             <Select value={billingMode} onValueChange={setBillingMode}>
               <SelectTrigger><SelectValue /></SelectTrigger>
@@ -336,12 +323,59 @@ export default function AdminHotelDetail() {
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <Toggle label="Guest pulse enabled" checked={pulse} onChange={setPulse} />
-          {/* Paid branding tier. Admin-only: the property must not be able to
-              remove our marks for itself. */}
-          <Toggle label="White label (hide TalkStay marks)" checked={whiteLabel} onChange={setWhiteLabel} />
           <Toggle label="Require check-in code" checked={requireCode} onChange={setRequireCode} />
           <Toggle label="WhatsApp enabled" checked={whatsappEnabled} onChange={setWhatsappEnabled} />
         </div>
+
+        {/* Its own section on purpose: this is a paid tier with a prerequisite,
+            not another switch in a row of switches. */}
+        <section className="space-y-3 rounded-2xl border-2 border-violet-200 bg-violet-50/50 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div className="min-w-0">
+              <h3 className="text-sm font-semibold text-violet-950">White label</h3>
+              <p className="mt-0.5 text-xs text-violet-900/80">
+                Paid branding tier. Guests already see only this property's logo, colour
+                and name — this removes the remaining TalkStay marks. Admin-only: a
+                property can't switch this on for itself.
+              </p>
+            </div>
+            <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${
+              whiteLabel ? "bg-violet-600 text-white" : "border border-violet-300 bg-white text-violet-900"
+            }`}>
+              {whiteLabel ? "On" : "Off"}
+            </span>
+          </div>
+
+          <Toggle label="Hide TalkStay marks" checked={whiteLabel} onChange={setWhiteLabel} />
+
+          <ul className="ml-4 list-disc space-y-0.5 text-xs text-violet-900/80">
+            <li>Poster footer — "Powered by TalkStay" removed</li>
+            <li>Email footer — "Powered by TalkStay" removed</li>
+            <li>Staff sign-in page — footer mark removed</li>
+            <li>Emails send from the property's name instead of TalkStay</li>
+          </ul>
+
+          <div className="rounded-xl border border-violet-200 bg-white p-3">
+            <Field label="Sending email address (optional)">
+              <Input
+                type="email"
+                value={fromEmail}
+                onChange={(e) => setFromEmail(e.target.value)}
+                placeholder="notifications@theirhotel.com"
+              />
+            </Field>
+            <p className="mt-1.5 text-[11px] leading-relaxed text-violet-900/75">
+              <strong>Set this only after they verify that exact domain in Resend.</strong>{" "}
+              Leave blank and mail sends from TalkStay's address using their name. If the
+              domain is never verified — or stops verifying later — sending falls back to
+              TalkStay automatically, so their guests keep getting notified either way.
+            </p>
+            <p className="mt-1 text-[11px] text-violet-900/60">
+              A subdomain counts as a separate domain in Resend: verifying theirhotel.com
+              does not cover mail.theirhotel.com.
+            </p>
+          </div>
+        </section>
 
         <div className="rounded-xl border p-4">
           <div className="mb-3 flex items-center justify-between gap-3">

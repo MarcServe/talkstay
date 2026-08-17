@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { renderEmail, quoteBlock, escapeHtml, sendViaResend, DEFAULT_FROM } from "../_shared/email.ts";
 
 const PUBLIC_BASE_URL = "https://talkstay.talkweb.io";
 
@@ -32,6 +33,58 @@ serve(async (req) => {
     const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const admin = createClient(SUPABASE_URL, SERVICE_KEY);
 
+    // ------- submit_demo_request (NO auth) -------
+    // The marketing site posts here. Runs BEFORE the admin gate; it can only
+    // insert a lead, never read one back.
+    {
+      const early = await req.clone().json().catch(() => ({} as Record<string, unknown>));
+      if (String((early as any)?.action ?? "") === "submit_demo_request") {
+        const str = (v: unknown, max: number) => String(v ?? "").trim().slice(0, max);
+        const name = str((early as any).name, 120);
+        const email = str((early as any).email, 200).toLowerCase();
+        if (!name || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+          return json({ error: "Name and a valid email are required" }, 400);
+        }
+        // One pending request per email — a double-tapped submit button
+        // shouldn't create two leads to chase.
+        const { data: dupe } = await admin.from("ts_demo_requests")
+          .select("id").eq("email", email).eq("status", "new").limit(1);
+        if (dupe?.length) return json({ ok: true, deduped: true });
+
+        const { error: insErr } = await admin.from("ts_demo_requests").insert({
+          name, email,
+          company: str((early as any).company, 160) || null,
+          phone: str((early as any).phone, 40) || null,
+          property_count: str((early as any).propertyCount, 40) || null,
+          preferred_time: str((early as any).preferredTime, 160) || null,
+          message: str((early as any).message, 1000) || null,
+          source: str((early as any).source, 64) || null,
+        });
+        if (insErr) return json({ error: insErr.message }, 400);
+
+        // Tell the platform admin, or a lead sits unseen until someone opens
+        // the dashboard.
+        const { data: setting } = await admin.from("ts_platform_settings")
+          .select("value").eq("key", "demo").maybeSingle();
+        const notifyTo = String((setting?.value as any)?.notify_email ?? "").trim();
+        if (notifyTo) {
+          const html = renderEmail({
+            hotelName: "TalkStay",
+            heading: "New demo request",
+            bodyHtml: `
+              <p style="margin:0 0 10px;"><strong>${escapeHtml(name)}</strong> — ${escapeHtml(email)}</p>
+              ${(early as any).company ? `<p style="margin:0 0 6px;">Property: ${escapeHtml(str((early as any).company, 160))}</p>` : ""}
+              ${(early as any).phone ? `<p style="margin:0 0 6px;">Phone: ${escapeHtml(str((early as any).phone, 40))}</p>` : ""}
+              ${(early as any).preferredTime ? `<p style="margin:0 0 6px;">Prefers: ${escapeHtml(str((early as any).preferredTime, 160))}</p>` : ""}
+              ${(early as any).message ? quoteBlock(str((early as any).message, 1000)) : ""}`,
+            cta: { label: "Open demo requests", url: "https://talkstay.talkweb.io/admin/demos" },
+          });
+          void sendViaResend({ from: DEFAULT_FROM, to: notifyTo, subject: `New demo request — ${name}`, html });
+        }
+        return json({ ok: true });
+      }
+    }
+
     const jwt = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "").trim();
     if (!jwt) return json({ error: "Unauthorized" }, 401);
 
@@ -45,6 +98,67 @@ serve(async (req) => {
 
     const body = await req.json().catch(() => ({}));
     const action = String(body?.action ?? "").trim();
+
+    // ------- demo requests (admin) -------
+    if (action === "demo_requests") {
+      const { data, error } = await admin.from("ts_demo_requests")
+        .select("id, name, email, company, phone, property_count, preferred_time, message, status, meeting_url, confirmed_at, created_at")
+        .order("created_at", { ascending: false }).limit(200);
+      if (error) {
+        if (/does not exist|relation/i.test(error.message)) return json({ requests: [], missingTable: true });
+        return json({ error: error.message }, 500);
+      }
+      return json({ requests: data ?? [] });
+    }
+
+    if (action === "confirm_demo_request") {
+      const id = String(body?.id ?? "").trim();
+      if (!id) return json({ error: "id required" }, 400);
+      const { data: reqRow } = await admin.from("ts_demo_requests")
+        .select("id, name, email, status").eq("id", id).maybeSingle();
+      if (!reqRow) return json({ error: "Not found" }, 404);
+
+      const { data: setting } = await admin.from("ts_platform_settings")
+        .select("value").eq("key", "demo").maybeSingle();
+      const meetingUrl = String(body?.meetingUrl ?? (setting?.value as any)?.meeting_url ?? "").trim();
+      if (!/^https?:\/\//i.test(meetingUrl)) {
+        return json({ error: "Add your meeting link in Settings → Demo first" }, 400);
+      }
+      const whenText = String(body?.when ?? "").trim().slice(0, 160);
+
+      const html = renderEmail({
+        hotelName: "TalkStay",
+        heading: "Your TalkStay demo is confirmed",
+        bodyHtml: `
+          <p style="margin:0 0 10px;">Hi ${escapeHtml(reqRow.name)},</p>
+          <p style="margin:0 0 10px;">Thanks for your interest — your live demo is confirmed${whenText ? ` for <strong>${escapeHtml(whenText)}</strong>` : ""}. Use the button below to join at that time.</p>
+          <p style="margin:0;color:#6b7280;font-size:13px;">If the time doesn't suit, just reply to this email.</p>`,
+        cta: { label: "Join the demo", url: meetingUrl },
+      });
+      const sent = await sendViaResend({
+        from: DEFAULT_FROM, to: reqRow.email,
+        subject: "Your TalkStay demo is confirmed", html,
+      });
+      if (!sent.ok) return json({ error: `Couldn't email them: ${(sent.error ?? "").slice(0, 200)}` }, 502);
+
+      const { error: upErr } = await admin.from("ts_demo_requests").update({
+        status: "confirmed", meeting_url: meetingUrl,
+        confirmed_at: new Date().toISOString(), handled_by: uid,
+      }).eq("id", id);
+      if (upErr) return json({ error: upErr.message }, 400);
+      return json({ ok: true, emailed: reqRow.email });
+    }
+
+    if (action === "set_demo_status") {
+      const id = String(body?.id ?? "").trim();
+      const status = String(body?.status ?? "").trim();
+      if (!id || !["new", "declined", "done"].includes(status)) {
+        return json({ error: "id and a valid status required" }, 400);
+      }
+      const { error } = await admin.from("ts_demo_requests").update({ status }).eq("id", id);
+      if (error) return json({ error: error.message }, 400);
+      return json({ ok: true });
+    }
 
     if (action === "overview") {
       const [
@@ -485,7 +599,7 @@ serve(async (req) => {
     if (action === "update_settings") {
       const key = String(body?.key ?? "").trim();
       const value = body?.value;
-      const ALLOWED = new Set(["billing", "defaults", "features", "support", "partners"]);
+      const ALLOWED = new Set(["billing", "defaults", "features", "support", "partners", "demo"]);
       if (!ALLOWED.has(key)) return json({ error: "Invalid settings key" }, 400);
       if (value == null || typeof value !== "object" || Array.isArray(value)) {
         return json({ error: "value must be a JSON object" }, 400);
