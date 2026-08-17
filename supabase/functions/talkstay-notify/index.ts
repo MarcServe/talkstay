@@ -10,6 +10,11 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
+// Deep link straight to the ticket. A staff member tapping an alert wants the
+// request, not a dashboard they then have to search.
+const requestUrl = (id: string) =>
+  `https://talkstay.talkweb.io/app?tab=operations&request=${encodeURIComponent(id)}`;
+
 const json = (b: unknown, s = 200) =>
   new Response(JSON.stringify(b), { status: s, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
@@ -121,7 +126,7 @@ serve(async (req) => {
         ${quoteBlock(staffSummary)}
         ${sideNote ? `<p style="margin:14px 0 0;"><strong>${event === "staff_note" ? "Note" : event === "forwarded" ? "Handoff" : "Reason"}:</strong> ${escapeHtml(sideNote)}</p>` : ""}
         ${r.is_complaint && !isCloseEvent ? `<p style="margin:14px 0 0;color:#b91c1c;font-weight:600;">This is a complaint — please handle promptly.</p>` : ""}`,
-      cta: { label: "Open Operations dashboard", url: "https://talkstay.talkweb.io/app" },
+      cta: { label: "Open this request", url: requestUrl(r.id) },
     });
 
     const recipients = new Set<string>();
@@ -166,7 +171,7 @@ serve(async (req) => {
           try {
             await webpush.sendNotification(
               { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
-              JSON.stringify({ title: subject, body: `${roomLabel}: ${staffSummary}`, url: "https://talkstay.talkweb.io/app", urgent, tag: r.id })
+              JSON.stringify({ title: subject, body: `${roomLabel}: ${staffSummary}`, url: requestUrl(r.id), urgent, tag: r.id })
             );
             return 1;
           } catch (err: any) {

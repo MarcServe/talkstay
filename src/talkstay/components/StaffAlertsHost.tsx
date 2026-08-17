@@ -12,11 +12,17 @@ import { guestStayLabel } from "@/talkstay/lib/roomLabel";
 export default function StaffAlertsHost({
   hotelId,
   departmentKey = null,
+  onOpenRequest,
 }: {
   hotelId: string;
   /** Null/undefined = watch every department (owner/manager). */
   departmentKey?: string | null;
+  /** Opens the request's detail sheet — an alert you can't act on from is
+   *  just noise, so both the toast and the OS notification land on the ticket. */
+  onOpenRequest?: (requestId: string) => void;
 }) {
+  const openRef = useRef(onOpenRequest);
+  openRef.current = onOpenRequest;
   useOpsRealtime(hotelId);
   const { data: queue } = useOpsQueue(hotelId, "3d");
   const seenIds = useRef<Set<string> | null>(null);
@@ -50,10 +56,16 @@ export default function StaffAlertsHost({
           title,
           body,
           tag: `req-${r.id}`,
-          url: "/app",
+          url: `/app?tab=operations&request=${r.id}`,
           urgent: !!r.is_complaint || r.priority === "urgent" || r.priority === "high",
         });
-        toast.message(title, { description: body, duration: 10_000 });
+        toast.message(title, {
+          description: body,
+          duration: 10_000,
+          action: fresh.length === 1 && openRef.current
+            ? { label: "Open", onClick: () => openRef.current?.(r.id) }
+            : undefined,
+        });
       }
     }
     seenIds.current = new Set(list.map((r) => r.id));
@@ -84,10 +96,16 @@ export default function StaffAlertsHost({
           title,
           body,
           tag: `esc-${e0.id}`,
-          url: "/app",
+          url: e0.request_id ? `/app?tab=operations&request=${e0.request_id}` : "/app",
           urgent: true,
         });
-        toast.message(title, { description: body, duration: 12_000 });
+        toast.message(title, {
+          description: body,
+          duration: 12_000,
+          action: e0.request_id && openRef.current
+            ? { label: "Open", onClick: () => openRef.current?.(e0.request_id) }
+            : undefined,
+        });
       }
     }
     seenEscalations.current = new Set(queue.escalationEvents.map((e) => e.id));

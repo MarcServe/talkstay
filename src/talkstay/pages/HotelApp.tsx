@@ -381,6 +381,18 @@ export default function HotelApp() {
     if (tabParam === "account") setActive("account");
   }, [tabParam]);
 
+  // Tapping an OS notification lands here with ?request=<id>. Open that ticket,
+  // then strip the param so a later refresh doesn't reopen a handled request.
+  const requestParam = searchParams.get("request");
+  useEffect(() => {
+    if (!requestParam) return;
+    setFocusRequestId(requestParam);
+    setActive("operations");
+    const next = new URLSearchParams(searchParams);
+    next.delete("request");
+    setSearchParams(next, { replace: true });
+  }, [requestParam]);  // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     captureReferralFromSearch(searchParams);
     void ensurePartnersLoaded();
@@ -617,7 +629,11 @@ export default function HotelApp() {
     // to auto without a max height, so the page couldn't scroll and sticky nav stuck.
     <div data-talkstay className="ts-atmosphere flex h-[100dvh] overflow-hidden">
       <NoIndexMeta />
-      <StaffAlertsHost hotelId={hotel.id} departmentKey={lockedDepartment} />
+      <StaffAlertsHost
+        hotelId={hotel.id}
+        departmentKey={lockedDepartment}
+        onOpenRequest={(id) => { setFocusRequestId(id); setActive("operations"); }}
+      />
 
       {/* Desktop sidebar — fixed column, not sticky */}
       <aside className="hidden h-full w-64 shrink-0 md:block print:!hidden">
