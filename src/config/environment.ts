@@ -42,18 +42,25 @@ export const isStaging = () => getEnvironment() === 'staging';
 export const isDevelopment = () => getEnvironment() === 'development';
 
 // Environment-specific configurations
+// widgetUrl is the embeddable <script> src for the inherited TalkWeb widget
+// screens. Those screens aren't routed in TalkStay, but they interpolated
+// config.widgetUrl into copy-paste embed snippets — so without this they were
+// rendering the string "undefined" into anything a user copied.
 export const ENVIRONMENT_CONFIG = {
   development: {
     baseUrl: 'http://localhost:8080',
     supabaseUrl: 'https://oujqkygfmyapmrgxmhvt.supabase.co',
+    widgetUrl: 'http://localhost:8080/widget.js',
   },
   staging: {
     baseUrl: 'https://staging.talkstay.talkweb.io',
     supabaseUrl: 'https://oujqkygfmyapmrgxmhvt.supabase.co',
+    widgetUrl: 'https://staging.talkstay.talkweb.io/widget.js',
   },
   production: {
     baseUrl: 'https://talkstay.talkweb.io',
     supabaseUrl: 'https://oujqkygfmyapmrgxmhvt.supabase.co',
+    widgetUrl: 'https://talkstay.talkweb.io/widget.js',
   }
 };
 

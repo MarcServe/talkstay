@@ -15,7 +15,7 @@ import {
   LayoutGrid, List, Mail, Palette, Plus, Printer, QrCode, RefreshCw,
   Search, Trash2, Upload, UserPlus, X,
 } from "lucide-react";
-import { DEPARTMENTS } from "@/talkstay/lib/hotels";
+import { DEPARTMENTS, type PropertyType } from "@/talkstay/lib/hotels";
 import { useDemo } from "@/talkstay/demo/DemoContext";
 import { getPublicBaseUrl } from "@/config/environment";
 import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
@@ -640,7 +640,7 @@ export function DemoBrandingPanel() {
             <select
               className="h-10 w-full rounded-md border bg-background px-3 text-sm"
               value={profile.type}
-              onChange={(e) => setProfile((p) => ({ ...p, type: e.target.value }))}
+              onChange={(e) => setProfile((p) => ({ ...p, type: e.target.value as PropertyType }))}
             >
               <option value="hotel">Hotel</option>
               <option value="bnb">B&amp;B / Guesthouse</option>

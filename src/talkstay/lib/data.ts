@@ -372,7 +372,9 @@ export interface RequestDetailRow {
 
 export interface RequestDetailData {
   request: RequestDetailRow;
-  events: { id: string; status: string; actor_type: string | null; note: string | null; created_at: string }[];
+  // request_id is optional: the detail query already scopes to one request so
+  // it isn't selected, but seeded/demo events carry it.
+  events: { id: string; status: string; actor_type: string | null; note: string | null; created_at: string; request_id?: string }[];
   messages: {
     id: string; sender: string; staff_label: string | null;
     body: string; body_guest: string | null; created_at: string;

@@ -389,7 +389,7 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
   const inTime = (r: Req) => {
     const range = TIME_RANGES.find((t) => t.id === timeRange);
     if (!range?.ms) return true;
-    if (OPEN_STATUSES.includes(r.status)) return true;
+    if ((OPEN_STATUSES as readonly string[]).includes(r.status)) return true;
     return new Date(r.created_at).getTime() >= Date.now() - range.ms;
   };
 

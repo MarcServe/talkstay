@@ -674,7 +674,8 @@ function DemoGuestInner() {
   const routeThroughHotelBrain = async (text: string, surfaceReply: boolean) => {
     try {
       const history = msgsRef.current
-        .filter((m) => m.role === "user" || m.role === "assistant")
+        .filter((m): m is Extract<Msg, { role: "assistant" | "user" }> =>
+          m.role === "user" || m.role === "assistant")
         .map((m) => ({ role: m.role, content: m.content })) as ChatMsg[];
       const res = await sendDemoMessage({ sessionId: sid, message: text, history });
       if (res.requests?.length) mirrorRequests(res.requests);

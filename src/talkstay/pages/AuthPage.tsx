@@ -120,10 +120,12 @@ function AuthShell({ children, brand }: { children: React.ReactNode; brand: Prop
 }
 
 function AuthInput({
-  id, type, value, onChange, placeholder, autoComplete, icon: Icon, trailing,
+  id, type, value, onChange, placeholder, autoComplete, autoFocus, icon: Icon, trailing,
 }: {
   id: string; type: string; value: string; onChange: (v: string) => void;
   placeholder?: string; autoComplete?: string;
+  /** Honoured on the set-a-password screen, which exists only to type one. */
+  autoFocus?: boolean;
   icon: typeof Mail; trailing?: React.ReactNode;
 }) {
   return (
@@ -131,7 +133,7 @@ function AuthInput({
       <Icon className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
       <Input
         id={id} type={type} required value={value} placeholder={placeholder}
-        onChange={(e) => onChange(e.target.value)} autoComplete={autoComplete}
+        onChange={(e) => onChange(e.target.value)} autoComplete={autoComplete} autoFocus={autoFocus}
         className="h-11 rounded-xl border-0 bg-white pl-11 pr-10 text-base text-gray-900 shadow-sm placeholder:text-gray-400 focus-visible:ring-violet-500/40 md:h-11 md:px-0 md:pl-11 md:pr-10"
       />
       {trailing && (

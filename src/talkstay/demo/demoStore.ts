@@ -478,10 +478,12 @@ function seedInsights(requests: OpsRequest[]): InsightsData {
     interactions,
     requests: insightRequests,
     ratings: [
-      { request_id: "demo-req-5", rating: 5, comment: "Super fast!" },
-      { request_id: "demo-hist-1", rating: 4, comment: null },
-      { request_id: "demo-hist-3", rating: 5, comment: "Loved speaking instead of calling reception." },
-      { request_id: "demo-hist-6", rating: 3, comment: "Took a bit longer than expected." },
+      // created_at is required by InsightsData — without it the demo's Reviews
+      // list renders an invalid date.
+      { request_id: "demo-req-5", rating: 5, comment: "Super fast!", created_at: ago(30) },
+      { request_id: "demo-hist-1", rating: 4, comment: null, created_at: ago(180) },
+      { request_id: "demo-hist-3", rating: 5, comment: "Loved speaking instead of calling reception.", created_at: ago(600) },
+      { request_id: "demo-hist-6", rating: 3, comment: "Took a bit longer than expected.", created_at: ago(1400) },
     ],
     pulses: [
       {
@@ -1607,8 +1609,8 @@ export function guestRateDemoRequest(
   comment?: string,
 ): DemoState {
   const cleaned = Math.min(5, Math.max(1, Math.round(rating)));
-  const ratings = [
-    { request_id: requestId, rating: cleaned, comment: comment?.trim() || null },
+  const ratings: InsightsData["ratings"] = [
+    { request_id: requestId, rating: cleaned, comment: comment?.trim() || null, created_at: new Date().toISOString() },
     ...state.insights.ratings.filter((r) => r.request_id !== requestId),
   ];
   return {
