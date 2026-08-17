@@ -418,7 +418,7 @@ serve(async (req) => {
     if (action === "list") {
       let q = admin
         .from("ts_staff")
-        .select("id, user_id, department_key, role, status, name, created_at")
+        .select("id, user_id, department_key, role, status, name, room_id, created_at")
         .eq("hotel_id", hotelId)
         .order("created_at", { ascending: true });
       if (isDeptManager && callerStaff?.department_key) {
