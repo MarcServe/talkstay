@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import webpush from "npm:web-push@3.6.7";
-import { renderEmail, quoteBlock, escapeHtml, emailFrom, isWhiteLabel } from "../_shared/email.ts";
+import { renderEmail, quoteBlock, escapeHtml, emailFrom, isWhiteLabel, sendViaResend } from "../_shared/email.ts";
 import { authorizeRequestSideEffect } from "../_shared/talkstayAuth.ts";
 import { formatRoomLabel } from "../_shared/roomLabel.ts";
 
@@ -24,16 +24,8 @@ const DEPT_LABEL: Record<string, string> = {
 };
 
 async function sendEmail(to: string, subject: string, html: string, from: string): Promise<boolean> {
-  const key = (Deno.env.get("RESEND_API_KEY") || "").trim();
-  if (!key || !to) return false;
-  try {
-    const r = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from, to, subject, html }),
-    });
-    return r.ok;
-  } catch { return false; }
+  const res = await sendViaResend({ from, to, subject, html });
+  return res.ok;
 }
 
 serve(async (req) => {
@@ -153,7 +145,7 @@ serve(async (req) => {
 
     const results: Record<string, boolean> = {};
     await Promise.all([...recipients].map(async (to) => {
-      results[to] = await sendEmail(to, subject, html, emailFrom(hotel?.name ?? "", isWhiteLabel(hotel?.branding)));
+      results[to] = await sendEmail(to, subject, html, emailFrom(hotel?.name ?? "", isWhiteLabel(hotel?.branding), hotel?.branding));
     }));
 
     // Web push to subscribed staff devices (department-scoped, or hotel-wide when

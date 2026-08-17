@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import webpush from "npm:web-push@3.6.7";
-import { renderEmail, quoteBlock, escapeHtml, emailFrom, isWhiteLabel } from "../_shared/email.ts";
+import { renderEmail, quoteBlock, escapeHtml, emailFrom, isWhiteLabel, sendViaResend } from "../_shared/email.ts";
 
 // A member of staff replies directly to a guest. The reply is translated into
 // the guest's language, stored, and (if the guest opted in) emailed to them.
@@ -128,11 +128,12 @@ serve(async (req) => {
           cta: { label: "Continue chat", url: guestUrl },
           footerNote: "Opens your room assistant so you can reply. You can also scan the QR in your room.",
         });
-        fetch("https://api.resend.com/emails", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ from: emailFrom(hotel.name ?? "", isWhiteLabel(hotel.branding)), to: email, subject: `${hotel.name ?? "Your hotel"}: a message from the team`, html }),
-        }).catch(() => {});
+        void sendViaResend({
+          from: emailFrom(hotel.name ?? "", isWhiteLabel(hotel.branding), hotel.branding),
+          to: email,
+          subject: `${hotel.name ?? "Your hotel"}: a message from the team`,
+          html,
+        });
       }
 
       if (pushSubs?.length) {

@@ -27,18 +27,72 @@ export interface EmailShellOptions {
   whiteLabel?: boolean;
 }
 
-/** Display name on the From line. The address must stay on our verified
- *  sending domain, but the name shown to the recipient can be the property's. */
-export function emailFrom(hotelName: string, whiteLabel?: boolean): string {
-  const clean = String(hotelName ?? "").replace(/["\\<>]/g, "").trim().slice(0, 60);
-  return whiteLabel && clean
-    ? `${clean} <notifications@talkweb.io>`
-    : "TalkStay <notifications@talkweb.io>";
-}
+/** Our own verified sender — always deliverable, used as the safety net. */
+export const DEFAULT_FROM = "TalkStay <notifications@talkweb.io>";
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** Strip anything that could inject a second address into the From header. */
+const safeName = (s: unknown) =>
+  String(s ?? "").replace(/["\\<>,;:]/g, "").trim().slice(0, 60);
 
 /** Read the paid white-label flag off a hotel's branding jsonb. */
 export function isWhiteLabel(branding: unknown): boolean {
   return !!(branding as { white_label?: boolean } | null)?.white_label;
+}
+
+/** Per-property sending address, set in admin once their domain is verified
+ *  in Resend. Ignored unless it parses as an email. */
+export function brandedFromAddress(branding: unknown): string | null {
+  const raw = (branding as { from_email?: string } | null)?.from_email;
+  const clean = String(raw ?? "").trim().toLowerCase();
+  return EMAIL_RE.test(clean) ? clean : null;
+}
+
+/** The From line for this property: their name, and their address when one is
+ *  configured. Falls back to ours whenever nothing valid is set. */
+export function emailFrom(hotelName: string, whiteLabel?: boolean, branding?: unknown): string {
+  const name = safeName(hotelName);
+  const addr = brandedFromAddress(branding);
+  if (addr) return name ? `${name} <${addr}>` : addr;
+  return whiteLabel && name ? `${name} <notifications@talkweb.io>` : DEFAULT_FROM;
+}
+
+/** Send through Resend, retrying once on our own sender if a property's custom
+ *  address is rejected. A domain that was never verified (or got unverified)
+ *  must not silently stop that property's notifications — the guest still gets
+ *  the email, just from us. */
+export async function sendViaResend(opts: {
+  from: string;
+  to: string | string[];
+  subject: string;
+  html: string;
+}): Promise<{ ok: boolean; usedFallback: boolean; error?: string }> {
+  const key = (Deno.env.get("RESEND_API_KEY") || "").trim();
+  if (!key || !opts.to || (Array.isArray(opts.to) && !opts.to.length)) {
+    return { ok: false, usedFallback: false, error: "no api key or recipient" };
+  }
+  const post = async (from: string) => {
+    const r = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ from, to: opts.to, subject: opts.subject, html: opts.html }),
+    });
+    return { ok: r.ok, detail: r.ok ? "" : await r.text().catch(() => "") };
+  };
+
+  try {
+    const first = await post(opts.from);
+    if (first.ok) return { ok: true, usedFallback: false };
+    if (opts.from === DEFAULT_FROM) {
+      return { ok: false, usedFallback: false, error: first.detail.slice(0, 300) };
+    }
+    console.error("resend rejected custom sender, retrying as TalkStay:", first.detail.slice(0, 300));
+    const second = await post(DEFAULT_FROM);
+    return { ok: second.ok, usedFallback: true, error: second.ok ? undefined : second.detail.slice(0, 300) };
+  } catch (e) {
+    return { ok: false, usedFallback: false, error: e instanceof Error ? e.message : String(e) };
+  }
 }
 
 /** A branded card email: coloured header (logo + hotel name), white body,

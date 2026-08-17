@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-import { renderEmail, escapeHtml, emailFrom, isWhiteLabel } from "../_shared/email.ts";
+import { renderEmail, escapeHtml, emailFrom, isWhiteLabel, sendViaResend } from "../_shared/email.ts";
 
 const PUBLIC_BASE_URL = "https://talkstay.talkweb.io";
 const MAX_BULK = 100;
@@ -294,19 +294,14 @@ serve(async (req) => {
           footerNote: "If you weren't expecting this, you can safely ignore this email.",
         });
         try {
-          const r = await fetch("https://api.resend.com/emails", {
-            method: "POST",
-            headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-            body: JSON.stringify({
-              from: emailFrom(hotel.name ?? "", isWhiteLabel(hotel.branding)),
-              to: cleanEmail,
-              subject: `You've been invited to join ${hotel.name ?? "a property"} on TalkStay`,
-              html,
-            }),
+          const r = await sendViaResend({
+            from: emailFrom(hotel.name ?? "", isWhiteLabel(hotel.branding), hotel.branding),
+            to: cleanEmail,
+            subject: `You've been invited to join ${hotel.name ?? "a property"} on TalkStay`,
+            html,
           });
           if (!r.ok) {
-            const t = await r.text().catch(() => "");
-            return { sent: false, reason: `Email provider error (${r.status}): ${t.slice(0, 160)}` };
+            return { sent: false, reason: `Email provider error: ${(r.error ?? "").slice(0, 160)}` };
           }
           return { sent: true };
         } catch (e) {

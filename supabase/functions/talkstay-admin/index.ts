@@ -513,12 +513,22 @@ serve(async (req) => {
       // is platform-admin only on purpose — a property must not be able to
       // switch off our marks for itself. Merged, never overwritten, so this
       // can't wipe the logo/colour/poster config sitting in the same object.
-      if (body?.white_label !== undefined) {
+      // from_email only works once the property has verified that domain in
+      // Resend; until then sends fall back to ours rather than failing.
+      if (body?.white_label !== undefined || body?.from_email !== undefined) {
         const { data: cur } = await admin
           .from("ts_hotels").select("branding").eq("id", hotelId).maybeSingle();
         const branding = { ...((cur?.branding ?? {}) as Record<string, unknown>) };
-        if (body.white_label) branding.white_label = true;
-        else delete branding.white_label;
+        if (body?.white_label !== undefined) {
+          if (body.white_label) branding.white_label = true;
+          else delete branding.white_label;
+        }
+        if (body?.from_email !== undefined) {
+          const addr = String(body.from_email ?? "").trim().toLowerCase();
+          if (!addr) delete branding.from_email;
+          else if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(addr)) branding.from_email = addr;
+          else return json({ error: "from_email must be a valid email address" }, 400);
+        }
         patch.branding = branding;
       }
 

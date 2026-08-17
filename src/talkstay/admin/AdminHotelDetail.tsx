@@ -44,6 +44,7 @@ export default function AdminHotelDetail() {
   const [billingNotes, setBillingNotes] = useState("");
   const [pulse, setPulse] = useState(true);
   const [whiteLabel, setWhiteLabel] = useState(false);
+  const [fromEmail, setFromEmail] = useState("");
   const [requireCode, setRequireCode] = useState(false);
   const [maxDevices, setMaxDevices] = useState(8);
   const [timezone, setTimezone] = useState("Europe/London");
@@ -74,6 +75,7 @@ export default function AdminHotelDetail() {
       setBillingNotes(h.billing_notes ?? "");
       setPulse(h.pulse_enabled !== false);
       setWhiteLabel(!!(h.branding as { white_label?: boolean } | null)?.white_label);
+      setFromEmail(String((h.branding as { from_email?: string } | null)?.from_email ?? ""));
       setRequireCode(!!h.require_checkin_code);
       setMaxDevices(Number(h.max_devices_per_room) || 8);
       setTimezone(h.timezone ?? "Europe/London");
@@ -139,6 +141,7 @@ export default function AdminHotelDetail() {
         billing_rates,
         pulse_enabled: pulse,
         white_label: whiteLabel,
+        from_email: fromEmail.trim(),
         require_checkin_code: requireCode,
         max_devices_per_room: maxDevices,
         timezone,
@@ -271,6 +274,19 @@ export default function AdminHotelDetail() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <Field label="Display name">
             <Input value={name} onChange={(e) => setName(e.target.value)} />
+          </Field>
+          <Field label="Sending email address">
+            <Input
+              type="email"
+              value={fromEmail}
+              onChange={(e) => setFromEmail(e.target.value)}
+              placeholder="notifications@theirhotel.com"
+            />
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Only after they verify that domain in Resend. Leave blank to send from
+              TalkStay. If the domain stops verifying, emails fall back to TalkStay
+              rather than failing.
+            </p>
           </Field>
           <Field label="Billing mode">
             <Select value={billingMode} onValueChange={setBillingMode}>

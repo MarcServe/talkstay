@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-import { renderEmail, escapeHtml, emailFrom, isWhiteLabel } from "../_shared/email.ts";
+import { renderEmail, escapeHtml, emailFrom, isWhiteLabel, sendViaResend } from "../_shared/email.ts";
 import { formatRoomLabel } from "../_shared/roomLabel.ts";
 
 // Staff-triggered: front desk types a busy guest's email and this sends the
@@ -83,17 +83,14 @@ serve(async (req) => {
       footerNote: "This code is unique to your stay — please don't share it with anyone outside your party.",
     });
 
-    const resp = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        from: emailFrom(hotel.name ?? "", isWhiteLabel(hotel.branding)), to: String(email),
-        subject: `${hotel.name ?? "Your hotel"}: your check-in code (${roomLabel})`, html,
-      }),
+    const resp = await sendViaResend({
+      from: emailFrom(hotel.name ?? "", isWhiteLabel(hotel.branding), hotel.branding),
+      to: String(email),
+      subject: `${hotel.name ?? "Your hotel"}: your check-in code (${roomLabel})`,
+      html,
     });
     if (!resp.ok) {
-      const detail = await resp.text();
-      return json({ error: `Email send failed: ${detail.slice(0, 200)}` }, 502);
+      return json({ error: `Email send failed: ${(resp.error ?? "").slice(0, 200)}` }, 502);
     }
 
     return json({ ok: true, emailed: email });
