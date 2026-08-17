@@ -8,8 +8,8 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { ChevronDown, Loader2, Phone, AlertTriangle, X, Plus, Minus } from "lucide-react";
-import { listRooms, listCatalogItems, type CatalogItem, type Hotel, type Room } from "@/talkstay/lib/hotels";
+import { ChevronDown, Loader2, Phone, AlertTriangle, X, Plus, Minus, Search } from "lucide-react";
+import { listRooms, listCatalogItems, menuItemKey, type CatalogItem, type Hotel, type Room } from "@/talkstay/lib/hotels";
 import { formatRoomLabel, guestStayLabel } from "@/talkstay/lib/roomLabel";
 import { useDemo } from "@/talkstay/demo/DemoContext";
 import { OPEN_STATUSES } from "@/talkstay/lib/data";
@@ -90,6 +90,7 @@ export default function LogOrderDialog({
   // overwrites something a staff member is part-way through typing.
   const [items, setItems] = useState<CatalogItem[]>([]);
   const [picked, setPicked] = useState<Record<string, number>>({});
+  const [itemQuery, setItemQuery] = useState("");
   const [busy, setBusy] = useState(false);
   const [openRows, setOpenRows] = useState<OpenRow[]>([]);
   const [dupBlock, setDupBlock] = useState<OpenRow[] | null>(null);
@@ -164,9 +165,32 @@ export default function LogOrderDialog({
     return () => { cancelled = true; };
   }, [hotel.id, activeDept, roomId, demo]);
 
+  // This outlet's price beats the department-wide one for the same item, so the
+  // bar only ever sees one "House Red" — the price that applies where the order
+  // is being taken. Showing both was a genuine hazard: two identical chips at
+  // different prices and no way to tell which is which.
+  const menu = useMemo(() => {
+    const byKey = new Map<string, CatalogItem>();
+    for (const i of items) {
+      const k = menuItemKey(i.name);
+      const held = byKey.get(k);
+      if (!held || (i.room_id && !held.room_id)) byKey.set(k, i);
+    }
+    return [...byKey.values()];
+  }, [items]);
+
+  const visibleMenu = useMemo(() => {
+    const q = itemQuery.trim().toLowerCase();
+    if (!q) return menu;
+    return menu.filter((i) => i.name.toLowerCase().includes(q));
+  }, [menu, itemQuery]);
+
+  const areaName = (id: string | null) =>
+    id ? rooms.find((r) => r.id === id)?.room_number ?? null : null;
+
   const pickedList = useMemo(
-    () => items.filter((i) => (picked[i.id] ?? 0) > 0),
-    [items, picked],
+    () => menu.filter((i) => (picked[i.id] ?? 0) > 0),
+    [menu, picked],
   );
   const pickedLine = pickedList
     .map((i) => (picked[i.id] > 1 ? `${picked[i.id]}× ${i.name}` : i.name))
@@ -428,7 +452,7 @@ export default function LogOrderDialog({
           )}
         </div>
 
-        {items.length > 0 && (
+        {menu.length > 0 && (
           <div className="space-y-2 rounded-xl border bg-muted/30 p-3">
             <div className="flex items-center justify-between gap-2">
               <Label className="text-xs">Tap to add</Label>
@@ -442,8 +466,25 @@ export default function LogOrderDialog({
                 </button>
               )}
             </div>
-            <div className="flex flex-wrap gap-1.5">
-              {items.map((i) => {
+            {menu.length > 10 && (
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={itemQuery}
+                  onChange={(e) => setItemQuery(e.target.value)}
+                  placeholder={`Search ${menu.length} items…`}
+                  className="h-9 pl-8"
+                />
+              </div>
+            )}
+
+            <div className="flex max-h-56 flex-wrap gap-1.5 overflow-y-auto">
+              {visibleMenu.length === 0 && (
+                <span className="py-1 text-xs text-muted-foreground">
+                  Nothing matches "{itemQuery}".
+                </span>
+              )}
+              {visibleMenu.map((i) => {
                 const qty = picked[i.id] ?? 0;
                 return (
                   <span
@@ -462,6 +503,13 @@ export default function LogOrderDialog({
                       {typeof i.price === "number" && (
                         <span className="ml-1 text-muted-foreground">
                           {formatMoney(i.price, i.currency)}
+                        </span>
+                      )}
+                      {/* Only outlet-specific items are tagged — an untagged
+                          chip is the department-wide price. */}
+                      {i.room_id && areaName(i.room_id) && (
+                        <span className="ml-1 rounded-full bg-sky-100 px-1.5 text-[10px] font-medium text-sky-900">
+                          {areaName(i.room_id)}
                         </span>
                       )}
                     </button>

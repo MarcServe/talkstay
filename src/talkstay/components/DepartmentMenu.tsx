@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { Loader2, Plus, Trash2, ChevronDown, Camera, Check, FileUp } from "lucide-react";
+import { Loader2, Plus, Trash2, ChevronDown, Camera, Check, FileUp, Search } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Textarea } from "@/components/ui/textarea";
 import { formatMoney } from "@/talkstay/lib/statusStyles";
@@ -35,6 +35,7 @@ export default function DepartmentMenu({
   itemsRef.current = items;
   const [name, setName] = useState("");
   const [price, setPrice] = useState("");
+  const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
 
   // Menu import: candidates are reviewed before anything is written, because
@@ -270,8 +271,22 @@ export default function DepartmentMenu({
           ) : items.length === 0 ? (
             <p className="text-xs text-muted-foreground">Nothing on this menu yet.</p>
           ) : (
-            <div className="divide-y rounded-lg border bg-background">
-              {items.map((i) => (
+            <>
+            {items.length > 10 && (
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder={`Search ${items.length} items…`}
+                  className="h-8 pl-8"
+                />
+              </div>
+            )}
+            <div className="max-h-72 divide-y overflow-y-auto rounded-lg border bg-background">
+              {items
+                .filter((i) => !query.trim() || i.name.toLowerCase().includes(query.trim().toLowerCase()))
+                .map((i) => (
                 <div key={i.id} className="flex items-center gap-2 px-2.5 py-1.5">
                   <span className="min-w-0 flex-1 truncate text-sm">{i.name}</span>
                   <Input
@@ -290,6 +305,7 @@ export default function DepartmentMenu({
                 </div>
               ))}
             </div>
+            </>
           )}
 
           {/* Import — nothing is written until it's reviewed below. */}
