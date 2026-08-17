@@ -272,7 +272,7 @@ export default function DepartmentMenu({
             <p className="text-xs text-muted-foreground">Nothing on this menu yet.</p>
           ) : (
             <>
-            {items.length > 10 && (
+            {items.length > 5 && (
               <div className="relative">
                 <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
                 <Input

@@ -465,7 +465,14 @@ export default function LogOrderDialog({
         {menu.length > 0 && (
           <div className="space-y-2 rounded-xl border bg-muted/30 p-3">
             <div className="flex items-center justify-between gap-2">
-              <Label className="text-xs">Tap to add</Label>
+              <Label className="text-xs">
+                Tap to add
+                {itemQuery.trim() && (
+                  <span className="ml-1 font-normal text-muted-foreground">
+                    · {visibleMenu.length} of {menu.length}
+                  </span>
+                )}
+              </Label>
               {pickedList.length > 0 && (
                 <button
                   type="button"
@@ -476,13 +483,14 @@ export default function LogOrderDialog({
                 </button>
               )}
             </div>
-            {menu.length > 10 && (
+            {menu.length > 5 && (
               <div className="relative">
                 <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   value={itemQuery}
                   onChange={(e) => setItemQuery(e.target.value)}
                   placeholder={`Search ${menu.length} items…`}
+                  aria-label="Search the menu"
                   className="h-9 pl-8"
                 />
               </div>
