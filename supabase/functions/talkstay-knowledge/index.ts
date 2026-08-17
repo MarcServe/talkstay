@@ -80,6 +80,69 @@ async function embed(texts: string[], apiKey: string): Promise<number[][]> {
 }
 
 /** Read a menu / info photo and return a guest card structure. */
+
+/** Read a menu (photo or pasted text) into priced line items for the tap-to-log
+ *  catalogue. Deliberately conservative: an item with no clearly printed price
+ *  comes back with price null rather than a guess, because a wrong price is
+ *  worse than a blank one — staff can see a gap, they can't see a silent error. */
+async function extractMenuItems(
+  apiKey: string,
+  input: { imageUrl?: string; text?: string },
+): Promise<{ items: { name: string; price: number | null }[]; currencyHint: string | null }> {
+  const clean = apiKey.replace(/[^\x21-\x7E]/g, "");
+  const system =
+    "You extract orderable line items and prices from a hospitality menu or service list. " +
+    "Return JSON only: { currency, items: [{ name, price }] }. " +
+    "name: the item as printed, without the price, max 80 chars, no leading bullets or numbers. " +
+    "price: the number only (14.5 not '£14.50'). If no price is clearly printed for that item, use null. " +
+    "NEVER invent, infer or average a price. Skip section headings, descriptions, allergen notes and prose. " +
+    "currency: ISO code if identifiable from symbols (GBP, EUR, USD), else null. " +
+    "Max 120 items.";
+
+  const userContent = input.imageUrl
+    ? [
+        { type: "text", text: "Extract the orderable items and prices from this menu." },
+        { type: "image_url", image_url: { url: input.imageUrl, detail: "high" } },
+      ]
+    : `Extract the orderable items and prices from this menu:\n\n${String(input.text ?? "").slice(0, 12000)}`;
+
+  const r = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${clean}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "gpt-4o-mini",
+      temperature: 0,
+      max_tokens: 2000,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: userContent },
+      ],
+    }),
+  });
+  if (!r.ok) throw new Error(`Menu scan failed (${r.status})`);
+  const data = await r.json();
+  const parsed = JSON.parse(String(data?.choices?.[0]?.message?.content ?? "{}"));
+
+  const seen = new Set<string>();
+  const items: { name: string; price: number | null }[] = [];
+  for (const raw of Array.isArray(parsed.items) ? parsed.items : []) {
+    const name = String(raw?.name ?? "").trim().replace(/^[-•*\d.)\s]+/, "").slice(0, 80);
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;       // the unique index would reject it later anyway
+    seen.add(key);
+    const n = Number(raw?.price);
+    items.push({
+      name,
+      price: Number.isFinite(n) && n > 0 && n < 100000 ? Math.round(n * 100) / 100 : null,
+    });
+    if (items.length >= 120) break;
+  }
+  const cur = String(parsed.currency ?? "").trim().toUpperCase();
+  return { items, currencyHint: /^[A-Z]{3}$/.test(cur) ? cur : null };
+}
+
 async function scanPhotoToCard(imageUrl: string, apiKey: string): Promise<{
   title: string; summary: string; media: Record<string, unknown>;
 }> {
@@ -150,6 +213,35 @@ serve(async (req) => {
     const { action } = body;
 
     // -------- scan_photo (camera / upload → structured card fields) --------
+    // -------- scan_menu: photo or pasted text -> priced catalogue items --------
+    // Returns candidates only. Nothing is written here — the caller reviews and
+    // confirms, because these are prices that end up on a guest's bill.
+    if (action === "scan_menu") {
+      const { hotelId, departmentKey = null, imageUrl, text } = body;
+      if (!hotelId) return json({ error: "hotelId required" }, 400);
+      if (!imageUrl && !String(text ?? "").trim()) {
+        return json({ error: "imageUrl or text required" }, 400);
+      }
+      if (imageUrl && !/^https?:\/\//i.test(String(imageUrl))) {
+        return json({ error: "imageUrl must be http(s)" }, 400);
+      }
+      const { data: can } = await admin.rpc("ts_kb_can_write", {
+        _hotel_id: hotelId, _scope: departmentKey ? "department" : "general",
+        _department_key: departmentKey, _user_id: uid,
+      });
+      if (!can) return json({ error: "You don't have permission to edit this menu." }, 403);
+      if (!OPENAI_API_KEY) return json({ error: "AI not configured" }, 500);
+      try {
+        const out = await extractMenuItems(OPENAI_API_KEY, {
+          imageUrl: imageUrl ? String(imageUrl).trim() : undefined,
+          text: text ? String(text) : undefined,
+        });
+        return json({ ok: true, ...out });
+      } catch (e) {
+        return json({ error: e instanceof Error ? e.message : "Menu scan failed" }, 502);
+      }
+    }
+
     if (action === "scan_photo") {
       const { hotelId, scope = "general", departmentKey = null, imageUrl } = body;
       if (!hotelId || !imageUrl) return json({ error: "hotelId and imageUrl required" }, 400);
