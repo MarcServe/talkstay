@@ -156,11 +156,13 @@ export default function LogOrderDialog({
     let cancelled = false;
     setPicked({});
     if (demo || !activeDept) { setItems([]); return; }
-    listCatalogItems(hotel.id, activeDept).then((rows) => {
+    // Scoped to where the order is being taken: the outlet's own list plus the
+    // department-wide items, so a pool-bar ticket shows pool-bar prices.
+    listCatalogItems(hotel.id, activeDept, { roomId: roomId || null }).then((rows) => {
       if (!cancelled) setItems(rows);
     });
     return () => { cancelled = true; };
-  }, [hotel.id, activeDept, demo]);
+  }, [hotel.id, activeDept, roomId, demo]);
 
   const pickedList = useMemo(
     () => items.filter((i) => (picked[i.id] ?? 0) > 0),

@@ -7,8 +7,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { Textarea } from "@/components/ui/textarea";
 import { formatMoney } from "@/talkstay/lib/statusStyles";
 import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import {
   listCatalogItems, addCatalogItem, updateCatalogItem, deleteCatalogItem, menuItemKey,
-  type CatalogItem,
+  listRooms, type CatalogItem, type Room,
 } from "@/talkstay/lib/hotels";
 
 /**
@@ -22,6 +25,9 @@ export default function DepartmentMenu({
   hotelId: string; departmentKey: string; departmentName: string;
 }) {
   const [open, setOpen] = useState(false);
+  // Which outlet's list is being edited. "" = department-wide (every outlet).
+  const [outlets, setOutlets] = useState<Room[]>([]);
+  const [outletId, setOutletId] = useState<string>("");
   const [items, setItems] = useState<CatalogItem[]>([]);
   const [loaded, setLoaded] = useState(false);
   // Read inside async scan handlers, which outlive the render that started them.
@@ -40,13 +46,21 @@ export default function DepartmentMenu({
     { name: string; price: number | null; keep: boolean; dupe: boolean }[] | null
   >(null);
 
+  // Public QR areas are the outlets — a pool bar and a lobby bar are already
+  // separate rooms, so no new concept is needed to tell their menus apart.
   useEffect(() => {
-    if (!open || loaded) return;
-    listCatalogItems(hotelId, departmentKey).then((rows) => {
-      setItems(rows);
-      setLoaded(true);
-    });
-  }, [open, loaded, hotelId, departmentKey]);
+    if (!open || outlets.length) return;
+    listRooms(hotelId)
+      .then((rs) => setOutlets(rs.filter((r) => r.is_public)))
+      .catch(() => setOutlets([]));
+  }, [open, hotelId, outlets.length]);
+
+  useEffect(() => {
+    if (!open) return;
+    setLoaded(false);
+    listCatalogItems(hotelId, departmentKey, { roomId: outletId || null, outletOnly: true })
+      .then((rows) => { setItems(rows); setLoaded(true); });
+  }, [open, hotelId, departmentKey, outletId]);
 
   const add = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -59,7 +73,7 @@ export default function DepartmentMenu({
     }
     setBusy(true);
     try {
-      const row = await addCatalogItem({ hotelId, departmentKey, name: clean, price: p });
+      const row = await addCatalogItem({ hotelId, departmentKey, name: clean, price: p, roomId: outletId || null });
       setItems((prev) => [...prev, row].sort((a, b) => a.name.localeCompare(b.name)));
       setName(""); setPrice("");
     } catch (err) {
@@ -166,7 +180,7 @@ export default function DepartmentMenu({
     const failed: string[] = [];
     for (const f of keep) {
       try {
-        const row = await addCatalogItem({ hotelId, departmentKey, name: f.name, price: f.price });
+        const row = await addCatalogItem({ hotelId, departmentKey, name: f.name, price: f.price, roomId: outletId || null });
         setItems((prev) => [...prev, row].sort((a, b) => a.name.localeCompare(b.name)));
         added++;
       } catch {
@@ -228,6 +242,26 @@ export default function DepartmentMenu({
             Staff tap these when logging a phone or walk-in order for {departmentName},
             instead of typing the name and price each time.
           </p>
+
+          {outlets.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-background px-2.5 py-2">
+              <span className="text-xs text-muted-foreground">Menu for</span>
+              <Select value={outletId || "__all__"} onValueChange={(v) => setOutletId(v === "__all__" ? "" : v)}>
+                <SelectTrigger className="h-8 w-48 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">All areas (whole department)</SelectItem>
+                  {outlets.map((o) => (
+                    <SelectItem key={o.id} value={o.id}>{o.room_number}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <span className="text-[11px] text-muted-foreground">
+                {outletId
+                  ? "Only this area — use it for different prices at, say, the pool bar."
+                  : "Offered everywhere this department serves."}
+              </span>
+            </div>
+          )}
 
           {!loaded ? (
             <div className="flex items-center gap-2 text-xs text-muted-foreground">

@@ -815,6 +815,8 @@ export interface CatalogItem {
   currency: string;
   is_active: boolean;
   sort_order: number;
+  /** Outlet this belongs to (a public QR area). Null = whole department. */
+  room_id: string | null;
 }
 
 
@@ -834,13 +836,24 @@ export function menuItemKey(name: string): string {
     .replace(/\s+/g, " ");
 }
 
-export async function listCatalogItems(hotelId: string, departmentKey?: string): Promise<CatalogItem[]> {
+/** Items offered at `roomId`: that outlet's own list plus the department-wide
+ *  ones. Pass `outletOnly` to edit one outlet's list in isolation. */
+export async function listCatalogItems(
+  hotelId: string,
+  departmentKey?: string,
+  opts?: { roomId?: string | null; outletOnly?: boolean },
+): Promise<CatalogItem[]> {
   let q = supabase
     .from("ts_catalog_items")
-    .select("id, department_key, name, price, currency, is_active, sort_order")
+    .select("id, department_key, name, price, currency, is_active, sort_order, room_id")
     .eq("hotel_id", hotelId)
     .eq("is_active", true);
   if (departmentKey) q = q.eq("department_key", departmentKey);
+  if (opts?.outletOnly) {
+    q = opts.roomId ? q.eq("room_id", opts.roomId) : q.is("room_id", null);
+  } else if (opts?.roomId) {
+    q = q.or(`room_id.is.null,room_id.eq.${opts.roomId}`);
+  }
   const { data, error } = await q.order("sort_order").order("name");
   // The picker is a convenience — a missing table (migration not applied yet)
   // must never stop someone logging an order by hand.
@@ -850,6 +863,7 @@ export async function listCatalogItems(hotelId: string, departmentKey?: string):
 
 export async function addCatalogItem(input: {
   hotelId: string; departmentKey: string; name: string; price: number | null;
+  roomId?: string | null;
 }): Promise<CatalogItem> {
   const { data, error } = await supabase
     .from("ts_catalog_items")
@@ -858,8 +872,9 @@ export async function addCatalogItem(input: {
       department_key: input.departmentKey,
       name: input.name.trim().slice(0, 120),
       price: input.price,
+      room_id: input.roomId ?? null,
     })
-    .select("id, department_key, name, price, currency, is_active, sort_order")
+    .select("id, department_key, name, price, currency, is_active, sort_order, room_id")
     .single();
   if (error) {
     if (/duplicate|unique/i.test(error.message)) throw new Error("That item is already on this menu.");
