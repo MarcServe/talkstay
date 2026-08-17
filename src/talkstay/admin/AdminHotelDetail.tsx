@@ -43,6 +43,7 @@ export default function AdminHotelDetail() {
   const [billingMode, setBillingMode] = useState("subscription");
   const [billingNotes, setBillingNotes] = useState("");
   const [pulse, setPulse] = useState(true);
+  const [whiteLabel, setWhiteLabel] = useState(false);
   const [requireCode, setRequireCode] = useState(false);
   const [maxDevices, setMaxDevices] = useState(8);
   const [timezone, setTimezone] = useState("Europe/London");
@@ -72,6 +73,7 @@ export default function AdminHotelDetail() {
       setBillingMode(h.billing_mode ?? "subscription");
       setBillingNotes(h.billing_notes ?? "");
       setPulse(h.pulse_enabled !== false);
+      setWhiteLabel(!!(h.branding as { white_label?: boolean } | null)?.white_label);
       setRequireCode(!!h.require_checkin_code);
       setMaxDevices(Number(h.max_devices_per_room) || 8);
       setTimezone(h.timezone ?? "Europe/London");
@@ -136,6 +138,7 @@ export default function AdminHotelDetail() {
         billing_notes: billingNotes || null,
         billing_rates,
         pulse_enabled: pulse,
+        white_label: whiteLabel,
         require_checkin_code: requireCode,
         max_devices_per_room: maxDevices,
         timezone,
@@ -317,6 +320,9 @@ export default function AdminHotelDetail() {
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <Toggle label="Guest pulse enabled" checked={pulse} onChange={setPulse} />
+          {/* Paid branding tier. Admin-only: the property must not be able to
+              remove our marks for itself. */}
+          <Toggle label="White label (hide TalkStay marks)" checked={whiteLabel} onChange={setWhiteLabel} />
           <Toggle label="Require check-in code" checked={requireCode} onChange={setRequireCode} />
           <Toggle label="WhatsApp enabled" checked={whatsappEnabled} onChange={setWhatsappEnabled} />
         </div>

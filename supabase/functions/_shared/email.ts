@@ -22,6 +22,23 @@ export interface EmailShellOptions {
   footerNote?: string;
   /** Optional "Open dashboard" style button. */
   cta?: { label: string; url: string };
+  /** Paid branding tier: drop the "Powered by TalkStay" mark so the email
+   *  reads as the property's own. */
+  whiteLabel?: boolean;
+}
+
+/** Display name on the From line. The address must stay on our verified
+ *  sending domain, but the name shown to the recipient can be the property's. */
+export function emailFrom(hotelName: string, whiteLabel?: boolean): string {
+  const clean = String(hotelName ?? "").replace(/["\\<>]/g, "").trim().slice(0, 60);
+  return whiteLabel && clean
+    ? `${clean} <notifications@talkweb.io>`
+    : "TalkStay <notifications@talkweb.io>";
+}
+
+/** Read the paid white-label flag off a hotel's branding jsonb. */
+export function isWhiteLabel(branding: unknown): boolean {
+  return !!(branding as { white_label?: boolean } | null)?.white_label;
 }
 
 /** A branded card email: coloured header (logo + hotel name), white body,
@@ -62,7 +79,7 @@ export function renderEmail(opts: EmailShellOptions): string {
               </td>
             </tr>` : ""}
           </table>
-          <div style="font-size:11px;color:#9ca3af;margin-top:16px;">Powered by TalkStay</div>
+          ${opts.whiteLabel ? "" : `<div style="font-size:11px;color:#9ca3af;margin-top:16px;">Powered by TalkStay</div>`}
         </td>
       </tr>
     </table>

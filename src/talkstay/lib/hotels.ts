@@ -49,6 +49,9 @@ export interface HotelBranding {
   logo_url?: string | null;
   primary_color?: string | null;
   tagline?: string | null;
+  /** Paid branding tier: hide TalkStay marks on posters and emails, and send
+   *  from the property's name. Platform-admin controlled, not self-serve. */
+  white_label?: boolean | null;
   poster?: PosterConfig | null;
   property?: PropertyProfile | null;
   /**

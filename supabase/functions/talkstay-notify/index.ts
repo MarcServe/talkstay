@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import webpush from "npm:web-push@3.6.7";
-import { renderEmail, quoteBlock, escapeHtml } from "../_shared/email.ts";
+import { renderEmail, quoteBlock, escapeHtml, emailFrom, isWhiteLabel } from "../_shared/email.ts";
 import { authorizeRequestSideEffect } from "../_shared/talkstayAuth.ts";
 import { formatRoomLabel } from "../_shared/roomLabel.ts";
 
@@ -23,14 +23,14 @@ const DEPT_LABEL: Record<string, string> = {
   maintenance: "Maintenance", concierge: "Concierge", front_desk: "Front Desk", duty_manager: "Duty Manager",
 };
 
-async function sendEmail(to: string, subject: string, html: string): Promise<boolean> {
+async function sendEmail(to: string, subject: string, html: string, from: string): Promise<boolean> {
   const key = (Deno.env.get("RESEND_API_KEY") || "").trim();
   if (!key || !to) return false;
   try {
     const r = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from: "TalkStay <notifications@talkweb.io>", to, subject, html }),
+      body: JSON.stringify({ from, to, subject, html }),
     });
     return r.ok;
   } catch { return false; }
@@ -119,6 +119,7 @@ serve(async (req) => {
       hotelName: hotel?.name ?? "TalkStay",
       logoUrl: hotel?.branding?.logo_url,
       accentColor: hotel?.branding?.primary_color,
+      whiteLabel: isWhiteLabel(hotel?.branding),
       heading: banner ? `${EVENT_LABEL[event]} — ${label}` : `${urgent ? "Urgent " : ""}${label} request`,
       bodyHtml: `
         ${banner ? `<p style="margin:0 0 12px;color:${isCloseEvent ? "#4c1d95" : "#b91c1c"};font-weight:600;">${escapeHtml(banner)}</p>` : ""}
@@ -152,7 +153,7 @@ serve(async (req) => {
 
     const results: Record<string, boolean> = {};
     await Promise.all([...recipients].map(async (to) => {
-      results[to] = await sendEmail(to, subject, html);
+      results[to] = await sendEmail(to, subject, html, emailFrom(hotel?.name ?? "", isWhiteLabel(hotel?.branding)));
     }));
 
     // Web push to subscribed staff devices (department-scoped, or hotel-wide when

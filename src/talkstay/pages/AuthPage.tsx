@@ -23,6 +23,7 @@ const PANEL_TEXTURE = `url("data:image/svg+xml,${encodeURIComponent(`
 
 export interface PropertyBrand {
   name: string; slug: string; logoUrl: string | null; primaryColor: string | null;
+  whiteLabel?: boolean;
 }
 
 /** Which property is this sign-in for? Invite and reset links carry
@@ -103,7 +104,7 @@ function AuthShell({ children, brand }: { children: React.ReactNode; brand: Prop
             <p className="-mt-5 mb-6 text-sm font-medium text-violet-300/80">{brand.name}</p>
           )}
           {children}
-          {brand && (
+          {brand && !brand.whiteLabel && (
             <p className="mt-8 text-center text-xs text-white/35">Powered by TalkStay</p>
           )}
         </div>

@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-import { renderEmail, escapeHtml } from "../_shared/email.ts";
+import { renderEmail, escapeHtml, emailFrom, isWhiteLabel } from "../_shared/email.ts";
 
 const PUBLIC_BASE_URL = "https://talkstay.talkweb.io";
 const MAX_BULK = 100;
@@ -76,6 +76,7 @@ serve(async (req) => {
           name: h.name, slug: h.slug,
           logoUrl: b.logo_url ?? null,
           primaryColor: b.primary_color ?? null,
+          whiteLabel: !!b.white_label,
         },
       });
     }
@@ -284,6 +285,7 @@ serve(async (req) => {
           hotelName: hotel.name ?? "Your hotel",
           logoUrl: (hotel.branding as any)?.logo_url,
           accentColor: (hotel.branding as any)?.primary_color,
+          whiteLabel: isWhiteLabel(hotel.branding),
           heading: `You've been invited to join ${hotel.name ?? "the"} team`,
           bodyHtml: `
               <p style="margin:0 0 14px;">${escapeHtml(inviterName)} added you to their TalkStay team${deptLabel ? ` (${escapeHtml(deptLabel)})` : ""}. Open the link below to set your password and join the dashboard.</p>
@@ -296,7 +298,7 @@ serve(async (req) => {
             method: "POST",
             headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
             body: JSON.stringify({
-              from: "TalkStay <notifications@talkweb.io>",
+              from: emailFrom(hotel.name ?? "", isWhiteLabel(hotel.branding)),
               to: cleanEmail,
               subject: `You've been invited to join ${hotel.name ?? "a property"} on TalkStay`,
               html,

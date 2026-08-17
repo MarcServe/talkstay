@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import webpush from "npm:web-push@3.6.7";
-import { renderEmail, quoteBlock, escapeHtml } from "../_shared/email.ts";
+import { renderEmail, quoteBlock, escapeHtml, emailFrom, isWhiteLabel } from "../_shared/email.ts";
 import { authorizeRequestSideEffect } from "../_shared/talkstayAuth.ts";
 import { formatRoomLabel } from "../_shared/roomLabel.ts";
 
@@ -153,6 +153,7 @@ serve(async (req) => {
           hotelName,
           logoUrl: hotel?.branding?.logo_url,
           accentColor: hotel?.branding?.primary_color,
+          whiteLabel: isWhiteLabel(hotel?.branding),
           heading,
           bodyHtml: `
             <p style="margin:0 0 10px;">${roomLabel ? `${escapeHtml(roomLabel)} — ` : ""}here's the latest on what you asked for:</p>
@@ -169,7 +170,7 @@ serve(async (req) => {
         const resp = await fetch("https://api.resend.com/emails", {
           method: "POST",
           headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ from: "TalkStay <notifications@talkweb.io>", to: email, subject: `${hotelName}: your request ${LINE[status]}`, html }),
+          body: JSON.stringify({ from: emailFrom(hotelName, isWhiteLabel(hotel?.branding)), to: email, subject: `${hotelName}: your request ${LINE[status]}`, html }),
         });
         if (resp.ok) results.emailed = email;
       }

@@ -31,10 +31,12 @@ const BADGE_ICONS = [ShieldCheck, Zap, Globe];
 /** The poster itself — used for both the on-screen preview and the print output.
  *  All sizing is in `cqw` (container-query width) units so it scales identically
  *  whether shown at 420px in the panel or at 190mm on the printed page. */
-function PosterView({ p, hotelName, logo, qrUrl, accent, wrapId }: {
+function PosterView({ p, hotelName, logo, qrUrl, accent, wrapId, whiteLabel = false }: {
   p: Required<PosterConfig>; hotelName: string; logo?: string; qrUrl: string; accent: string;
   /** Optional id for the outer wrap (preview uses ts-poster-print). */
   wrapId?: string;
+  /** Paid branding tier — the poster carries only the property's own marks. */
+  whiteLabel?: boolean;
 }) {
   // Property name is optional — blank hides it. When set, it's always bold
   // (above the eyebrow), whether or not a logo is uploaded.
@@ -131,11 +133,11 @@ function PosterView({ p, hotelName, logo, qrUrl, accent, wrapId }: {
             <span>{p.footer_left}</span>
             <span className="ts-poster-footer-right">
               {p.footer_right}
-              <em className="ts-poster-powered">Powered by TalkStay</em>
+              {!whiteLabel && <em className="ts-poster-powered">Powered by TalkStay</em>}
             </span>
           </div>
         )}
-        {!p.footer_left.trim() && !p.footer_right.trim() && (
+        {!whiteLabel && !p.footer_left.trim() && !p.footer_right.trim() && (
           <div className="ts-poster-footer ts-poster-footer-powered-only">
             <span />
             <em className="ts-poster-powered">Powered by TalkStay</em>
@@ -152,6 +154,9 @@ export default function PosterPanel({ hotel, onSaved }: { hotel: Hotel; onSaved?
   // point in the field; an explicitly saved value (even "") overrides it.
   const merged = { ...POSTER_DEFAULTS, business_name: hotel.name, ...(hotel.branding?.poster ?? {}) } as Required<PosterConfig>;
   const accent = hotel.branding?.primary_color || "#a78bfa";
+  // Paid branding tier, set by platform admin — not something a property
+  // switches on for itself.
+  const whiteLabel = !!(hotel.branding as { white_label?: boolean } | null)?.white_label;
   const logo = hotel.branding?.logo_url || undefined;
 
   const [cfg, setCfg] = useState<Required<PosterConfig>>(merged);
@@ -539,7 +544,7 @@ export default function PosterPanel({ hotel, onSaved }: { hotel: Hotel; onSaved?
         )}
 
         <div className="rounded-2xl border bg-muted/40 p-4">
-          <PosterView wrapId="ts-poster-print" p={cfg} hotelName={hotel.name} logo={logo} qrUrl={qrUrl} accent={accent} />
+          <PosterView wrapId="ts-poster-print" p={cfg} hotelName={hotel.name} logo={logo} qrUrl={qrUrl} accent={accent} whiteLabel={whiteLabel} />
         </div>
         <p className="text-[11px] text-muted-foreground">
           Tip: choose <strong>Save as PDF</strong>, A4, and margins <strong>None</strong> (or Default). Colours and the photo are forced in the print stylesheet.
@@ -562,6 +567,7 @@ export default function PosterPanel({ hotel, onSaved }: { hotel: Hotel; onSaved?
               logo={logo}
               qrUrl={item.qrUrl}
               accent={accent}
+              whiteLabel={whiteLabel}
             />
           ))}
         </div>

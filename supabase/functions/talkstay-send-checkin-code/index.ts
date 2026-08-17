@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-import { renderEmail, escapeHtml } from "../_shared/email.ts";
+import { renderEmail, escapeHtml, emailFrom, isWhiteLabel } from "../_shared/email.ts";
 import { formatRoomLabel } from "../_shared/roomLabel.ts";
 
 // Staff-triggered: front desk types a busy guest's email and this sends the
@@ -67,6 +67,7 @@ serve(async (req) => {
       hotelName: hotel.name ?? "Your hotel",
       logoUrl: hotel.branding?.logo_url,
       accentColor: hotel.branding?.primary_color,
+      whiteLabel: isWhiteLabel(hotel.branding),
       heading: `Your check-in code — ${roomLabel}`,
       bodyHtml: `
         <p style="margin:0 0 14px;">Here's everything you need to reach us from your stay:</p>
@@ -86,7 +87,7 @@ serve(async (req) => {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        from: "TalkStay <notifications@talkweb.io>", to: String(email),
+        from: emailFrom(hotel.name ?? "", isWhiteLabel(hotel.branding)), to: String(email),
         subject: `${hotel.name ?? "Your hotel"}: your check-in code (${roomLabel})`, html,
       }),
     });

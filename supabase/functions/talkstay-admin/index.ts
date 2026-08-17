@@ -509,6 +509,19 @@ serve(async (req) => {
       if (body?.require_checkin_code !== undefined) patch.require_checkin_code = !!body.require_checkin_code;
       if (body?.whatsapp_enabled !== undefined) patch.whatsapp_enabled = !!body.whatsapp_enabled;
 
+      // Paid branding tier. Lives in the branding jsonb (no schema change), and
+      // is platform-admin only on purpose — a property must not be able to
+      // switch off our marks for itself. Merged, never overwritten, so this
+      // can't wipe the logo/colour/poster config sitting in the same object.
+      if (body?.white_label !== undefined) {
+        const { data: cur } = await admin
+          .from("ts_hotels").select("branding").eq("id", hotelId).maybeSingle();
+        const branding = { ...((cur?.branding ?? {}) as Record<string, unknown>) };
+        if (body.white_label) branding.white_label = true;
+        else delete branding.white_label;
+        patch.branding = branding;
+      }
+
       if (body?.name !== undefined) {
         const name = String(body.name).trim();
         if (!name) return json({ error: "name cannot be empty" }, 400);
