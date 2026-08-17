@@ -91,6 +91,9 @@ export default function LogOrderDialog({
   const [items, setItems] = useState<CatalogItem[]>([]);
   const [picked, setPicked] = useState<Record<string, number>>({});
   const [itemQuery, setItemQuery] = useState("");
+  // Set once someone types in Amount, so we never overwrite a deliberate
+  // override (a comp, a discount, a corkage waiver) with the menu total.
+  const [priceEdited, setPriceEdited] = useState(false);
   const [busy, setBusy] = useState(false);
   const [openRows, setOpenRows] = useState<OpenRow[]>([]);
   const [dupBlock, setDupBlock] = useState<OpenRow[] | null>(null);
@@ -198,6 +201,21 @@ export default function LogOrderDialog({
   const pickedTotal = pickedList.reduce(
     (sum, i) => sum + (typeof i.price === "number" ? i.price * picked[i.id] : 0), 0,
   );
+
+  // Tapping priced items IS the charge: tick Chargeable and show the running
+  // total in Amount, rather than holding it as a hidden fallback applied at
+  // save. Staff were looking at an empty field with a "0.00" placeholder and
+  // reasonably concluding the order would be charged nothing.
+  useEffect(() => {
+    if (pickedTotal <= 0) return;
+    setChargeable(true);
+    if (!priceEdited) setPrice(pickedTotal.toFixed(2));
+  }, [pickedTotal, priceEdited]);
+
+  // Clearing the basket clears the figure it put there — but never a typed one.
+  useEffect(() => {
+    if (pickedTotal === 0 && !priceEdited) setPrice("");
+  }, [pickedTotal, priceEdited]);
   const bump = (id: string, by: number) =>
     setPicked((p) => {
       const next = Math.max(0, (p[id] ?? 0) + by);
@@ -235,6 +253,7 @@ export default function LogOrderDialog({
         }
         toast.success(`Logged for ${formatRoomLabel(rooms.find((r) => r.id === roomId)?.room_number)} — on the Operations queue.`);
         setSummary("");
+      setPriceEdited(false);
         setGuestNote("");
         onCreated();
         onClose?.();
@@ -605,10 +624,15 @@ export default function LogOrderDialog({
                 step="0.01"
                 inputMode="decimal"
                 value={price}
-                onChange={(e) => setPrice(e.target.value)}
+                onChange={(e) => { setPrice(e.target.value); setPriceEdited(true); }}
                 placeholder="0.00"
                 className="max-w-[10rem] bg-white"
               />
+              {pickedTotal > 0 && !priceEdited && (
+                <p className="text-[11px] text-emerald-900/75">
+                  From the {pickedList.length} item{pickedList.length === 1 ? "" : "s"} tapped above — edit to override.
+                </p>
+              )}
             </div>
           )}
         </div>
