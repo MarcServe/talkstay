@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { Loader2, Plus, Trash2, ChevronDown, Camera, Check } from "lucide-react";
+import { Loader2, Plus, Trash2, ChevronDown, Camera, Check, FileUp } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Textarea } from "@/components/ui/textarea";
 import { formatMoney } from "@/talkstay/lib/statusStyles";
@@ -92,17 +92,49 @@ export default function DepartmentMenu({
     }
   };
 
+  /** Photos go to vision; PDFs and documents are read to text first, reusing the
+   *  same parsers Knowledge already uses for uploads. A menu arrives as whatever
+   *  the property happens to have — a phone snap, the PDF from their designer,
+   *  or a Word doc from the kitchen. */
   const onScanFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
     setScanBusy(true);
     try {
-      const path = `talkstay/${hotelId}/menu-${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.\-]/g, "_")}`;
-      const { error } = await supabase.storage.from("logos").upload(path, file, { upsert: true });
-      if (error) throw error;
-      const { data } = supabase.storage.from("logos").getPublicUrl(path);
-      await runScan({ imageUrl: data.publicUrl });
+      const lower = file.name.toLowerCase();
+      const isImage = file.type.startsWith("image/") || /\.(png|jpe?g|heic|heif|webp)$/.test(lower);
+
+      if (isImage) {
+        const path = `talkstay/${hotelId}/menu-${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.\-]/g, "_")}`;
+        const { error } = await supabase.storage.from("logos").upload(path, file, { upsert: true });
+        if (error) throw error;
+        const { data } = supabase.storage.from("logos").getPublicUrl(path);
+        await runScan({ imageUrl: data.publicUrl });
+        return;
+      }
+
+      let text: string;
+      if (lower.endsWith(".pdf")) {
+        // Browser-side pdf.js — the same route Knowledge uses, because
+        // parse-document was unreliable for PDFs.
+        const { parseClientPDF } = await import("@/utils/clientPDFParser");
+        const result = await parseClientPDF(file, file.name);
+        text = result.pages.map((p) => p.content).join("\n\n").trim();
+      } else {
+        const fd = new FormData();
+        fd.append("file", file);
+        fd.append("fileName", file.name);
+        const { data: parsed, error: pErr } = await supabase.functions.invoke("parse-document", { body: fd });
+        if (pErr) throw new Error("Couldn't read that document.");
+        text = ((parsed?.pages ?? []) as { content?: string }[]).map((p) => p.content || "").join("\n\n").trim();
+      }
+      if (text.length < 20) {
+        // A scanned-image PDF has no text layer — say so, rather than
+        // returning "no items found" and leaving them guessing.
+        throw new Error("No readable text in that file. If it's a scanned menu, photograph it instead.");
+      }
+      await runScan({ text });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Upload failed");
       setScanBusy(false);
@@ -216,7 +248,7 @@ export default function DepartmentMenu({
               onClick={() => setScanOpen(true)}
               className="inline-flex items-center gap-1.5 rounded-lg border border-dashed px-2.5 py-1.5 text-xs text-muted-foreground hover:border-violet-300 hover:bg-violet-50/50 hover:text-foreground"
             >
-              <Camera className="h-3.5 w-3.5" /> Scan a menu to fill this in
+              <Camera className="h-3.5 w-3.5" /> Scan or upload a menu to fill this in
             </button>
           )}
 
@@ -225,13 +257,25 @@ export default function DepartmentMenu({
               <div className="flex flex-wrap items-center gap-2">
                 <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs hover:bg-muted">
                   <Camera className="h-3.5 w-3.5" />
-                  Photo of the menu
+                  Take a photo
                   <input
                     type="file" accept="image/*" capture="environment" className="hidden"
                     disabled={scanBusy} onChange={(e) => void onScanFile(e)}
                   />
                 </label>
-                <span className="text-[11px] text-muted-foreground">or paste the text below</span>
+                {/* No capture attribute here, so the OS offers Files and Photos
+                    as well — a menu is as often a PDF as a snapshot. */}
+                <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs hover:bg-muted">
+                  <FileUp className="h-3.5 w-3.5" />
+                  Upload PDF / image / doc
+                  <input
+                    type="file"
+                    accept="image/*,.pdf,.doc,.docx,.txt,.md,.csv,.rtf"
+                    className="hidden"
+                    disabled={scanBusy} onChange={(e) => void onScanFile(e)}
+                  />
+                </label>
+                <span className="text-[11px] text-muted-foreground">or paste below</span>
                 <button
                   type="button"
                   onClick={() => { setScanOpen(false); setPasted(""); }}
