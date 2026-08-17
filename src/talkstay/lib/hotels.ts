@@ -801,3 +801,62 @@ export async function getRoomToken(roomId: string): Promise<string | null> {
   if (error) throw error;
   return data?.token ?? null;
 }
+
+// ── Department item catalogue (menu / services) ──────────────────────────────
+// Structured counterpart to the prose menus in Knowledge: what staff tap when
+// logging a phone or walk-in order, so nobody retypes "2 club sandwiches" at
+// the height of service or forgets the price.
+
+export interface CatalogItem {
+  id: string;
+  department_key: string;
+  name: string;
+  price: number | null;
+  currency: string;
+  is_active: boolean;
+  sort_order: number;
+}
+
+export async function listCatalogItems(hotelId: string, departmentKey?: string): Promise<CatalogItem[]> {
+  let q = supabase
+    .from("ts_catalog_items")
+    .select("id, department_key, name, price, currency, is_active, sort_order")
+    .eq("hotel_id", hotelId)
+    .eq("is_active", true);
+  if (departmentKey) q = q.eq("department_key", departmentKey);
+  const { data, error } = await q.order("sort_order").order("name");
+  // The picker is a convenience — a missing table (migration not applied yet)
+  // must never stop someone logging an order by hand.
+  if (error) return [];
+  return (data ?? []) as CatalogItem[];
+}
+
+export async function addCatalogItem(input: {
+  hotelId: string; departmentKey: string; name: string; price: number | null;
+}): Promise<CatalogItem> {
+  const { data, error } = await supabase
+    .from("ts_catalog_items")
+    .insert({
+      hotel_id: input.hotelId,
+      department_key: input.departmentKey,
+      name: input.name.trim().slice(0, 120),
+      price: input.price,
+    })
+    .select("id, department_key, name, price, currency, is_active, sort_order")
+    .single();
+  if (error) {
+    if (/duplicate|unique/i.test(error.message)) throw new Error("That item is already on this menu.");
+    throw new Error(error.message);
+  }
+  return data as CatalogItem;
+}
+
+export async function updateCatalogItem(id: string, patch: Partial<Pick<CatalogItem, "name" | "price" | "is_active" | "sort_order">>) {
+  const { error } = await supabase.from("ts_catalog_items").update(patch).eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+export async function deleteCatalogItem(id: string) {
+  const { error } = await supabase.from("ts_catalog_items").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+}

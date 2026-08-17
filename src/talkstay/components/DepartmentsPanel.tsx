@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import DepartmentMenu from "@/talkstay/components/DepartmentMenu";
 import { supabase } from "@/integrations/supabase/client";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
@@ -225,6 +226,8 @@ export default function DepartmentsPanel({ hotel }: { hotel: Hotel }) {
               )}
               {roster.length === 0 && <span className="text-xs text-muted-foreground">— add people on the Staff tab first</span>}
             </div>
+
+            <DepartmentMenu hotelId={hotel.id} departmentKey={d.key} departmentName={d.display_name} />
           </div>
         ))}
       </div>

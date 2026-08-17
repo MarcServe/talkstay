@@ -8,14 +8,14 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { ChevronDown, Loader2, Phone, AlertTriangle, X } from "lucide-react";
-import { listRooms, type Hotel, type Room } from "@/talkstay/lib/hotels";
+import { ChevronDown, Loader2, Phone, AlertTriangle, X, Plus, Minus } from "lucide-react";
+import { listRooms, listCatalogItems, type CatalogItem, type Hotel, type Room } from "@/talkstay/lib/hotels";
 import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
 import { useDemo } from "@/talkstay/demo/DemoContext";
 import { OPEN_STATUSES } from "@/talkstay/lib/data";
 import { useOpsQueue } from "@/talkstay/hooks/useTalkStayQueries";
 import { useHotelDepartments } from "@/talkstay/hooks/useHotelDepartments";
-import { statusBadge, statusLabel } from "@/talkstay/lib/statusStyles";
+import { formatMoney, statusBadge, statusLabel } from "@/talkstay/lib/statusStyles";
 import { logOrderChargeableLabel } from "@/talkstay/lib/locationOrders";
 
 type OrderSource = "phone" | "walk_in" | "front_desk";
@@ -81,6 +81,10 @@ export default function LogOrderDialog({
   const [priority, setPriority] = useState("normal");
   const [chargeable, setChargeable] = useState(false);
   const [price, setPrice] = useState("");
+  // Tapped menu items, kept separate from the free-text box so picking never
+  // overwrites something a staff member is part-way through typing.
+  const [items, setItems] = useState<CatalogItem[]>([]);
+  const [picked, setPicked] = useState<Record<string, number>>({});
   const [busy, setBusy] = useState(false);
   const [openRows, setOpenRows] = useState<OpenRow[]>([]);
   const [dupBlock, setDupBlock] = useState<OpenRow[] | null>(null);
@@ -142,13 +146,43 @@ export default function LogOrderDialog({
     return () => { cancelled = true; };
   }, [roomId, hotel.id, demo, demo?.version]);
 
+  const activeDept = lockedDepartment || dept;
+  useEffect(() => {
+    let cancelled = false;
+    setPicked({});
+    if (demo || !activeDept) { setItems([]); return; }
+    listCatalogItems(hotel.id, activeDept).then((rows) => {
+      if (!cancelled) setItems(rows);
+    });
+    return () => { cancelled = true; };
+  }, [hotel.id, activeDept, demo]);
+
+  const pickedList = useMemo(
+    () => items.filter((i) => (picked[i.id] ?? 0) > 0),
+    [items, picked],
+  );
+  const pickedLine = pickedList
+    .map((i) => (picked[i.id] > 1 ? `${picked[i.id]}× ${i.name}` : i.name))
+    .join(", ");
+  const pickedTotal = pickedList.reduce(
+    (sum, i) => sum + (typeof i.price === "number" ? i.price * picked[i.id] : 0), 0,
+  );
+  const bump = (id: string, by: number) =>
+    setPicked((p) => {
+      const next = Math.max(0, (p[id] ?? 0) + by);
+      const out = { ...p };
+      if (next === 0) delete out[id]; else out[id] = next;
+      return out;
+    });
+
   const submit = async (force = false) => {
     if (!roomId) { toast.error("Pick a room first."); return; }
-    if (!summary.trim()) { toast.error("What was ordered / requested?"); return; }
+    // Picked items and free text combine — staff often tap two drinks and then
+    // type "no ice".
+    const ordered = [pickedLine, summary.trim()].filter(Boolean).join(" · ");
+    if (!ordered) { toast.error("Pick an item or say what was requested."); return; }
     const note = guestNote.trim();
-    const summaryText = note
-      ? `${note} · ${summary.trim()}`
-      : summary.trim();
+    const summaryText = note ? `${note} · ${ordered}` : ordered;
     setBusy(true);
     setDupBlock(null);
     try {
@@ -161,7 +195,7 @@ export default function LogOrderDialog({
           priority,
           force,
           isChargeable: chargeable,
-          price: chargeable && price.trim() !== "" ? Number(price) : null,
+          price: chargeable ? (price.trim() !== "" ? Number(price) : (pickedTotal > 0 ? pickedTotal : null)) : null,
         });
         if ((out as any)?.duplicate) {
           setDupBlock(((out as any).open as OpenRow[]) ?? []);
@@ -187,7 +221,7 @@ export default function LogOrderDialog({
           priority,
           force,
           isChargeable: chargeable,
-          price: chargeable && price.trim() !== "" ? Number(price) : null,
+          price: chargeable ? (price.trim() !== "" ? Number(price) : (pickedTotal > 0 ? pickedTotal : null)) : null,
         },
       });
       const bodyErr = (data as any)?.error as string | undefined;
@@ -387,8 +421,72 @@ export default function LogOrderDialog({
           )}
         </div>
 
+        {items.length > 0 && (
+          <div className="space-y-2 rounded-xl border bg-muted/30 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <Label className="text-xs">Tap to add</Label>
+              {pickedList.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setPicked({})}
+                  className="text-[11px] text-muted-foreground underline hover:text-foreground"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {items.map((i) => {
+                const qty = picked[i.id] ?? 0;
+                return (
+                  <span
+                    key={i.id}
+                    className={`inline-flex items-center overflow-hidden rounded-full border text-xs ${
+                      qty > 0 ? "border-violet-400 bg-violet-50" : "bg-background"
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => bump(i.id, 1)}
+                      className="px-2.5 py-1.5 hover:bg-violet-100/60"
+                    >
+                      {qty > 0 && <strong className="mr-1">{qty}×</strong>}
+                      {i.name}
+                      {typeof i.price === "number" && (
+                        <span className="ml-1 text-muted-foreground">
+                          {formatMoney(i.price, i.currency)}
+                        </span>
+                      )}
+                    </button>
+                    {qty > 0 && (
+                      <button
+                        type="button"
+                        aria-label={`Remove one ${i.name}`}
+                        onClick={() => bump(i.id, -1)}
+                        className="border-l px-1.5 py-1.5 text-muted-foreground hover:bg-violet-100/60"
+                      >
+                        <Minus className="h-3 w-3" />
+                      </button>
+                    )}
+                  </span>
+                );
+              })}
+            </div>
+            {pickedList.length > 0 && (
+              <p className="text-xs">
+                <span className="text-muted-foreground">Order: </span>{pickedLine}
+                {pickedTotal > 0 && (
+                  <span className="ml-1 font-medium">
+                    · {formatMoney(pickedTotal, pickedList[0]?.currency)}
+                  </span>
+                )}
+              </p>
+            )}
+          </div>
+        )}
+
         <div className="space-y-1.5">
-          <Label>What was ordered / requested</Label>
+          <Label>{items.length > 0 ? "Anything else / notes" : "What was ordered / requested"}</Label>
           <Textarea
             value={summary}
             onChange={(e) => setSummary(e.target.value)}
