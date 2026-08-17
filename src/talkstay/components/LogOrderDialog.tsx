@@ -255,14 +255,24 @@ export default function LogOrderDialog({
           price: chargeable ? (price.trim() !== "" ? Number(price) : (pickedTotal > 0 ? pickedTotal : null)) : null,
         },
       });
-      const bodyErr = (data as any)?.error as string | undefined;
-      if ((data as any)?.duplicate) {
-        setDupBlock(((data as any).open as OpenRow[]) ?? []);
+      // supabase-js gives data: null on any non-2xx and a message that says
+      // nothing. Read the real body so errors are legible — and so a duplicate
+      // prompt from an older deployed function still works.
+      let payload: any = data;
+      if (error && !payload) {
+        try {
+          const ctx = (error as { context?: Response }).context;
+          if (ctx) payload = await (typeof ctx.clone === "function" ? ctx.clone() : ctx).json();
+        } catch { /* not JSON — fall through to the generic message */ }
+      }
+      const bodyErr = payload?.error as string | undefined;
+      if (payload?.duplicate) {
+        setDupBlock((payload.open as OpenRow[]) ?? []);
         setBusy(false);
         return;
       }
       if (error || bodyErr) throw new Error(bodyErr || error?.message || "Couldn't log order");
-      toast.success(`Logged for ${formatRoomLabel((data as any)?.roomNumber)} — team notified.`);
+      toast.success(`Logged for ${formatRoomLabel(payload?.roomNumber)} — team notified.`);
       setSummary("");
       setGuestNote("");
       onCreated();
