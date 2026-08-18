@@ -635,11 +635,23 @@ function printPoster() {
 }
 
 function runPrintFromSource(src: HTMLElement, onDone?: () => void) {
-  const clone = src.cloneNode(true) as HTMLElement;
+  const copy = src.cloneNode(true) as HTMLElement;
+  copy.removeAttribute("id"); // never duplicate the live source's id
+  copy.removeAttribute("aria-hidden");
+  copy.classList.remove("pointer-events-none");
+  copy.style.cssText = "";
+
+  // Always print through a wrapper, so a sheet is ALWAYS a descendant of the
+  // clone. Printing one room used to hand us the .ts-poster-page element
+  // itself, and every page rule is written as `#ts-poster-print-clone
+  // .ts-poster-page` — a descendant selector that then matched nothing. The
+  // sheet lost its height, its overflow clip and its break-inside:avoid, so
+  // the poster stopped at its natural height (blank band below) and was free
+  // to spill onto a second page. Bulk printing passes a container and was
+  // unaffected, which is why this only ever showed up on a single room.
+  const clone = document.createElement("div");
   clone.id = "ts-poster-print-clone";
-  clone.removeAttribute("aria-hidden");
-  clone.classList.remove("pointer-events-none");
-  clone.style.cssText = "";
+  clone.appendChild(copy);
 
   const srcCanvases = src.querySelectorAll("canvas");
   const cloneCanvases = clone.querySelectorAll("canvas");
@@ -670,40 +682,21 @@ function runPrintFromSource(src: HTMLElement, onDone?: () => void) {
     firstPoster?.style.getPropertyValue("--poster-bg")?.trim()
     || firstPoster?.style.backgroundColor
     || "#2e1065";
+  // Set on <html> as well: the html/body print rule reads this variable, and a
+  // custom property set on the clone can never reach an ancestor. Without it
+  // the sheet fell back to the default dark purple behind the poster.
   clone.style.setProperty("--ts-print-page-bg", pageBg);
+  document.documentElement.style.setProperty("--ts-print-page-bg", pageBg);
 
   document.body.appendChild(clone);
   document.documentElement.classList.add("ts-printing-poster");
 
-  // Scale each A4 sheet so QR + copy fit one page (no second blank page).
-  const fitPages = () => {
-    const mmToPx = 96 / 25.4;
-    const pageH = 296.5 * mmToPx;
-    clone.querySelectorAll<HTMLElement>(".ts-poster-page").forEach((page) => {
-      page.style.height = "296.5mm";
-      page.style.width = "210mm";
-      page.style.overflow = "hidden";
-      page.style.backgroundColor = pageBg;
-      const poster = page.querySelector<HTMLElement>(".ts-poster");
-      if (!poster) return;
-      poster.style.transformOrigin = "top center";
-      poster.style.transform = "none";
-      poster.style.width = "210mm";
-      // Measure natural height after layout.
-      const natural = poster.scrollHeight;
-      if (natural > pageH + 2) {
-        const scale = Math.max(0.55, Math.min(1, pageH / natural));
-        poster.style.transform = `scale(${scale})`;
-        // Deliberately NOT widening to compensate. The poster sizes everything
-        // in cqw against .ts-poster-wrap, so growing the width grows every font,
-        // icon and gap with it — which grows the natural height, which defeats
-        // the scale we just measured. That feedback loop is what tore the layout
-        // apart at anything under 100%. Scaling alone keeps every proportion
-        // intact; the slimmer sheet edges are painted in the poster's own
-        // colour, so they read as margin rather than as a fault.
-      }
-    });
-  };
+  // No JS sizing here on purpose. There used to be a fitPages() that measured
+  // the clone and scaled any over-long sheet down. It could never have worked:
+  // it ran before window.print(), when screen CSS still applies and the clone is
+  // `display: none`, so scrollHeight was always 0 and the scale branch never
+  // executed. The inline widths it set were inert too, losing to the print
+  // rules' !important. The A4 fit is done entirely in CSS below.
 
   let cleaned = false;
   const cleanup = () => {
@@ -711,6 +704,7 @@ function runPrintFromSource(src: HTMLElement, onDone?: () => void) {
     cleaned = true;
     clone.remove();
     document.documentElement.classList.remove("ts-printing-poster");
+    document.documentElement.style.removeProperty("--ts-print-page-bg");
     window.removeEventListener("afterprint", cleanup);
     onDone?.();
   };
@@ -719,7 +713,6 @@ function runPrintFromSource(src: HTMLElement, onDone?: () => void) {
   // Let the clone paint (and QR data-URL decode) before the dialog opens.
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
-      fitPages();
       window.print();
       // Fallback if afterprint never fires (some mobile browsers).
       window.setTimeout(cleanup, 60_000);
