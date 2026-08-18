@@ -163,17 +163,19 @@ export default function PosterPanel({ hotel, onSaved }: { hotel: Hotel; onSaved?
   // Paid branding tier, set by platform admin — not something a property
   // switches on for itself.
   const whiteLabel = !!(hotel.branding as { white_label?: boolean } | null)?.white_label;
-  // The room this single-room preview/print is for — same label the bulk run
-  // stamps on each sheet.
-  const selectedRoomLabel = (() => {
-    const r = rooms.find((x) => x.id === roomId);
-    return r ? formatRoomLabel(r.room_number) : undefined;
-  })();
   const logo = hotel.branding?.logo_url || undefined;
 
   const [cfg, setCfg] = useState<Required<PosterConfig>>(merged);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [roomId, setRoomId] = useState<string>("");
+
+  // Declared after rooms/roomId on purpose: this runs during render, so
+  // reading those consts above their declaration is a temporal-dead-zone
+  // ReferenceError — which renders as a blank page, not an error.
+  const selectedRoomLabel = (() => {
+    const r = rooms.find((x) => x.id === roomId);
+    return r ? formatRoomLabel(r.room_number) : undefined;
+  })();
   const [qrUrl, setQrUrl] = useState<string>(`${getPublicBaseUrl()}/h/${hotel.slug}/r/preview?token=preview`);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
