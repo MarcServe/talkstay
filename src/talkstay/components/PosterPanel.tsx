@@ -31,12 +31,15 @@ const BADGE_ICONS = [ShieldCheck, Zap, Globe];
 /** The poster itself — used for both the on-screen preview and the print output.
  *  All sizing is in `cqw` (container-query width) units so it scales identically
  *  whether shown at 420px in the panel or at 190mm on the printed page. */
-function PosterView({ p, hotelName, logo, qrUrl, accent, wrapId, whiteLabel = false }: {
+function PosterView({ p, hotelName, logo, qrUrl, accent, wrapId, whiteLabel = false, roomLabel }: {
   p: Required<PosterConfig>; hotelName: string; logo?: string; qrUrl: string; accent: string;
   /** Optional id for the outer wrap (preview uses ts-poster-print). */
   wrapId?: string;
   /** Paid branding tier — the poster carries only the property's own marks. */
   whiteLabel?: boolean;
+  /** Which room this sheet is for. Printed small in the corner so a bulk run
+   *  can be sorted without scanning every code. */
+  roomLabel?: string;
 }) {
   // Property name is optional — blank hides it. When set, it's always bold
   // (above the eyebrow), whether or not a logo is uploaded.
@@ -72,6 +75,9 @@ function PosterView({ p, hotelName, logo, qrUrl, accent, wrapId, whiteLabel = fa
             background: `linear-gradient(180deg, ${hexA(p.bg_color, Math.min(0.95, p.bg_overlay + 0.08))}, ${hexA(p.bg_color, Math.min(0.98, p.bg_overlay + 0.22))})`,
           }}
         />
+        {roomLabel && (
+          <span className="ts-poster-roomtag" aria-hidden>{roomLabel}</span>
+        )}
         <div className="ts-poster-body">
           {logo && <img src={logo} alt="" className="ts-poster-logo" />}
           {displayName && <div className="ts-poster-name">{displayName}</div>}
@@ -157,6 +163,12 @@ export default function PosterPanel({ hotel, onSaved }: { hotel: Hotel; onSaved?
   // Paid branding tier, set by platform admin — not something a property
   // switches on for itself.
   const whiteLabel = !!(hotel.branding as { white_label?: boolean } | null)?.white_label;
+  // The room this single-room preview/print is for — same label the bulk run
+  // stamps on each sheet.
+  const selectedRoomLabel = (() => {
+    const r = rooms.find((x) => x.id === roomId);
+    return r ? formatRoomLabel(r.room_number) : undefined;
+  })();
   const logo = hotel.branding?.logo_url || undefined;
 
   const [cfg, setCfg] = useState<Required<PosterConfig>>(merged);
@@ -544,7 +556,7 @@ export default function PosterPanel({ hotel, onSaved }: { hotel: Hotel; onSaved?
         )}
 
         <div className="rounded-2xl border bg-muted/40 p-4">
-          <PosterView wrapId="ts-poster-print" p={cfg} hotelName={hotel.name} logo={logo} qrUrl={qrUrl} accent={accent} whiteLabel={whiteLabel} />
+          <PosterView wrapId="ts-poster-print" p={cfg} hotelName={hotel.name} logo={logo} qrUrl={qrUrl} accent={accent} whiteLabel={whiteLabel} roomLabel={selectedRoomLabel} />
         </div>
         <p className="text-[11px] text-muted-foreground">
           Tip: choose <strong>Save as PDF</strong>, A4, and margins <strong>None</strong> (or Default). Colours and the photo are forced in the print stylesheet.
@@ -568,6 +580,7 @@ export default function PosterPanel({ hotel, onSaved }: { hotel: Hotel; onSaved?
               qrUrl={item.qrUrl}
               accent={accent}
               whiteLabel={whiteLabel}
+              roomLabel={item.label}
             />
           ))}
         </div>
@@ -724,6 +737,13 @@ const POSTER_CSS = `
   position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center;
   z-index: 0; pointer-events: none;
 }
+.ts-poster-roomtag {
+  position: absolute; top: 2.6cqw; right: 3.2cqw; z-index: 3;
+  padding: 0.9cqw 2.2cqw; border-radius: 99cqw;
+  background: rgba(255,255,255,0.9); color: #3b0764;
+  font-size: 2.4cqw; font-weight: 700; letter-spacing: 0.01em; line-height: 1;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
 .ts-poster-overlay { position: absolute; inset: 0; z-index: 1;
   -webkit-print-color-adjust: exact; print-color-adjust: exact;
 }
@@ -845,6 +865,7 @@ const POSTER_CSS = `
   }
   html.ts-printing-poster #ts-poster-print-clone .ts-poster-footer { flex: 0 0 auto; }
   html.ts-printing-poster #ts-poster-print-clone .ts-poster-bg-img,
+  html.ts-printing-poster #ts-poster-print-clone .ts-poster-roomtag,
   html.ts-printing-poster #ts-poster-print-clone .ts-poster-overlay,
   html.ts-printing-poster #ts-poster-print-clone .ts-poster-qrcard,
   html.ts-printing-poster #ts-poster-print-clone .ts-poster-qr,
