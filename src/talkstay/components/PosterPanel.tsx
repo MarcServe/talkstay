@@ -184,6 +184,7 @@ export default function PosterPanel({ hotel, onSaved }: { hotel: Hotel; onSaved?
   const [bulkPrinting, setBulkPrinting] = useState(false);
   const [printBatch, setPrintBatch] = useState<{ id: string; label: string; qrUrl: string }[] | null>(null);
   const bulkRootRef = useRef<HTMLDivElement>(null);
+  const [printSize, setPrintSize] = useState<PrintSize>("a4");
   // Separate from cfg.bg_image_url — a write-only field for pasting a URL
   // manually, so the current image shows its filename, not the full link.
   const [bgUrlDraft, setBgUrlDraft] = useState("");
@@ -247,13 +248,13 @@ export default function PosterPanel({ hotel, onSaved }: { hotel: Hotel; onSaved?
       runPrintFromSource(root, () => {
         setPrintBatch(null);
         setBulkPrinting(false);
-      });
+      }, printSize);
     }, 120);
     return () => {
       cancelled = true;
       window.clearTimeout(t);
     };
-  }, [printBatch]);
+  }, [printBatch, printSize]);
 
   const set = <K extends keyof PosterConfig>(k: K, v: Required<PosterConfig>[K]) => setCfg((c) => ({ ...c, [k]: v }));
   const setFeature = (i: number, v: string) => setCfg((c) => ({ ...c, features: c.features.map((f, j) => (j === i ? v : f)) }));
@@ -491,8 +492,25 @@ export default function PosterPanel({ hotel, onSaved }: { hotel: Hotel; onSaved?
               </SelectContent>
             </Select>
           </div>
+          <div className="mt-4 space-y-1.5">
+            <Label className="text-xs text-muted-foreground">Print size</Label>
+            <Select value={printSize} onValueChange={(v) => setPrintSize(v as PrintSize)}>
+              <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {(Object.keys(SHEETS) as PrintSize[]).map((k) => (
+                  <SelectItem key={k} value={k}>
+                    {SHEETS[k].label} <span className="text-muted-foreground">· {SHEETS[k].hint}</span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-[11px] text-muted-foreground">
+              Choose the size here, then leave your print dialog at 100%. Scaling
+              there shrinks the artwork but not the paper, which is what breaks the layout.
+            </p>
+          </div>
           <div className="flex flex-wrap gap-2">
-            <Button className="mt-4" variant="outline" onClick={() => printPoster()} disabled={bulkPrinting}>
+            <Button className="mt-4" variant="outline" onClick={() => printPoster(printSize)} disabled={bulkPrinting}>
               <Printer className="mr-1 h-4 w-4" /> Print this room
             </Button>
             <Button
@@ -620,21 +638,51 @@ function escapeAccent(text: string, hotelName: string, accent: string): string {
 }
 
 /**
+ * Sheet sizes offered at print time.
+ *
+ * The poster is sized entirely in cqw — every font, icon, gap and radius is a
+ * percentage of the sheet's own width — so it survives being made smaller as
+ * long as the SHEET shrinks. Shrinking with the print dialog's scale slider is
+ * what breaks it: that scales the rendering while the paper stays A4, and the
+ * two disagree. So we shrink the paper here instead, and the layout holds.
+ *
+ * `card` is the poster; `paper` is the physical sheet. They differ only for
+ * a6x4, which tiles four A6 cards onto one A4 to be guillotined into table
+ * cards — four tables per sheet rather than four sheets.
+ *
+ * Heights run a hair under the true paper so sub-pixel rounding in the print
+ * engine can't tip a sheet over into a blank second page.
+ */
+export type PrintSize = "a4" | "a5" | "a6x4";
+
+const SHEETS: Record<PrintSize, {
+  label: string; hint: string; paper: string;
+  paperW: string; paperH: string; cardW: string; cardH: string; multi: boolean;
+}> = {
+  a4:   { label: "A4 — full page",      hint: "Door backs and lobby walls",
+          paper: "A4 portrait",  paperW: "210mm", paperH: "296.5mm", cardW: "210mm", cardH: "296.5mm", multi: false },
+  a5:   { label: "A5 — half page",      hint: "Desks, bedside tables",
+          paper: "A5 portrait",  paperW: "148mm", paperH: "209.5mm", cardW: "148mm", cardH: "209.5mm", multi: false },
+  a6x4: { label: "A6 — 4 per A4 sheet", hint: "Table cards; cut into four",
+          paper: "A4 portrait",  paperW: "210mm", paperH: "296.5mm", cardW: "105mm", cardH: "148.25mm", multi: true },
+};
+
+/**
  * Print one or more A4 pages with colours/photo intact.
  * Clones the poster source onto <body> so we can hide the rest of the app without
  * `display:none` on ancestors (which would hide the poster too). Canvas QR
  * pixels are copied to an <img> because cloneNode does not keep canvas bits.
  */
-function printPoster() {
+function printPoster(size: PrintSize) {
   const src = document.getElementById("ts-poster-print");
   if (!src) {
     window.print();
     return;
   }
-  runPrintFromSource(src);
+  runPrintFromSource(src, undefined, size);
 }
 
-function runPrintFromSource(src: HTMLElement, onDone?: () => void) {
+function runPrintFromSource(src: HTMLElement, onDone?: () => void, size: PrintSize = "a4") {
   const copy = src.cloneNode(true) as HTMLElement;
   copy.removeAttribute("id"); // never duplicate the live source's id
   copy.removeAttribute("aria-hidden");
@@ -688,6 +736,28 @@ function runPrintFromSource(src: HTMLElement, onDone?: () => void) {
   clone.style.setProperty("--ts-print-page-bg", pageBg);
   document.documentElement.style.setProperty("--ts-print-page-bg", pageBg);
 
+  const sheet = SHEETS[size];
+  clone.style.setProperty("--ts-card-w", sheet.cardW);
+  clone.style.setProperty("--ts-card-h", sheet.cardH);
+  document.documentElement.style.setProperty("--ts-paper-w", sheet.paperW);
+  document.documentElement.style.setProperty("--ts-paper-h", sheet.paperH);
+
+  if (sheet.multi) {
+    clone.classList.add("ts-poster-tiled");
+    // Tiling one room would waste three quarters of the sheet, and a table card
+    // is exactly the thing you want several of. Fill the sheet with copies.
+    const pages = clone.querySelectorAll(".ts-poster-page");
+    if (pages.length === 1) {
+      for (let i = 0; i < 3; i++) clone.appendChild(pages[0].cloneNode(true));
+    }
+  }
+
+  // @page can't read custom properties, so the paper size is written out.
+  const pageStyle = document.createElement("style");
+  pageStyle.id = "ts-poster-page-size";
+  pageStyle.textContent = `@media print { @page { size: ${sheet.paper}; margin: 0; } }`;
+  document.head.appendChild(pageStyle);
+
   document.body.appendChild(clone);
   document.documentElement.classList.add("ts-printing-poster");
 
@@ -705,6 +775,9 @@ function runPrintFromSource(src: HTMLElement, onDone?: () => void) {
     clone.remove();
     document.documentElement.classList.remove("ts-printing-poster");
     document.documentElement.style.removeProperty("--ts-print-page-bg");
+    document.documentElement.style.removeProperty("--ts-paper-w");
+    document.documentElement.style.removeProperty("--ts-paper-h");
+    document.getElementById("ts-poster-page-size")?.remove();
     window.removeEventListener("afterprint", cleanup);
     onDone?.();
   };
@@ -782,10 +855,10 @@ const POSTER_CSS = `
 
 /* A4 sheet(s): print only the body-level clone (see runPrintFromSource()). */
 @media print {
-  @page { size: A4 portrait; margin: 0; }
+  /* @page is injected per print — see runPrintFromSource(). */
   html.ts-printing-poster,
   html.ts-printing-poster body {
-    width: 210mm !important;
+    width: var(--ts-paper-w, 210mm) !important;
     height: auto !important;
     margin: 0 !important; padding: 0 !important;
     background: var(--ts-print-page-bg, #2e1065) !important;
@@ -797,7 +870,7 @@ const POSTER_CSS = `
   html.ts-printing-poster #ts-poster-print-clone {
     display: block !important;
     position: static !important;
-    width: 210mm !important;
+    width: var(--ts-paper-w, 210mm) !important;
     margin: 0 !important; padding: 0 !important;
     overflow: visible !important;
     background: var(--ts-print-page-bg, #2e1065) !important;
@@ -807,12 +880,14 @@ const POSTER_CSS = `
   html.ts-printing-poster #ts-poster-print-clone .ts-poster-page {
     display: block !important;
     box-sizing: border-box !important;
-    width: 210mm !important;
-    /* A hair under A4. At exactly 297mm, sub-pixel rounding in the print
-       engine tips the sheet over and emits a blank/overflow second page —
-       the page background matches the poster, so the 0.5mm is invisible. */
-    height: 296.5mm !important;
-    max-height: 296.5mm !important;
+    /* Both from the chosen sheet (see SHEETS). The card carries
+       container-type, so every cqw in the design re-resolves against this
+       width — which is why an A5 or A6 card is a faithful reduction rather
+       than a squashed A4. Heights run a hair under the true paper so
+       sub-pixel rounding can't tip a sheet into a blank second page. */
+    width: var(--ts-card-w, 210mm) !important;
+    height: var(--ts-card-h, 296.5mm) !important;
+    max-height: var(--ts-card-h, 296.5mm) !important;
     margin: 0 !important; padding: 0 !important;
     overflow: hidden !important;
     background: var(--ts-print-page-bg, #2e1065) !important;
@@ -826,8 +901,20 @@ const POSTER_CSS = `
     break-after: auto;
     page-break-after: auto;
   }
+  /* Four A6 cards to an A4. inline-block rather than grid or flex because only
+     normal flow paginates reliably across print engines; break-inside: avoid
+     (set above) keeps a card from being sliced by the page boundary. */
+  html.ts-printing-poster #ts-poster-print-clone.ts-poster-tiled {
+    font-size: 0; /* kills the whitespace gap between inline-block cards */
+  }
+  html.ts-printing-poster #ts-poster-print-clone.ts-poster-tiled .ts-poster-page {
+    display: inline-block !important;
+    vertical-align: top !important;
+    break-after: auto !important;
+    page-break-after: auto !important;
+  }
   html.ts-printing-poster #ts-poster-print-clone .ts-poster {
-    width: 210mm !important;
+    width: 100% !important;
     /* height, not min-height: min-height let the content push the poster past
        the sheet, and everything below the fold became page 2. Now it fills the
        page exactly and anything that would overflow is clipped. */
