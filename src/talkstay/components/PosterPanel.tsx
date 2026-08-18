@@ -663,9 +663,9 @@ function runPrintFromSource(src: HTMLElement, onDone?: () => void) {
   // Scale each A4 sheet so QR + copy fit one page (no second blank page).
   const fitPages = () => {
     const mmToPx = 96 / 25.4;
-    const pageH = 297 * mmToPx;
+    const pageH = 296.5 * mmToPx;
     clone.querySelectorAll<HTMLElement>(".ts-poster-page").forEach((page) => {
-      page.style.height = "297mm";
+      page.style.height = "296.5mm";
       page.style.width = "210mm";
       page.style.overflow = "hidden";
       page.style.backgroundColor = pageBg;
@@ -679,7 +679,13 @@ function runPrintFromSource(src: HTMLElement, onDone?: () => void) {
       if (natural > pageH + 2) {
         const scale = Math.max(0.55, Math.min(1, pageH / natural));
         poster.style.transform = `scale(${scale})`;
-        poster.style.width = `${100 / scale}%`;
+        // Deliberately NOT widening to compensate. The poster sizes everything
+        // in cqw against .ts-poster-wrap, so growing the width grows every font,
+        // icon and gap with it — which grows the natural height, which defeats
+        // the scale we just measured. That feedback loop is what tore the layout
+        // apart at anything under 100%. Scaling alone keeps every proportion
+        // intact; the slimmer sheet edges are painted in the poster's own
+        // colour, so they read as margin rather than as a fault.
       }
     });
   };
@@ -787,8 +793,11 @@ const POSTER_CSS = `
     display: block !important;
     box-sizing: border-box !important;
     width: 210mm !important;
-    height: 297mm !important;
-    max-height: 297mm !important;
+    /* A hair under A4. At exactly 297mm, sub-pixel rounding in the print
+       engine tips the sheet over and emits a blank/overflow second page —
+       the page background matches the poster, so the 0.5mm is invisible. */
+    height: 296.5mm !important;
+    max-height: 296.5mm !important;
     margin: 0 !important; padding: 0 !important;
     overflow: hidden !important;
     background: var(--ts-print-page-bg, #2e1065) !important;
@@ -804,7 +813,13 @@ const POSTER_CSS = `
   }
   html.ts-printing-poster #ts-poster-print-clone .ts-poster {
     width: 210mm !important;
-    min-height: 297mm !important;
+    /* height, not min-height: min-height let the content push the poster past
+       the sheet, and everything below the fold became page 2. Now it fills the
+       page exactly and anything that would overflow is clipped. */
+    height: 100% !important;
+    max-height: 100% !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
     border-radius: 0 !important;
     display: flex !important; flex-direction: column !important;
     background-color: var(--poster-bg, var(--ts-print-page-bg, #2e1065)) !important;
