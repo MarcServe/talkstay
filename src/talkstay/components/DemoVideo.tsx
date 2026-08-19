@@ -8,7 +8,7 @@ import { Play } from "lucide-react";
  * and /shorts/ all parse. Leave it empty and the whole section renders nothing,
  * so the page is safe to ship before the video exists.
  */
-export const DEMO_VIDEO_URL = "";
+export const DEMO_VIDEO_URL = "https://www.youtube.com/watch?v=83u9qLpVlQ8";
 
 /** Accepts a full YouTube URL in any of its shapes, or an id already extracted. */
 export function youTubeId(input: string): string | null {
@@ -89,7 +89,7 @@ export default function DemoVideo({
               <span className="absolute bottom-0 left-0 right-0 p-4 text-left sm:p-5">
                 <span className="block text-base font-semibold text-white sm:text-lg">{title}</span>
                 <span className="mt-0.5 block text-xs text-white/80">
-                  Watch the walkthrough — about two minutes
+                  Watch the walkthrough — 46 seconds
                 </span>
               </span>
             </button>
