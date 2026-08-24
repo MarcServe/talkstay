@@ -6,8 +6,9 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Loader2, Plus, Trash2, X } from "lucide-react";
-import type { Hotel } from "@/talkstay/lib/hotels";
+import { Loader2, Plus, Trash2, X, MapPin } from "lucide-react";
+import { listRooms, type Hotel, type Room } from "@/talkstay/lib/hotels";
+import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
 
 interface StaffRow { id: string; user_id: string; name: string | null; email: string; department_key: string | null; }
 
@@ -27,6 +28,7 @@ interface Dept {
 export default function DepartmentsPanel({ hotel }: { hotel: Hotel }) {
   const [depts, setDepts] = useState<Dept[]>([]);
   const [roster, setRoster] = useState<StaffRow[]>([]);
+  const [venues, setVenues] = useState<Room[]>([]);
   const [loading, setLoading] = useState(true);
   const [newDept, setNewDept] = useState("");
   const [adding, setAdding] = useState(false);
@@ -34,17 +36,19 @@ export default function DepartmentsPanel({ hotel }: { hotel: Hotel }) {
 
   const refresh = async () => {
     setLoading(true);
-    const [{ data, error }, staffRes, hotelRes] = await Promise.all([
+    const [{ data, error }, staffRes, hotelRes, rooms] = await Promise.all([
       supabase.from("ts_departments")
         .select("id, key, display_name, is_active, notify_email, escalate_after_minutes")
         .eq("hotel_id", hotel.id).order("display_name"),
       supabase.functions.invoke("talkstay-staff", { body: { hotelId: hotel.id, action: "list" } }),
       supabase.from("ts_hotels").select("escalation_phone").eq("id", hotel.id).maybeSingle(),
+      listRooms(hotel.id).catch(() => [] as Room[]),
     ]);
     if (error) toast.error(error.message);
     setDepts((data as Dept[]) ?? []);
     setRoster(((staffRes.data as any)?.staff as StaffRow[]) ?? []);
     setEscPhone((hotelRes.data as any)?.escalation_phone ?? "");
+    setVenues(rooms.filter((r) => !!r.is_public && !!r.department_key));
     setLoading(false);
   };
 
@@ -225,6 +229,27 @@ export default function DepartmentsPanel({ hotel }: { hotel: Hotel }) {
                 </Select>
               )}
               {roster.length === 0 && <span className="text-xs text-muted-foreground">— add people on the Staff tab first</span>}
+            </div>
+
+            {/* Linked Public QR venues (outlets under this department) */}
+            <div className="flex flex-wrap items-center gap-2 pl-11">
+              <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                <MapPin className="h-3 w-3" /> Venues:
+              </span>
+              {venues.filter((v) => v.department_key === d.key).length === 0 ? (
+                <span className="text-xs text-muted-foreground">
+                  none yet — add under Rooms &amp; QR → Venues &amp; tables
+                </span>
+              ) : (
+                venues.filter((v) => v.department_key === d.key).map((v) => (
+                  <span
+                    key={v.id}
+                    className="inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-xs text-sky-900"
+                  >
+                    {formatRoomLabel(v.room_number)}
+                  </span>
+                ))
+              )}
             </div>
 
             <DepartmentMenu hotelId={hotel.id} departmentKey={d.key} departmentName={d.display_name} />

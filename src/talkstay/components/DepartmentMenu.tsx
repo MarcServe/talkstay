@@ -1,20 +1,26 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { Loader2, Plus, Trash2, ChevronDown, Camera, Check, FileUp } from "lucide-react";
+import { Loader2, Plus, Trash2, ChevronDown, Camera, Check, FileUp, MapPin } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Textarea } from "@/components/ui/textarea";
 import { formatMoney } from "@/talkstay/lib/statusStyles";
+import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
 import {
-  listCatalogItems, addCatalogItem, updateCatalogItem, deleteCatalogItem,
-  type CatalogItem,
+  listCatalogItems, addCatalogItem, updateCatalogItem, deleteCatalogItem, listRooms,
+  type CatalogItem, type Room,
 } from "@/talkstay/lib/hotels";
+
+type OutletFilter = "all" | "shared" | string; // string = room id
 
 /**
  * The tappable menu for one department — what Log order shows instead of making
  * staff type "2 club sandwiches" mid-service. Collapsed by default so the
  * Departments page stays scannable when a bar has forty items.
+ *
+ * When Public QR venues are linked to this department (Main Restaurant,
+ * Outdoor Restaurant, Table 12…), menus can be uploaded per outlet.
  */
 export default function DepartmentMenu({
   hotelId, departmentKey, departmentName,
@@ -23,7 +29,11 @@ export default function DepartmentMenu({
 }) {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<CatalogItem[]>([]);
+  const [outlets, setOutlets] = useState<Room[]>([]);
   const [loaded, setLoaded] = useState(false);
+  const [outletFilter, setOutletFilter] = useState<OutletFilter>("all");
+  /** Where new / scanned items land — shared or a specific venue. */
+  const [targetOutlet, setTargetOutlet] = useState<string>("shared");
   // Read inside async scan handlers, which outlive the render that started them.
   const itemsRef = useRef<CatalogItem[]>([]);
   itemsRef.current = items;
@@ -40,11 +50,36 @@ export default function DepartmentMenu({
 
   useEffect(() => {
     if (!open || loaded) return;
-    listCatalogItems(hotelId, departmentKey).then((rows) => {
+    Promise.all([
+      listCatalogItems(hotelId, departmentKey),
+      listRooms(hotelId),
+    ]).then(([rows, rooms]) => {
       setItems(rows);
+      const linked = rooms.filter((r) => !!r.is_public && r.department_key === departmentKey);
+      setOutlets(linked);
+      if (linked.length === 1) {
+        setTargetOutlet(linked[0].id);
+        setOutletFilter(linked[0].id);
+      } else if (linked.length > 1) {
+        setTargetOutlet(linked[0].id);
+      }
       setLoaded(true);
     });
   }, [open, loaded, hotelId, departmentKey]);
+
+  const outletName = (id: string | null | undefined) => {
+    if (!id) return "Shared";
+    const o = outlets.find((r) => r.id === id);
+    return o ? formatRoomLabel(o.room_number) : "Outlet";
+  };
+
+  const visibleItems = useMemo(() => {
+    if (outletFilter === "all") return items;
+    if (outletFilter === "shared") return items.filter((i) => !i.outlet_room_id);
+    return items.filter((i) => i.outlet_room_id === outletFilter || !i.outlet_room_id);
+  }, [items, outletFilter]);
+
+  const resolvedOutletId = targetOutlet === "shared" ? null : targetOutlet;
 
   const add = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -57,7 +92,13 @@ export default function DepartmentMenu({
     }
     setBusy(true);
     try {
-      const row = await addCatalogItem({ hotelId, departmentKey, name: clean, price: p });
+      const row = await addCatalogItem({
+        hotelId,
+        departmentKey,
+        name: clean,
+        price: p,
+        outletRoomId: resolvedOutletId,
+      });
       setItems((prev) => [...prev, row].sort((a, b) => a.name.localeCompare(b.name)));
       setName(""); setPrice("");
     } catch (err) {
@@ -76,15 +117,19 @@ export default function DepartmentMenu({
       });
       if (error) throw error;
       if ((data as { error?: string })?.error) throw new Error((data as { error: string }).error);
-      const items = ((data as { items?: { name: string; price: number | null }[] }).items ?? []);
-      if (!items.length) {
+      const scanned = ((data as { items?: { name: string; price: number | null }[] }).items ?? []);
+      if (!scanned.length) {
         toast.message("No items found — try a clearer photo, or paste the text.");
         return;
       }
-      // Anything already on the menu is unticked by default: the unique index
-      // would reject it, and silently re-adding would look like a bug.
-      const existing = new Set(itemsRef.current.map((i) => i.name.trim().toLowerCase()));
-      setFound(items.map((i) => ({ ...i, keep: !existing.has(i.name.trim().toLowerCase()) })));
+      // Anything already on this outlet's menu is unticked by default.
+      const existing = new Set(
+        itemsRef.current
+          .filter((i) => (resolvedOutletId ? i.outlet_room_id === resolvedOutletId : !i.outlet_room_id)
+            || !i.outlet_room_id)
+          .map((i) => i.name.trim().toLowerCase()),
+      );
+      setFound(scanned.map((i) => ({ ...i, keep: !existing.has(i.name.trim().toLowerCase()) })));
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Couldn't read that menu");
     } finally {
@@ -93,9 +138,7 @@ export default function DepartmentMenu({
   };
 
   /** Photos go to vision; PDFs and documents are read to text first, reusing the
-   *  same parsers Knowledge already uses for uploads. A menu arrives as whatever
-   *  the property happens to have — a phone snap, the PDF from their designer,
-   *  or a Word doc from the kitchen. */
+   *  same parsers Knowledge already uses for uploads. */
   const onScanFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
@@ -116,8 +159,6 @@ export default function DepartmentMenu({
 
       let text: string;
       if (lower.endsWith(".pdf")) {
-        // Browser-side pdf.js — the same route Knowledge uses, because
-        // parse-document was unreliable for PDFs.
         const { parseClientPDF } = await import("@/utils/clientPDFParser");
         const result = await parseClientPDF(file, file.name);
         text = result.pages.map((p) => p.content).join("\n\n").trim();
@@ -130,8 +171,6 @@ export default function DepartmentMenu({
         text = ((parsed?.pages ?? []) as { content?: string }[]).map((p) => p.content || "").join("\n\n").trim();
       }
       if (text.length < 20) {
-        // A scanned-image PDF has no text layer — say so, rather than
-        // returning "no items found" and leaving them guessing.
         throw new Error("No readable text in that file. If it's a scanned menu, photograph it instead.");
       }
       await runScan({ text });
@@ -149,7 +188,13 @@ export default function DepartmentMenu({
     const failed: string[] = [];
     for (const f of keep) {
       try {
-        const row = await addCatalogItem({ hotelId, departmentKey, name: f.name, price: f.price });
+        const row = await addCatalogItem({
+          hotelId,
+          departmentKey,
+          name: f.name,
+          price: f.price,
+          outletRoomId: resolvedOutletId,
+        });
         setItems((prev) => [...prev, row].sort((a, b) => a.name.localeCompare(b.name)));
         added++;
       } catch {
@@ -162,8 +207,8 @@ export default function DepartmentMenu({
     setPasted("");
     toast.success(
       failed.length
-        ? `Added ${added} — skipped ${failed.length} already on the menu.`
-        : `Added ${added} item${added === 1 ? "" : "s"}.`,
+        ? `Added ${added} to ${outletName(resolvedOutletId)} — skipped ${failed.length} already on the menu.`
+        : `Added ${added} to ${outletName(resolvedOutletId)}.`,
     );
   };
 
@@ -173,7 +218,7 @@ export default function DepartmentMenu({
     try {
       await deleteCatalogItem(item.id);
     } catch (err) {
-      setItems(before); // put it back rather than lie about the delete
+      setItems(before);
       toast.error(err instanceof Error ? err.message : "Couldn't remove that");
     }
   };
@@ -212,28 +257,103 @@ export default function DepartmentMenu({
             instead of typing the name and price each time.
           </p>
 
+          {outlets.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setOutletFilter("all")}
+                  className={`rounded-lg px-2 py-1 text-[11px] font-medium ${
+                    outletFilter === "all" ? "bg-violet-600 text-white" : "border bg-background text-muted-foreground"
+                  }`}
+                >
+                  All
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOutletFilter("shared")}
+                  className={`rounded-lg px-2 py-1 text-[11px] font-medium ${
+                    outletFilter === "shared" ? "bg-violet-600 text-white" : "border bg-background text-muted-foreground"
+                  }`}
+                >
+                  Shared
+                </button>
+                {outlets.map((o) => (
+                  <button
+                    key={o.id}
+                    type="button"
+                    onClick={() => {
+                      setOutletFilter(o.id);
+                      setTargetOutlet(o.id);
+                    }}
+                    className={`inline-flex max-w-[9rem] items-center gap-1 truncate rounded-lg px-2 py-1 text-[11px] font-medium ${
+                      outletFilter === o.id ? "bg-sky-600 text-white" : "border bg-background text-muted-foreground"
+                    }`}
+                  >
+                    <MapPin className="h-3 w-3 shrink-0" />
+                    <span className="truncate">{formatRoomLabel(o.room_number)}</span>
+                  </button>
+                ))}
+              </div>
+
+              <div className="rounded-lg border border-dashed bg-background px-2.5 py-2">
+                <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Upload / add items to
+                </label>
+                <select
+                  value={targetOutlet}
+                  onChange={(e) => setTargetOutlet(e.target.value)}
+                  className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                >
+                  <option value="shared">Shared (whole {departmentName})</option>
+                  {outlets.map((o) => (
+                    <option key={o.id} value={o.id}>{formatRoomLabel(o.room_number)}</option>
+                  ))}
+                </select>
+                <p className="mt-1 text-[10px] text-muted-foreground">
+                  Pick Outdoor Restaurant here before scanning that menu — Main stays separate.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {outlets.length === 0 && (
+            <p className="rounded-lg border border-dashed bg-background px-2.5 py-2 text-[11px] text-muted-foreground">
+              Link venue QRs (Main Restaurant, Outdoor Restaurant…) to this department under{" "}
+              <span className="font-medium text-foreground">Rooms &amp; QR → Venues &amp; tables</span>{" "}
+              to upload a separate menu per outlet.
+            </p>
+          )}
+
           {!loaded ? (
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading…
             </div>
-          ) : items.length === 0 ? (
+          ) : visibleItems.length === 0 ? (
             <p className="text-xs text-muted-foreground">Nothing on this menu yet.</p>
           ) : (
             <div className="divide-y rounded-lg border bg-background">
-              {items.map((i) => (
+              {visibleItems.map((i) => (
                 <div key={i.id} className="flex items-center gap-2 px-2.5 py-1.5">
-                  <span className="min-w-0 flex-1 truncate text-sm">{i.name}</span>
+                  <div className="min-w-0 flex-1">
+                    <span className="block truncate text-sm">{i.name}</span>
+                    {outlets.length > 0 && (
+                      <span className="block truncate text-[10px] text-muted-foreground">
+                        {outletName(i.outlet_room_id)}
+                      </span>
+                    )}
+                  </div>
                   <Input
                     type="number" min="0" step="0.01" inputMode="decimal"
                     defaultValue={i.price ?? ""}
                     placeholder="—"
-                    className="h-8 w-24"
+                    className="h-8 w-20 shrink-0"
                     onBlur={(e) => void savePrice(i, e.target.value)}
                   />
-                  <span className="w-14 shrink-0 text-right text-xs text-muted-foreground">
-                    {typeof i.price === "number" ? formatMoney(i.price, i.currency) : "no price"}
+                  <span className="hidden w-14 shrink-0 text-right text-xs text-muted-foreground sm:block">
+                    {typeof i.price === "number" ? formatMoney(i.price, i.currency) : "—"}
                   </span>
-                  <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => void remove(i)} aria-label={`Remove ${i.name}`}>
+                  <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0" onClick={() => void remove(i)} aria-label={`Remove ${i.name}`}>
                     <Trash2 className="h-3.5 w-3.5 text-destructive" />
                   </Button>
                 </div>
@@ -241,7 +361,6 @@ export default function DepartmentMenu({
             </div>
           )}
 
-          {/* Import — nothing is written until it's reviewed below. */}
           {!scanOpen && !found && (
             <button
               type="button"
@@ -254,6 +373,12 @@ export default function DepartmentMenu({
 
           {scanOpen && !found && (
             <div className="space-y-2 rounded-lg border bg-background p-2.5">
+              {outlets.length > 0 && (
+                <p className="text-[11px] text-muted-foreground">
+                  Saving to <span className="font-medium text-foreground">{outletName(resolvedOutletId)}</span>
+                  {" — "}change above if this is the other outlet&apos;s menu.
+                </p>
+              )}
               <div className="flex flex-wrap items-center gap-2">
                 <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs hover:bg-muted">
                   <Camera className="h-3.5 w-3.5" />
@@ -263,8 +388,6 @@ export default function DepartmentMenu({
                     disabled={scanBusy} onChange={(e) => void onScanFile(e)}
                   />
                 </label>
-                {/* No capture attribute here, so the OS offers Files and Photos
-                    as well — a menu is as often a PDF as a snapshot. */}
                 <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs hover:bg-muted">
                   <FileUp className="h-3.5 w-3.5" />
                   Upload PDF / image / doc
@@ -309,7 +432,7 @@ export default function DepartmentMenu({
             <div className="space-y-2 rounded-lg border-2 border-violet-200 bg-violet-50/50 p-2.5">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-xs font-semibold text-violet-950">
-                  Found {found.length} item{found.length === 1 ? "" : "s"} — check before adding
+                  Found {found.length} — adding to {outletName(resolvedOutletId)}
                 </p>
                 <button
                   type="button"
@@ -348,7 +471,7 @@ export default function DepartmentMenu({
                         (prev ?? []).map((x, i) => i === idx
                           ? { ...x, price: e.target.value.trim() === "" ? null : Number(e.target.value) }
                           : x))}
-                      className="h-8 w-24"
+                      className="h-8 w-20 shrink-0"
                     />
                   </div>
                 ))}
@@ -360,7 +483,7 @@ export default function DepartmentMenu({
                 className="bg-violet-600 hover:bg-violet-700"
               >
                 {scanBusy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Check className="mr-1 h-3.5 w-3.5" />}
-                Add {found.filter((f) => f.keep).length} to menu
+                Add {found.filter((f) => f.keep).length} to {outletName(resolvedOutletId)}
               </Button>
             </div>
           )}
@@ -368,18 +491,17 @@ export default function DepartmentMenu({
           <form onSubmit={add} className="flex flex-wrap items-center gap-2">
             <Input
               value={name} onChange={(e) => setName(e.target.value)}
-              placeholder="Item (e.g. Club sandwich)" className="h-8 w-52" maxLength={120}
+              placeholder="Item name" className="h-8 min-w-0 flex-1 basis-[8rem]" maxLength={120}
             />
             <Input
               type="number" min="0" step="0.01" inputMode="decimal"
               value={price} onChange={(e) => setPrice(e.target.value)}
-              placeholder="Price" className="h-8 w-24"
+              placeholder="Price" className="h-8 w-20 shrink-0"
             />
             <Button type="submit" size="sm" disabled={busy || !name.trim()}>
               {busy ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Plus className="mr-1 h-3.5 w-3.5" />}
               Add
             </Button>
-            <span className="text-[11px] text-muted-foreground">Leave price blank if it varies.</span>
           </form>
         </div>
       )}

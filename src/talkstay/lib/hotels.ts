@@ -174,6 +174,12 @@ export interface Room {
   require_checkin_code?: boolean | null;
   /** Shared/public QR (lobby, bar, spa) — no code, reachable without check-in. */
   is_public?: boolean;
+  /**
+   * Department this Public QR venue belongs to (e.g. restaurant). Lets Main vs
+   * Outdoor restaurant share one team while keeping separate menus / QRs.
+   * Private rooms leave null.
+   */
+  department_key?: string | null;
 }
 
 /** Effective check-in code policy for a unit. */
@@ -766,8 +772,11 @@ export async function addRoom(hotelId: string, room: {
   room_type?: string;
   /** Shared venue / table QR (lobby, bar, pool, restaurant) — no check-in code. */
   is_public?: boolean;
+  /** Department key for Public QR outlets (Main / Outdoor under Restaurant). */
+  department_key?: string | null;
 }): Promise<Room> {
   const isPublic = !!room.is_public;
+  const dept = room.department_key?.trim() || null;
   const { data, error } = await supabase
     .from("ts_rooms")
     .insert({
@@ -776,6 +785,7 @@ export async function addRoom(hotelId: string, room: {
       floor: room.floor || null,
       room_type: room.room_type || null,
       ...(isPublic ? { is_public: true, require_checkin_code: false } : {}),
+      ...(isPublic && dept ? { department_key: dept } : {}),
     })
     .select("*")
     .single();
@@ -785,6 +795,15 @@ export async function addRoom(hotelId: string, room: {
   await supabase.from("ts_room_tokens").insert({ hotel_id: hotelId, room_id: data.id });
 
   return data as Room;
+}
+
+/** Link (or clear) a Public QR venue to a department. */
+export async function setVenueDepartment(roomId: string, departmentKey: string | null): Promise<void> {
+  const { error } = await supabase
+    .from("ts_rooms")
+    .update({ department_key: departmentKey?.trim() || null })
+    .eq("id", roomId);
+  if (error) throw error;
 }
 
 export async function deleteRoom(roomId: string): Promise<void> {
@@ -819,36 +838,80 @@ export interface CatalogItem {
   currency: string;
   is_active: boolean;
   sort_order: number;
+  /** Venue/outlet this item belongs to; null = shared across the department. */
+  outlet_room_id?: string | null;
 }
+
+const CATALOG_SELECT = "id, department_key, name, price, currency, is_active, sort_order, outlet_room_id";
 
 export async function listCatalogItems(hotelId: string, departmentKey?: string): Promise<CatalogItem[]> {
   let q = supabase
     .from("ts_catalog_items")
-    .select("id, department_key, name, price, currency, is_active, sort_order")
+    .select(CATALOG_SELECT)
     .eq("hotel_id", hotelId)
     .eq("is_active", true);
   if (departmentKey) q = q.eq("department_key", departmentKey);
   const { data, error } = await q.order("sort_order").order("name");
   // The picker is a convenience — a missing table (migration not applied yet)
   // must never stop someone logging an order by hand.
-  if (error) return [];
+  if (error) {
+    if (/outlet_room_id/i.test(error.message)) {
+      let q2 = supabase
+        .from("ts_catalog_items")
+        .select("id, department_key, name, price, currency, is_active, sort_order")
+        .eq("hotel_id", hotelId)
+        .eq("is_active", true);
+      if (departmentKey) q2 = q2.eq("department_key", departmentKey);
+      const retry = await q2.order("sort_order").order("name");
+      if (retry.error) return [];
+      return (retry.data ?? []) as CatalogItem[];
+    }
+    return [];
+  }
   return (data ?? []) as CatalogItem[];
 }
 
 export async function addCatalogItem(input: {
-  hotelId: string; departmentKey: string; name: string; price: number | null;
+  hotelId: string;
+  departmentKey: string;
+  name: string;
+  price: number | null;
+  /** Optional Public QR venue this menu part belongs to. */
+  outletRoomId?: string | null;
 }): Promise<CatalogItem> {
+  const row: Record<string, unknown> = {
+    hotel_id: input.hotelId,
+    department_key: input.departmentKey,
+    name: input.name.trim().slice(0, 120),
+    price: input.price,
+  };
+  if (input.outletRoomId) row.outlet_room_id = input.outletRoomId;
+
   const { data, error } = await supabase
     .from("ts_catalog_items")
-    .insert({
-      hotel_id: input.hotelId,
-      department_key: input.departmentKey,
-      name: input.name.trim().slice(0, 120),
-      price: input.price,
-    })
-    .select("id, department_key, name, price, currency, is_active, sort_order")
+    .insert(row)
+    .select(CATALOG_SELECT)
     .single();
   if (error) {
+    if (/outlet_room_id/i.test(error.message) && input.outletRoomId) {
+      const fallback = await supabase
+        .from("ts_catalog_items")
+        .insert({
+          hotel_id: input.hotelId,
+          department_key: input.departmentKey,
+          name: input.name.trim().slice(0, 120),
+          price: input.price,
+        })
+        .select("id, department_key, name, price, currency, is_active, sort_order")
+        .single();
+      if (fallback.error) {
+        if (/duplicate|unique/i.test(fallback.error.message)) {
+          throw new Error("That item is already on this menu.");
+        }
+        throw new Error(fallback.error.message);
+      }
+      return fallback.data as CatalogItem;
+    }
     if (/duplicate|unique/i.test(error.message)) throw new Error("That item is already on this menu.");
     throw new Error(error.message);
   }
