@@ -9,7 +9,7 @@ import {
 import { toast } from "sonner";
 import {
   Trash2, QrCode, Loader2, ExternalLink, RefreshCw, Copy, Mail, Plus,
-  Search, LayoutGrid, List,
+  Search, LayoutGrid, List, MapPin, BookOpen,
 } from "lucide-react";
 import {
   addRoom, deleteRoom, getRoomToken, listRooms, setRoomOccupancy, setRequireCheckinCode,
@@ -22,9 +22,19 @@ import { supabase } from "@/integrations/supabase/client";
 import { guestStayUrl, type GuestStaySurface } from "@/talkstay/lib/guestUrls";
 import GuestAccessTip from "@/talkstay/components/GuestAccessTip";
 
-type RoomStatusFilter = "all" | "occupied" | "vacant" | "public";
+type RoomStatusFilter = "all" | "occupied" | "vacant";
 type RoomsView = "card" | "list";
+type PanelTab = "rooms" | "venues";
 const ROOMS_VIEW_KEY = "talkstay-rooms-view";
+const ROOMS_TAB_KEY = "talkstay-rooms-panel-tab";
+
+/** One-tap Public QR venues — bar, pool, restaurant tables, lobby. */
+const VENUE_PRESETS: { label: string; name: string; area: string }[] = [
+  { label: "Lobby", name: "Lobby", area: "Lobby" },
+  { label: "Bar", name: "Bar", area: "Bar" },
+  { label: "Pool", name: "Pool", area: "Pool" },
+  { label: "Restaurant", name: "Restaurant", area: "Restaurant" },
+];
 
 function readRoomsView(): RoomsView {
   try {
@@ -32,6 +42,14 @@ function readRoomsView(): RoomsView {
     return v === "list" ? "list" : "card";
   } catch {
     return "card";
+  }
+}
+
+function readPanelTab(): PanelTab {
+  try {
+    return localStorage.getItem(ROOMS_TAB_KEY) === "venues" ? "venues" : "rooms";
+  } catch {
+    return "rooms";
   }
 }
 
@@ -62,25 +80,38 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<RoomStatusFilter>("all");
   const [view, setView] = useState<RoomsView>(readRoomsView);
+  const [panelTab, setPanelTabState] = useState<PanelTab>(readPanelTab);
 
   const setRoomsView = (next: RoomsView) => {
     setView(next);
     try { localStorage.setItem(ROOMS_VIEW_KEY, next); } catch { /* ignore */ }
   };
 
+  const setPanelTab = (next: PanelTab) => {
+    setPanelTabState(next);
+    setSearch("");
+    setStatusFilter("all");
+    try { localStorage.setItem(ROOMS_TAB_KEY, next); } catch { /* ignore */ }
+  };
+
+  const bedroomRooms = useMemo(() => rooms.filter((r) => !r.is_public), [rooms]);
+  const venueRooms = useMemo(() => rooms.filter((r) => !!r.is_public), [rooms]);
+  const tabRooms = panelTab === "venues" ? venueRooms : bedroomRooms;
+
   const filteredRooms = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return rooms.filter((r) => {
+    return tabRooms.filter((r) => {
       if (q) {
         const hay = `${r.room_number} ${r.floor ?? ""} ${r.checkin_code ?? ""}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
-      if (statusFilter === "public") return !!r.is_public;
-      if (statusFilter === "occupied") return !r.is_public && r.occupancy_status === "occupied";
-      if (statusFilter === "vacant") return !r.is_public && r.occupancy_status !== "occupied";
+      if (panelTab === "rooms") {
+        if (statusFilter === "occupied") return r.occupancy_status === "occupied";
+        if (statusFilter === "vacant") return r.occupancy_status !== "occupied";
+      }
       return true;
     });
-  }, [rooms, search, statusFilter]);
+  }, [tabRooms, search, statusFilter, panelTab]);
 
   const toggleRequireCode = async () => {
     const next = !requireCode;
@@ -152,13 +183,42 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
     e.preventDefault();
     if (!num.trim()) return;
     setBusy(true);
+    const asVenue = panelTab === "venues";
     try {
-      await addRoom(hotel.id, { room_number: num.trim(), floor: floor.trim() });
+      await addRoom(hotel.id, {
+        room_number: num.trim(),
+        floor: floor.trim(),
+        is_public: asVenue,
+      });
+      const label = formatRoomLabel(num.trim());
       setNum(""); setFloor("");
       await refresh();
-      toast.success(`${formatRoomLabel(num.trim())} added with a QR code`);
+      toast.success(asVenue
+        ? `${label} venue QR ready — print and place on the table`
+        : `${label} added with a QR code`);
     } catch (e: any) {
-      toast.error(e?.message ?? "Failed to add room");
+      toast.error(e?.message ?? "Failed to add");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const addVenuePreset = async (preset: (typeof VENUE_PRESETS)[number]) => {
+    setBusy(true);
+    try {
+      const exists = rooms.some(
+        (r) => r.is_public && r.room_number.toLowerCase() === preset.name.toLowerCase(),
+      );
+      const name = exists ? `${preset.name} ${venueRooms.length + 1}` : preset.name;
+      await addRoom(hotel.id, {
+        room_number: name,
+        floor: preset.area,
+        is_public: true,
+      });
+      await refresh();
+      toast.success(`${name} Public QR created — print for the ${preset.label.toLowerCase()}`);
+    } catch (e: any) {
+      toast.error(e?.message ?? "Couldn't add venue");
     } finally {
       setBusy(false);
     }
@@ -311,53 +371,162 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
   return (
     <div className="space-y-5">
       <GuestAccessTip />
-      <form onSubmit={onAdd} className="flex flex-wrap items-end gap-3">
-        <div>
-          <label className="mb-1 block text-xs text-muted-foreground">Name or number</label>
-          <Input
-            value={num}
-            onChange={(e) => setNum(e.target.value)}
-            placeholder="214 or Ocean Suite"
-            className="w-44"
-          />
-        </div>
-        <div>
-          <label className="mb-1 block text-xs text-muted-foreground">Floor / area (optional)</label>
-          <Input value={floor} onChange={(e) => setFloor(e.target.value)} placeholder="2 or Garden" className="w-32" />
-        </div>
-        <Button type="submit" disabled={busy} className="bg-violet-600 hover:bg-violet-700">
-          {busy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Plus className="mr-1.5 h-4 w-4" />}
-          {busy ? "Adding…" : "Add unit"}
-        </Button>
-      </form>
 
-      <div className="flex items-start justify-between gap-4 rounded-2xl border bg-muted/30 p-4">
-        <div className="min-w-0">
-          <div className="text-sm font-medium">Require a check-in code (default)</div>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            Property default for private rooms. New devices must enter the room's code before connecting.
-            Override per unit below — use <span className="font-medium text-foreground">Public QR</span> for
-            lobby, bar, or shared spaces where anyone can scan freely.
-          </p>
-        </div>
+      {/* Rooms vs Venues — same nav item, clear product surface for outdoor/table QRs */}
+      <div className="flex flex-wrap gap-1 rounded-xl border bg-muted/30 p-1">
         <button
           type="button"
-          role="switch"
-          aria-checked={requireCode}
-          disabled={savingToggle}
-          onClick={toggleRequireCode}
-          className={`relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition-colors ${requireCode ? "bg-violet-600" : "bg-muted-foreground/30"}`}
+          onClick={() => setPanelTab("rooms")}
+          className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition sm:flex-none ${
+            panelTab === "rooms"
+              ? "bg-white text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
         >
-          <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${requireCode ? "left-[22px]" : "left-0.5"}`} />
+          <QrCode className="h-3.5 w-3.5" />
+          Rooms
+          {bedroomRooms.length > 0 && (
+            <span className="tabular-nums text-xs text-muted-foreground">({bedroomRooms.length})</span>
+          )}
+        </button>
+        <button
+          type="button"
+          onClick={() => setPanelTab("venues")}
+          className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition sm:flex-none ${
+            panelTab === "venues"
+              ? "bg-sky-600 text-white shadow-sm"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <MapPin className="h-3.5 w-3.5" />
+          Venues &amp; tables
+          {venueRooms.length > 0 && (
+            <span className={`tabular-nums text-xs ${panelTab === "venues" ? "text-white/80" : "text-muted-foreground"}`}>
+              ({venueRooms.length})
+            </span>
+          )}
         </button>
       </div>
 
+      {panelTab === "venues" ? (
+        <>
+          <div className="rounded-2xl border border-sky-200/80 bg-sky-50/50 p-4">
+            <p className="text-sm font-medium text-sky-950">Bar, pool, restaurant &amp; outdoor QRs</p>
+            <p className="mt-1 text-xs leading-relaxed text-sky-900/75">
+              Create a Public QR for each shared space or table — guests scan without a check-in code.
+              Scan your menu under <span className="font-medium">Knowledge</span> (guest answers) or{" "}
+              <span className="font-medium">Departments → Menu</span> (priced Log order), then print these QRs for the tables.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {VENUE_PRESETS.map((p) => (
+                <Button
+                  key={p.label}
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={busy}
+                  className="border-sky-300 bg-white hover:bg-sky-50"
+                  onClick={() => void addVenuePreset(p)}
+                >
+                  <Plus className="mr-1 h-3.5 w-3.5" />
+                  {p.label}
+                </Button>
+              ))}
+            </div>
+          </div>
+
+          <form onSubmit={onAdd} className="flex flex-wrap items-end gap-3">
+            <div>
+              <label className="mb-1 block text-xs text-muted-foreground">Table or venue name</label>
+              <Input
+                value={num}
+                onChange={(e) => setNum(e.target.value)}
+                placeholder="Table 12 or Pool bar"
+                className="w-48"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-muted-foreground">Area (optional)</label>
+              <Input value={floor} onChange={(e) => setFloor(e.target.value)} placeholder="Terrace" className="w-32" />
+            </div>
+            <Button type="submit" disabled={busy} className="bg-sky-600 hover:bg-sky-700">
+              {busy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Plus className="mr-1.5 h-4 w-4" />}
+              {busy ? "Adding…" : "Add venue QR"}
+            </Button>
+          </form>
+        </>
+      ) : (
+        <>
+          <form onSubmit={onAdd} className="flex flex-wrap items-end gap-3">
+            <div>
+              <label className="mb-1 block text-xs text-muted-foreground">Name or number</label>
+              <Input
+                value={num}
+                onChange={(e) => setNum(e.target.value)}
+                placeholder="214 or Ocean Suite"
+                className="w-44"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-muted-foreground">Floor / area (optional)</label>
+              <Input value={floor} onChange={(e) => setFloor(e.target.value)} placeholder="2 or Garden" className="w-32" />
+            </div>
+            <Button type="submit" disabled={busy} className="bg-violet-600 hover:bg-violet-700">
+              {busy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Plus className="mr-1.5 h-4 w-4" />}
+              {busy ? "Adding…" : "Add room"}
+            </Button>
+          </form>
+
+          <div className="flex items-start justify-between gap-4 rounded-2xl border bg-muted/30 p-4">
+            <div className="min-w-0">
+              <div className="text-sm font-medium">Require a check-in code (default)</div>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Property default for private rooms. New devices must enter the room&apos;s code before connecting.
+                Shared spaces live under <span className="font-medium text-foreground">Venues &amp; tables</span>{" "}
+                (Public QR — no code).
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={requireCode}
+              disabled={savingToggle}
+              onClick={toggleRequireCode}
+              className={`relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition-colors ${requireCode ? "bg-violet-600" : "bg-muted-foreground/30"}`}
+            >
+              <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${requireCode ? "left-[22px]" : "left-0.5"}`} />
+            </button>
+          </div>
+        </>
+      )}
+
       {loading ? (
-        <div className="flex items-center gap-2 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading rooms…</div>
-      ) : rooms.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          No units yet. Add a room number or a name (e.g. Ocean Suite) — a secure QR code is generated automatically.
-        </p>
+        <div className="flex items-center gap-2 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</div>
+      ) : tabRooms.length === 0 ? (
+        <div className="rounded-2xl border border-dashed bg-muted/20 px-5 py-10 text-center">
+          {panelTab === "venues" ? (
+            <>
+              <MapPin className="mx-auto h-8 w-8 text-sky-600/70" />
+              <p className="mt-3 text-sm font-medium">No venue QRs yet</p>
+              <p className="mx-auto mt-1 max-w-md text-xs text-muted-foreground">
+                Tap Lobby, Bar, Pool, or Restaurant above — or add a custom table name.
+                Perfect for outdoor menus and independent restaurant tables.
+              </p>
+              <p className="mx-auto mt-3 flex items-center justify-center gap-1.5 text-[11px] text-muted-foreground">
+                <BookOpen className="h-3.5 w-3.5" />
+                Then scan your menu in Knowledge or Departments → Menu
+              </p>
+            </>
+          ) : (
+            <>
+              <QrCode className="mx-auto h-8 w-8 text-violet-600/70" />
+              <p className="mt-3 text-sm font-medium">No rooms yet</p>
+              <p className="mx-auto mt-1 max-w-md text-xs text-muted-foreground">
+                Add a room number or name (e.g. Ocean Suite) — a secure QR is generated automatically.
+              </p>
+            </>
+          )}
+        </div>
       ) : (
         <>
           <div className="flex flex-wrap items-center gap-2">
@@ -366,21 +535,22 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
               <Input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search name, floor, or code…"
+                placeholder={panelTab === "venues" ? "Search venue or table…" : "Search name, floor, or code…"}
                 className="h-9 pl-8"
               />
             </div>
-            <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as RoomStatusFilter)}>
-              <SelectTrigger className="h-9 w-[140px]">
-                <SelectValue placeholder="Status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All units</SelectItem>
-                <SelectItem value="occupied">Occupied</SelectItem>
-                <SelectItem value="vacant">Vacant</SelectItem>
-                <SelectItem value="public">Public QR</SelectItem>
-              </SelectContent>
-            </Select>
+            {panelTab === "rooms" && (
+              <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as RoomStatusFilter)}>
+                <SelectTrigger className="h-9 w-[140px]">
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All rooms</SelectItem>
+                  <SelectItem value="occupied">Occupied</SelectItem>
+                  <SelectItem value="vacant">Vacant</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
             <div className="flex rounded-lg border p-0.5">
               <Button
                 type="button"
@@ -411,7 +581,7 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
 
           {filteredRooms.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              No units match{search.trim() ? ` “${search.trim()}”` : ""}. Try another search or clear the filter.
+              No {panelTab === "venues" ? "venues" : "rooms"} match{search.trim() ? ` “${search.trim()}”` : ""}. Try another search or clear the filter.
             </p>
           ) : view === "list" ? (
             <div className="divide-y overflow-hidden rounded-2xl border bg-card">
@@ -582,9 +752,13 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
 
                 <div className="mt-3 flex items-center justify-between gap-2 rounded-xl border bg-muted/30 px-2.5 py-2">
                   <div className="min-w-0">
-                    <div className="text-xs font-medium">Public QR area</div>
+                    <div className="text-xs font-medium">
+                      {isPublic ? "Venue / table QR" : "Public QR area"}
+                    </div>
                     <p className="text-[10px] leading-snug text-muted-foreground">
-                      Lobby, bar, spa — no code, always open
+                      {isPublic
+                        ? "No check-in code — anyone can scan"
+                        : "Move to Venues & tables for lobby, bar, pool"}
                     </p>
                   </div>
                   <button

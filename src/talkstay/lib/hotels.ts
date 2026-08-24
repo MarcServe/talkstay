@@ -764,7 +764,10 @@ export async function addRoom(hotelId: string, room: {
   room_number: string;
   floor?: string;
   room_type?: string;
+  /** Shared venue / table QR (lobby, bar, pool, restaurant) — no check-in code. */
+  is_public?: boolean;
 }): Promise<Room> {
+  const isPublic = !!room.is_public;
   const { data, error } = await supabase
     .from("ts_rooms")
     .insert({
@@ -772,6 +775,7 @@ export async function addRoom(hotelId: string, room: {
       room_number: room.room_number,
       floor: room.floor || null,
       room_type: room.room_type || null,
+      ...(isPublic ? { is_public: true, require_checkin_code: false } : {}),
     })
     .select("*")
     .single();
