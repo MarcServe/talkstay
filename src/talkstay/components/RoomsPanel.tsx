@@ -9,7 +9,7 @@ import {
 import { toast } from "sonner";
 import {
   Trash2, QrCode, Loader2, ExternalLink, RefreshCw, Copy, Mail, Plus,
-  Search, LayoutGrid, List, MapPin, BookOpen,
+  Search, LayoutGrid, List, MapPin, BookOpen, Link2,
 } from "lucide-react";
 import {
   addRoom, deleteRoom, getRoomToken, listRooms, setRoomOccupancy, setRequireCheckinCode,
@@ -147,6 +147,25 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
     try {
       await navigator.clipboard.writeText(room.checkin_code);
       toast.success(`Code ${room.checkin_code} copied`);
+    } catch {
+      toast.error("Couldn't copy — try selecting it manually");
+    }
+  };
+
+  /** Guest stay URL — works for private rooms and Public QR venues. */
+  const copyGuestLink = async (room: Room) => {
+    try {
+      let token = tokens[room.id];
+      if (!token) {
+        token = (await getRoomToken(room.id)) ?? "";
+        if (!token) {
+          toast.error("No guest link yet — try QR first");
+          return;
+        }
+        setTokens((m) => ({ ...m, [room.id]: token! }));
+      }
+      await navigator.clipboard.writeText(guestUrl(hotel, room, token));
+      toast.success("Guest link copied");
     } catch {
       toast.error("Couldn't copy — try selecting it manually");
     }
@@ -610,18 +629,26 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
                         type="button"
                         onClick={() => copyCode(r)}
                         title="Copy check-in code"
-                        className="inline-flex items-center gap-1.5 rounded-lg border bg-muted/40 px-2 py-1 font-mono text-sm tracking-widest hover:border-violet-300 hover:bg-violet-50/60"
+                        className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border bg-muted/40 px-2.5 py-1.5 font-mono text-sm tracking-widest hover:border-violet-300 hover:bg-violet-50/60"
                       >
                         {r.checkin_code}
                         <Copy className="h-3.5 w-3.5 text-muted-foreground" />
                       </button>
                     ) : (
                       <span className="w-[88px] shrink-0 text-center text-[10px] leading-tight text-muted-foreground">
-                        {/* A bare dash reads as "broken". The code is minted at
-                            check-in and belongs to a stay, so say so. */}
-                        {isPublic ? "No code" : needsCode && !occupied ? "After check-in" : "—"}
+                        {isPublic ? "No check-in" : needsCode && !occupied ? "After check-in" : "—"}
                       </span>
                     )}
+
+                    <button
+                      type="button"
+                      onClick={() => copyGuestLink(r)}
+                      title="Copy guest link"
+                      className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-dashed px-2.5 py-1.5 text-xs font-medium hover:border-violet-300 hover:bg-violet-50/60"
+                    >
+                      <Link2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      Copy link
+                    </button>
 
                     <label className="flex cursor-pointer items-center gap-2 rounded-lg border px-2 py-1.5 text-xs">
                       <span className={isPublic ? "font-medium text-sky-800" : "text-muted-foreground"}>
@@ -661,10 +688,10 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
                       }`}
                     >
                       {r.require_checkin_code == null
-                        ? "Code: property default"
+                        ? "Check-in: property default"
                         : r.require_checkin_code
-                          ? "Code: always on"
-                          : "Code: always off"}
+                          ? "Check-in: always on"
+                          : "Check-in: always off"}
                       {!isPublic && (
                         <span className="mt-0.5 block text-[10px] text-muted-foreground">tap to change</span>
                       )}
@@ -711,10 +738,10 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
             const needsCode = roomRequiresCheckinCode(r, requireCode);
             const previewHref = tokens[r.id] ? guestUrl(hotel, r, tokens[r.id]) : null;
             const codeOverrideLabel = r.require_checkin_code == null
-              ? "Code: property default"
+              ? "Check-in: property default"
               : r.require_checkin_code
-                ? "Code: always on"
-                : "Code: always off";
+                ? "Check-in: always on"
+                : "Check-in: always off";
             return (
               <div
                 key={r.id}
@@ -772,6 +799,25 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
                   </button>
                 </div>
 
+                {/* Always-visible copy targets — guest link for everyone; check-in code when minted. */}
+                <button
+                  type="button"
+                  onClick={() => copyGuestLink(r)}
+                  className="mt-2 flex w-full min-h-11 items-center gap-2 rounded-xl border border-dashed bg-background px-3 py-2 text-left active:bg-muted/40"
+                  title="Copy guest link"
+                >
+                  <Link2 className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-xs font-medium">Copy guest link</span>
+                    <span className="block truncate font-mono text-[10px] text-muted-foreground">
+                      {tokens[r.id]
+                        ? guestUrl(hotel, r, tokens[r.id]).replace(/^https?:\/\//, "")
+                        : "Tap to copy stay URL"}
+                    </span>
+                  </span>
+                  <Copy className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                </button>
+
                 {!isPublic && (
                   <button
                     type="button"
@@ -784,18 +830,26 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
                 )}
 
                 {needsCode && occupied && r.checkin_code && (
-                  <div className="mt-3 flex flex-wrap items-center gap-1 rounded-xl border bg-muted/40 px-2 py-1.5">
-                    <span className="mr-1 font-mono text-sm tracking-widest">{r.checkin_code}</span>
-                    <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => copyCode(r)} title="Copy code">
-                      <Copy className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => regenCode(r)} title="Generate a new code">
+                  <div className="mt-2 flex flex-wrap items-center gap-1 rounded-xl border bg-muted/40 px-2 py-1.5">
+                    <span className="mr-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Check-in
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => copyCode(r)}
+                      className="inline-flex min-h-10 items-center gap-1.5 rounded-lg px-1.5 font-mono text-base tracking-widest active:bg-muted"
+                      title="Copy check-in code"
+                    >
+                      {r.checkin_code}
+                      <Copy className="h-3.5 w-3.5 text-muted-foreground" />
+                    </button>
+                    <Button size="icon" variant="ghost" className="h-9 w-9" onClick={() => regenCode(r)} title="Generate a new code">
                       <RefreshCw className="h-3.5 w-3.5" />
                     </Button>
                     <Button
                       size="icon"
                       variant="ghost"
-                      className="h-8 w-8"
+                      className="h-9 w-9"
                       onClick={() => { setEmailFor(r); setEmailInput(""); }}
                       title="Email code to guest"
                     >
