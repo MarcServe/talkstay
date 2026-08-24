@@ -14,7 +14,7 @@ import {
 import {
   addRoom, deleteRoom, getRoomToken, listRooms, setRoomOccupancy, setRequireCheckinCode,
   regenerateCheckinCode, sendCheckinCodeEmail, setRoomPublicQr, setRoomRequireCheckinCode,
-  roomRequiresCheckinCode, type Hotel, type Room,
+  setVenueDepartment, roomRequiresCheckinCode, type Hotel, type Room,
 } from "@/talkstay/lib/hotels";
 import { OCCUPANCY_STYLE, formatMoney } from "@/talkstay/lib/statusStyles";
 import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
@@ -29,12 +29,14 @@ const ROOMS_VIEW_KEY = "talkstay-rooms-view";
 const ROOMS_TAB_KEY = "talkstay-rooms-panel-tab";
 
 /** One-tap Public QR venues — bar, pool, restaurant tables, lobby. */
-const VENUE_PRESETS: { label: string; name: string; area: string }[] = [
-  { label: "Lobby", name: "Lobby", area: "Lobby" },
-  { label: "Bar", name: "Bar", area: "Bar" },
-  { label: "Pool", name: "Pool", area: "Pool" },
-  { label: "Restaurant", name: "Restaurant", area: "Restaurant" },
+const VENUE_PRESETS: { label: string; name: string; area: string; deptHint?: string[] }[] = [
+  { label: "Lobby", name: "Lobby", area: "Lobby", deptHint: ["front_desk", "concierge"] },
+  { label: "Bar", name: "Bar", area: "Bar", deptHint: ["bar"] },
+  { label: "Pool", name: "Pool", area: "Pool", deptHint: ["pool", "bar"] },
+  { label: "Restaurant", name: "Restaurant", area: "Restaurant", deptHint: ["restaurant", "kitchen"] },
 ];
+
+type HotelDept = { key: string; display_name: string };
 
 function readRoomsView(): RoomsView {
   try {
@@ -70,6 +72,8 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
   const [loading, setLoading] = useState(true);
   const [num, setNum] = useState("");
   const [floor, setFloor] = useState("");
+  const [venueDept, setVenueDept] = useState<string>("");
+  const [depts, setDepts] = useState<HotelDept[]>([]);
   const [busy, setBusy] = useState(false);
   const [qr, setQr] = useState<{ room: Room; token: string; surface: GuestStaySurface } | null>(null);
   const [requireCode, setRequireCode] = useState(!!hotel.require_checkin_code);
@@ -174,8 +178,17 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
   const refresh = async () => {
     setLoading(true);
     try {
-      const list = await listRooms(hotel.id);
+      const [list, deptRes] = await Promise.all([
+        listRooms(hotel.id),
+        supabase
+          .from("ts_departments")
+          .select("key, display_name")
+          .eq("hotel_id", hotel.id)
+          .eq("is_active", true)
+          .order("display_name"),
+      ]);
       setRooms(list);
+      setDepts(((deptRes.data as HotelDept[]) ?? []).filter((d) => d.key !== "duty_manager"));
       const entries = await Promise.all(
         list.map(async (r) => {
           try {
@@ -198,9 +211,27 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
 
   useEffect(() => { refresh(); /* eslint-disable-next-line */ }, [hotel.id]);
 
+  const deptLabel = (key: string | null | undefined) => {
+    if (!key) return null;
+    return depts.find((d) => d.key === key)?.display_name
+      ?? key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  };
+
+  const resolvePresetDept = (preset: (typeof VENUE_PRESETS)[number]) => {
+    for (const hint of preset.deptHint ?? []) {
+      if (depts.some((d) => d.key === hint)) return hint;
+    }
+    return venueDept || null;
+  };
+
   const onAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!num.trim()) return;
+    if (!num.trim()) {
+      toast.error(panelTab === "venues"
+        ? "Enter a table or venue name first (e.g. Outdoor Restaurant)"
+        : "Enter a room name or number first");
+      return;
+    }
     setBusy(true);
     const asVenue = panelTab === "venues";
     try {
@@ -208,12 +239,15 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
         room_number: num.trim(),
         floor: floor.trim(),
         is_public: asVenue,
+        department_key: asVenue && venueDept ? venueDept : null,
       });
       const label = formatRoomLabel(num.trim());
       setNum(""); setFloor("");
       await refresh();
       toast.success(asVenue
-        ? `${label} venue QR ready — print and place on the table`
+        ? venueDept
+          ? `${label} venue QR ready — linked to ${deptLabel(venueDept)}`
+          : `${label} venue QR ready — print and place on the table`
         : `${label} added with a QR code`);
     } catch (e: any) {
       toast.error(e?.message ?? "Failed to add");
@@ -229,17 +263,34 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
         (r) => r.is_public && r.room_number.toLowerCase() === preset.name.toLowerCase(),
       );
       const name = exists ? `${preset.name} ${venueRooms.length + 1}` : preset.name;
+      const dept = resolvePresetDept(preset);
       await addRoom(hotel.id, {
         room_number: name,
         floor: preset.area,
         is_public: true,
+        department_key: dept,
       });
       await refresh();
-      toast.success(`${name} Public QR created — print for the ${preset.label.toLowerCase()}`);
+      toast.success(dept
+        ? `${name} Public QR created under ${deptLabel(dept)}`
+        : `${name} Public QR created — print for the ${preset.label.toLowerCase()}`);
     } catch (e: any) {
       toast.error(e?.message ?? "Couldn't add venue");
     } finally {
       setBusy(false);
+    }
+  };
+
+  const onVenueDeptChange = async (room: Room, key: string) => {
+    const next = key === "__none__" ? null : key;
+    try {
+      await setVenueDepartment(room.id, next);
+      setRooms((rs) => rs.map((r) => (r.id === room.id ? { ...r, department_key: next } : r)));
+      toast.success(next
+        ? `${formatRoomLabel(room.room_number)} linked to ${deptLabel(next)}`
+        : `${formatRoomLabel(room.room_number)} unlinked from department`);
+    } catch (e: any) {
+      toast.error(e?.message ?? "Couldn't update department link");
     }
   };
 
@@ -432,9 +483,9 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
           <div className="rounded-2xl border border-sky-200/80 bg-sky-50/50 p-4">
             <p className="text-sm font-medium text-sky-950">Bar, pool, restaurant &amp; outdoor QRs</p>
             <p className="mt-1 text-xs leading-relaxed text-sky-900/75">
-              Create a Public QR for each shared space or table — guests scan without a check-in code.
-              Scan your menu under <span className="font-medium">Knowledge</span> (guest answers) or{" "}
-              <span className="font-medium">Departments → Menu</span> (priced Log order), then print these QRs for the tables.
+              Each table or outlet gets its own Public QR. Link them to a{" "}
+              <span className="font-medium">department</span> (e.g. Restaurant) so Main and Outdoor
+              share one team — then upload each outlet&apos;s menu under Departments → Menu.
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
               {VENUE_PRESETS.map((p) => (
@@ -455,24 +506,44 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
           </div>
 
           <form onSubmit={onAdd} className="flex flex-wrap items-end gap-3">
-            <div>
+            <div className="min-w-[10rem] flex-1 sm:flex-none">
               <label className="mb-1 block text-xs text-muted-foreground">Table or venue name</label>
               <Input
                 value={num}
                 onChange={(e) => setNum(e.target.value)}
-                placeholder="Table 12 or Pool bar"
-                className="w-48"
+                placeholder="Outdoor Restaurant"
+                className="w-full sm:w-52"
               />
             </div>
-            <div>
+            <div className="w-[7.5rem]">
               <label className="mb-1 block text-xs text-muted-foreground">Area (optional)</label>
-              <Input value={floor} onChange={(e) => setFloor(e.target.value)} placeholder="Terrace" className="w-32" />
+              <Input value={floor} onChange={(e) => setFloor(e.target.value)} placeholder="Terrace" className="w-full" />
             </div>
-            <Button type="submit" disabled={busy} className="bg-sky-600 hover:bg-sky-700">
+            <div className="min-w-[10rem] flex-1 sm:flex-none sm:w-44">
+              <label className="mb-1 block text-xs text-muted-foreground">Department</label>
+              <Select value={venueDept || "__none__"} onValueChange={(v) => setVenueDept(v === "__none__" ? "" : v)}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Link to department" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">No department yet</SelectItem>
+                  {depts.map((d) => (
+                    <SelectItem key={d.key} value={d.key}>{d.display_name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button type="submit" disabled={busy || !num.trim()} className="bg-sky-600 hover:bg-sky-700">
               {busy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Plus className="mr-1.5 h-4 w-4" />}
               {busy ? "Adding…" : "Add venue QR"}
             </Button>
           </form>
+          {depts.length === 0 && (
+            <p className="text-[11px] text-muted-foreground">
+              Tip: add a <span className="font-medium">Restaurant</span> department first under Departments,
+              then link Main and Outdoor venues to it.
+            </p>
+          )}
         </>
       ) : (
         <>
@@ -784,7 +855,9 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
                     </div>
                     <p className="text-[10px] leading-snug text-muted-foreground">
                       {isPublic
-                        ? "No check-in code — anyone can scan"
+                        ? (r.department_key
+                          ? `Linked to ${deptLabel(r.department_key)} — menus upload there`
+                          : "No check-in code — anyone can scan")
                         : "Move to Venues & tables for lobby, bar, pool"}
                     </p>
                   </div>
@@ -798,6 +871,28 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
                     <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all ${isPublic ? "left-[18px]" : "left-0.5"}`} />
                   </button>
                 </div>
+
+                {isPublic && (
+                  <div className="mt-2">
+                    <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Department / outlet
+                    </label>
+                    <Select
+                      value={r.department_key || "__none__"}
+                      onValueChange={(v) => void onVenueDeptChange(r, v)}
+                    >
+                      <SelectTrigger className="h-9 w-full text-xs">
+                        <SelectValue placeholder="Link to department" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">Not linked</SelectItem>
+                        {depts.map((d) => (
+                          <SelectItem key={d.key} value={d.key}>{d.display_name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
 
                 {/* Guest link — no raw URL on cards (long paths clip on mobile). */}
                 <button
