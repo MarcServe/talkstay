@@ -799,23 +799,24 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
                   </button>
                 </div>
 
-                {/* Always-visible copy targets — guest link for everyone; check-in code when minted. */}
+                {/* Guest link — no raw URL on cards (long paths clip on mobile). */}
                 <button
                   type="button"
                   onClick={() => copyGuestLink(r)}
-                  className="mt-2 flex w-full min-h-11 items-center gap-2 rounded-xl border border-dashed bg-background px-3 py-2 text-left active:bg-muted/40"
+                  className="mt-2 flex w-full min-h-11 items-center gap-3 overflow-hidden rounded-xl border border-dashed bg-background px-3 py-2.5 text-left active:bg-muted/40"
                   title="Copy guest link"
+                  aria-label={`Copy guest link for ${formatRoomLabel(r.room_number)}`}
                 >
                   <Link2 className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-xs font-medium">Copy guest link</span>
-                    <span className="block truncate font-mono text-[10px] text-muted-foreground">
-                      {tokens[r.id]
-                        ? guestUrl(hotel, r, tokens[r.id]).replace(/^https?:\/\//, "")
-                        : "Tap to copy stay URL"}
+                  <span className="min-w-0 flex-1 overflow-hidden">
+                    <span className="block text-sm font-medium leading-tight">Copy guest link</span>
+                    <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
+                      Tap to copy · {formatRoomLabel(r.room_number)}
                     </span>
                   </span>
-                  <Copy className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border bg-muted/40">
+                    <Copy className="h-3.5 w-3.5 text-foreground" />
+                  </span>
                 </button>
 
                 {!isPublic && (
