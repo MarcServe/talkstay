@@ -24,7 +24,7 @@ const FAQS: { q: string; a: string }[] = [
   },
   {
     q: "Can someone order without being checked into a room?",
-    a: "Yes. Mark lobby, bar, restaurant, pool, spa, or conference units as Public QR in Rooms & QR. Those locations stay open without a check-in code. Orders attach to the location (and optional guest/table note), not a bedroom.",
+    a: "Yes. Open Rooms & QR → Venues & tables. Add Lobby, Bar, Pool, Restaurant (or a custom table name) — those are Public QR areas with no check-in code. Orders attach to the location (and optional guest/table note), not a bedroom. Scan your menu under Knowledge or Departments → Menu, then print the venue QRs for the tables.",
   },
   {
     q: "How do payments work for rooms vs public areas?",
