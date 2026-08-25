@@ -243,9 +243,15 @@ function GuestAppInner({ hotelSlug, roomId, token }: { hotelSlug: string; roomId
   const liveAssistantRef = useRef("");
   // Dedupe voice→hotel-brain routing so one spoken ask can't open two tickets.
   const lastRoutedVoiceRef = useRef<{ text: string; at: number }>({ text: "", at: 0 });
+  /** Always-current transcript — voice callbacks close over a stale `msgs` without this. */
+  const msgsRef = useRef<Msg[]>([]);
 
   const sid = hotelSlug && roomId ? getSessionId(hotelSlug, roomId) : "";
   const scroller = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    msgsRef.current = msgs;
+  }, [msgs]);
 
   const loadContext = (code?: string) => {
     if (!hotelSlug || !roomId || !token) { setInvalid(true); return; }
@@ -350,7 +356,12 @@ function GuestAppInner({ hotelSlug, roomId, token }: { hotelSlug: string; roomId
   // creates request(s), show confirmation chips + the notification choice sheet.
   const routeThroughHotelBrain = async (text: string, surfaceReply: boolean) => {
     try {
-      const history = msgs.filter((m) => m.role === "user" || m.role === "assistant") as ChatMsg[];
+      // Use msgsRef so voice turns after mic-start still see the live transcript
+      // (speaking then typing must share one continuous history).
+      const history = msgsRef.current
+        .filter((m): m is Extract<Msg, { role: "user" | "assistant" }> =>
+          m.role === "user" || m.role === "assistant")
+        .map((m) => ({ role: m.role, content: m.content })) as ChatMsg[];
       const res = await sendMessage({ hotelSlug, roomId, token, sessionId: sid, message: text, history });
       if (res.requests?.length) {
         for (const r of res.requests) {
@@ -386,8 +397,15 @@ function GuestAppInner({ hotelSlug, roomId, token }: { hotelSlug: string; roomId
     if (!text || busy) return;
     setInput("");
     append({ role: "user", content: text });
+    conversationMemory.addMessage("user", text, "chat");
     setBusy(true);
-    await routeThroughHotelBrain(text, true);
+    const res = await routeThroughHotelBrain(text, true);
+    if (res?.reply?.trim()) {
+      conversationMemory.addMessage("assistant", res.reply.trim(), "chat");
+      // If the mic is still live, inject the typed turn into Realtime so the
+      // next spoken reply continues the same thread (not a fresh start).
+      chatRef.current?.syncTypedTurn(text, res.reply.trim());
+    }
     setBusy(false);
   };
 
@@ -395,7 +413,7 @@ function GuestAppInner({ hotelSlug, roomId, token }: { hotelSlug: string; roomId
   // picks up mid-thread (typed request → continue by speaking, and vice versa).
   const syncVoiceMemoryFromChat = () => {
     conversationMemory.clearMessages();
-    for (const m of msgs) {
+    for (const m of msgsRef.current) {
       if ((m.role === "user" || m.role === "assistant") && m.content?.trim()) {
         conversationMemory.addMessage(m.role, m.content.trim(), "chat");
       }
