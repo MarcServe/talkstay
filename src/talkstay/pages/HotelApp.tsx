@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import {
   Loader2, Menu, X, Phone,
-  Inbox, BarChart3, QrCode, Building2, BookOpen, Users, Palette, LifeBuoy,
+  Inbox, BarChart3, QrCode, Building2, BookOpen, Users, Palette, LifeBuoy, CreditCard,
 } from "lucide-react";
 import AuthPage, { isPasswordSetupUrl } from "@/talkstay/pages/AuthPage";
 import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
@@ -19,6 +19,7 @@ import RoomsPanel from "@/talkstay/components/RoomsPanel";
 import DepartmentsPanel from "@/talkstay/components/DepartmentsPanel";
 import KnowledgePanel from "@/talkstay/components/KnowledgePanel";
 import BrandingPanel from "@/talkstay/components/BrandingPanel";
+import PaymentsPanel from "@/talkstay/components/PaymentsPanel";
 import LogOrderDialog from "@/talkstay/components/LogOrderDialog";
 import StaffAlertsHost from "@/talkstay/components/StaffAlertsHost";
 import InstallAppBanner from "@/talkstay/components/InstallAppBanner";
@@ -38,6 +39,7 @@ import {
   canSeeNavItem,
   membershipRoleLabel,
 } from "@/talkstay/lib/hotels";
+import { fetchStripeStatus } from "@/talkstay/lib/stripeConnect";
 import { talkstayKeys } from "@/talkstay/lib/data";
 import {
   useHotelAccess, usePrefetchHotelData, invalidateOps,
@@ -62,6 +64,7 @@ const NAV = [
   { key: "log_order", label: "Log order", icon: Phone, admin: false, desc: "Only for phone, walk-in or front-desk calls that aren’t already on the board. Use Public QR areas for lobby, bar, restaurant, and walk-ups." },
   { key: "insights", label: "Insights", icon: BarChart3, admin: true, desc: "Analytics and business intelligence for this property — or across your portfolio when you own more than one." },
   { key: "rooms", label: "Rooms & QR", icon: QrCode, admin: true, desc: "Rooms for guest stays, plus Venues & tables for lobby, bar, pool, and restaurant QRs. Scan menus in Knowledge or Departments, then print table QRs here." },
+  { key: "payments", label: "Payments", icon: CreditCard, admin: true, desc: "Connect Stripe once — guests pay unpaid orders by card; TalkStay marks them Paid when Stripe confirms." },
   { key: "branding", label: "Branding", icon: Palette, admin: true, desc: "Logo, colour, property profile (type/address/scale), and the printable poster." },
   { key: "departments", label: "Departments", icon: Building2, admin: true, desc: "Teams, routing rules and per-department notifications." },
   { key: "knowledge", label: "Knowledge", icon: BookOpen, admin: true, desc: "What the assistant knows — website, documents and property info." },
@@ -179,13 +182,13 @@ function CreateHotel({
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           {asAdditional
-            ? "Each property gets its own rooms, QR codes, departments, knowledge, website and contact email. You stay signed in with one owner account."
-            : "Sets up your guest assistant, knowledge base and the standard service departments. A little context on type and scale helps Insights give better business advice."}
+            ? "Each property gets its own QRs, departments, knowledge, website and contact email. You stay signed in with one owner account."
+            : "Hotels, short stays, or restaurants digitising menus & table QRs. Pick your property type below — restaurants get kitchen / bar / host teams instead of housekeeping."}
         </p>
         <form onSubmit={submit} className="mt-6 space-y-4">
           <div className="space-y-1.5">
             <Label htmlFor="hotel-name">Property name</Label>
-            <Input id="hotel-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="The Grand Hotel / Seaview Apartment 3B" />
+            <Input id="hotel-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="The Grand Hotel / Harbour Kitchen" />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="hotel-web">Property website or listing (optional)</Label>
@@ -330,6 +333,7 @@ function Panel({ active, hotel, onHotel, departmentKey, focusRequestId, onOpenRe
       <InsightsPanel hotel={hotel} portfolioHotels={portfolioHotels} />
     );
     case "rooms": return <RoomsPanel hotel={hotel} onHotel={onHotel} />;
+    case "payments": return <PaymentsPanel hotel={hotel} />;
     case "branding": return (
       <BrandingPanel
         hotel={hotel}
@@ -379,7 +383,36 @@ export default function HotelApp() {
 
   useEffect(() => {
     if (tabParam === "account") setActive("account");
+    if (tabParam === "payments") setActive("payments");
   }, [tabParam]);
+
+  // Stripe Connect return / refresh from Express onboarding.
+  const stripeParam = searchParams.get("stripe");
+  useEffect(() => {
+    if (!stripeParam || !hotel?.id) return;
+    const hotelQ = searchParams.get("hotel");
+    if (hotelQ && hotelQ !== hotel.id) return;
+    setActive("payments");
+    void (async () => {
+      try {
+        const st = await fetchStripeStatus(hotel.id);
+        if (stripeParam === "return") {
+          toast.success(st.chargesEnabled
+            ? "Stripe connected — guests can pay by card"
+            : "Stripe details saved — finish any remaining steps in Stripe if card pay isn’t live yet");
+        } else if (stripeParam === "refresh") {
+          toast.message("Continue Stripe setup from Payments");
+        }
+      } catch {
+        toast.message("Opened Payments — refresh status after Stripe setup");
+      }
+      const next = new URLSearchParams(searchParams);
+      next.delete("stripe");
+      next.delete("hotel");
+      setSearchParams(next, { replace: true });
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stripeParam, hotel?.id]);
 
   // Tapping an OS notification lands here with ?request=<id>. Open that ticket,
   // then strip the param so a later refresh doesn't reopen a handled request.

@@ -37,6 +37,8 @@ export function GuestFolio({
   onPayNow,
   onPayAtCheckout,
   onChargeToRoom,
+  onPayByCard,
+  cardPayEnabled = false,
   variant = "page",
   isPublic = false,
   billingRoomNumber = null,
@@ -49,6 +51,9 @@ export function GuestFolio({
   onPayAtCheckout: () => void;
   /** Public QR: verify check-in code then charge to that occupied room. */
   onChargeToRoom?: (code: string) => void | Promise<void>;
+  /** Stripe Checkout when the property has Connect live. */
+  onPayByCard?: () => void;
+  cardPayEnabled?: boolean;
   variant?: "page" | "compact";
   /** Public QR area (lobby, bar, spa…). */
   isPublic?: boolean;
@@ -59,13 +64,14 @@ export function GuestFolio({
   const paid = requests.filter(
     (r) => r.is_chargeable && r.payment_status === "paid" && r.status !== "cancelled",
   );
-  const { owedTotal, currency } = folioTotals(unpaid);
+  const { owedTotal, currency, pricedCount } = folioTotals(unpaid);
   const isPage = variant === "page";
   const copy = folioPayCopy(orderLocationKind(isPublic));
   const [codeOpen, setCodeOpen] = useState(false);
   const [code, setCode] = useState("");
   const chargedToRoom = paymentTiming === "charge_to_room" && !!billingRoomNumber;
   const deferred = paymentTiming === "at_checkout";
+  const canCard = cardPayEnabled && !!onPayByCard && pricedCount > 0;
 
   if (!unpaid.length && !paid.length) {
     return (
@@ -97,6 +103,18 @@ export function GuestFolio({
                   : `${unpaid.length} unpaid item${unpaid.length === 1 ? "" : "s"}`}
               </p>
               <p className="mt-1 text-[11px] leading-snug text-amber-900/80">{hint}</p>
+
+              {canCard && (
+                <Button
+                  size="sm"
+                  className="mt-3 h-11 w-full bg-violet-700 text-white hover:bg-violet-800"
+                  disabled={!!payBusy}
+                  onClick={onPayByCard}
+                >
+                  {payBusy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+                  {payBusy ? copy.payCardBusy : `${copy.payCardIdle}${owedTotal != null ? ` · ${formatMoney(owedTotal, currency)}` : ""}`}
+                </Button>
+              )}
 
               {isPublic ? (
                 <div className="mt-3 space-y-2">

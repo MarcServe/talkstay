@@ -1,0 +1,260 @@
+/**
+ * TalkStay Stripe Connect — property onboarding + guest Checkout.
+ *
+ * Secrets (Supabase Edge):
+ *   STRIPE_SECRET_KEY
+ *   STRIPE_CONNECT_WEBHOOK_SECRET  (for talkstay-stripe-webhook)
+ *   PUBLIC_APP_URL                 (e.g. https://talkstay.talkweb.io)
+ *
+ * Owners never paste API keys — they click Connect and finish Stripe Express.
+ */
+import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import Stripe from "https://esm.sh/stripe@14.25.0?target=deno";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+
+function stripeClient() {
+  const key = Deno.env.get("STRIPE_SECRET_KEY");
+  if (!key) throw new Error("STRIPE_SECRET_KEY is not configured");
+  return new Stripe(key, {
+    apiVersion: "2023-10-16",
+    httpClient: Stripe.createFetchHttpClient(),
+  });
+}
+
+function appBaseUrl() {
+  return (Deno.env.get("PUBLIC_APP_URL") || "https://talkstay.talkweb.io").replace(/\/$/, "");
+}
+
+serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  try {
+    const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+    const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const ANON = Deno.env.get("SUPABASE_ANON_KEY")!;
+    const admin = createClient(SUPABASE_URL, SERVICE_KEY);
+    const stripe = stripeClient();
+
+    const body = await req.json().catch(() => ({}));
+    const action = String(body.action ?? "");
+
+    // ─── Guest: start Checkout for unpaid chargeables (QR token auth) ───
+    if (action === "create_guest_checkout") {
+      const hotelSlug = String(body.hotelSlug ?? "").trim().toLowerCase();
+      const roomId = String(body.roomId ?? "").trim();
+      const token = String(body.token ?? "").trim();
+      const sessionId = String(body.sessionId ?? "").trim();
+      if (!hotelSlug || !roomId || !token || !sessionId) {
+        return json({ error: "hotelSlug, roomId, token, and sessionId required" }, 400);
+      }
+
+      const { data: hotel } = await admin
+        .from("ts_hotels")
+        .select("id, name, slug, stripe_account_id, stripe_charges_enabled, branding")
+        .eq("slug", hotelSlug)
+        .maybeSingle();
+      if (!hotel) return json({ error: "Property not found" }, 404);
+      if (!hotel.stripe_account_id || !hotel.stripe_charges_enabled) {
+        return json({ error: "Card payments are not enabled for this property yet." }, 400);
+      }
+
+      const { data: tok } = await admin
+        .from("ts_room_tokens")
+        .select("id, room_id, is_active")
+        .eq("room_id", roomId)
+        .eq("token", token)
+        .eq("is_active", true)
+        .maybeSingle();
+      if (!tok) return json({ error: "Invalid guest link" }, 403);
+
+      const { data: unpaid } = await admin
+        .from("ts_service_requests")
+        .select("id, summary, price, currency, payment_status, is_chargeable, session_id")
+        .eq("hotel_id", hotel.id)
+        .eq("room_id", roomId)
+        .eq("session_id", sessionId)
+        .eq("is_chargeable", true)
+        .eq("payment_status", "unpaid");
+
+      const rows = (unpaid ?? []).filter((r: { price: number | null }) => typeof r.price === "number" && Number(r.price) > 0);
+      if (!rows.length) return json({ error: "Nothing to pay with a card right now." }, 400);
+
+      const currency = String(rows[0].currency || "GBP").toLowerCase();
+      const line_items = rows.map((r: { summary: string; price: number; currency?: string }) => ({
+        quantity: 1,
+        price_data: {
+          currency,
+          unit_amount: Math.round(Number(r.price) * 100),
+          product_data: {
+            name: String(r.summary || "Order").slice(0, 120),
+          },
+        },
+      }));
+      const amountTotal = rows.reduce((s: number, r: { price: number }) => s + Number(r.price), 0);
+      const requestIds = rows.map((r: { id: string }) => r.id);
+      const guestPath = `/h/${hotel.slug}/r/${roomId}?t=${encodeURIComponent(token)}`;
+
+      const session = await stripe.checkout.sessions.create(
+        {
+          mode: "payment",
+          line_items,
+          success_url: `${appBaseUrl()}${guestPath}&pay=success`,
+          cancel_url: `${appBaseUrl()}${guestPath}&pay=cancel`,
+          client_reference_id: sessionId.slice(0, 200),
+          metadata: {
+            talkstay_hotel_id: hotel.id,
+            talkstay_room_id: roomId,
+            talkstay_guest_session: sessionId.slice(0, 200),
+            talkstay_request_ids: requestIds.join(",").slice(0, 450),
+          },
+          payment_intent_data: {
+            metadata: {
+              talkstay_hotel_id: hotel.id,
+              talkstay_guest_session: sessionId.slice(0, 200),
+            },
+          },
+        },
+        { stripeAccount: hotel.stripe_account_id },
+      );
+
+      await admin.from("ts_stripe_checkouts").insert({
+        hotel_id: hotel.id,
+        guest_session_id: sessionId,
+        room_id: roomId,
+        stripe_checkout_session_id: session.id,
+        stripe_payment_intent_id: typeof session.payment_intent === "string" ? session.payment_intent : null,
+        request_ids: requestIds,
+        amount_total: amountTotal,
+        currency: currency.toUpperCase(),
+        status: "open",
+      });
+
+      return json({ url: session.url, sessionId: session.id });
+    }
+
+    // ─── Staff / owner actions (JWT) ───
+    const authHeader = req.headers.get("Authorization") || "";
+    const userClient = createClient(SUPABASE_URL, ANON, {
+      global: { headers: { Authorization: authHeader } },
+    });
+    const { data: userData, error: userErr } = await userClient.auth.getUser();
+    if (userErr || !userData?.user) return json({ error: "Not signed in" }, 401);
+    const userId = userData.user.id;
+
+    const hotelId = String(body.hotelId ?? "").trim();
+    if (!hotelId) return json({ error: "hotelId required" }, 400);
+
+    const { data: hotel } = await admin
+      .from("ts_hotels")
+      .select("id, user_id, name, slug, stripe_account_id, stripe_charges_enabled, stripe_details_submitted, stripe_connected_at, contact_email")
+      .eq("id", hotelId)
+      .maybeSingle();
+    if (!hotel) return json({ error: "Property not found" }, 404);
+
+    const isOwner = hotel.user_id === userId;
+    let isAdmin = isOwner;
+    if (!isAdmin) {
+      const { data: staff } = await admin
+        .from("ts_staff")
+        .select("role, department_key, status")
+        .eq("hotel_id", hotelId)
+        .eq("user_id", userId)
+        .eq("status", "active")
+        .maybeSingle();
+      isAdmin = !!staff && (staff.role === "owner" || (staff.role === "manager" && !staff.department_key));
+    }
+    if (!isAdmin) return json({ error: "Only property admins can manage payments" }, 403);
+
+    if (action === "status") {
+      let charges = !!hotel.stripe_charges_enabled;
+      let details = !!hotel.stripe_details_submitted;
+      if (hotel.stripe_account_id) {
+        try {
+          const acct = await stripe.accounts.retrieve(hotel.stripe_account_id);
+          charges = !!acct.charges_enabled;
+          details = !!acct.details_submitted;
+          await admin.from("ts_hotels").update({
+            stripe_charges_enabled: charges,
+            stripe_details_submitted: details,
+          }).eq("id", hotelId);
+        } catch { /* keep cached flags */ }
+      }
+      return json({
+        connected: !!hotel.stripe_account_id,
+        accountId: hotel.stripe_account_id,
+        chargesEnabled: charges,
+        detailsSubmitted: details,
+        connectedAt: hotel.stripe_connected_at,
+      });
+    }
+
+    if (action === "connect_onboarding") {
+      let accountId = hotel.stripe_account_id as string | null;
+      if (!accountId) {
+        const account = await stripe.accounts.create({
+          type: "express",
+          country: String(body.country || "GB").toUpperCase().slice(0, 2),
+          email: hotel.contact_email || userData.user.email || undefined,
+          capabilities: {
+            card_payments: { requested: true },
+            transfers: { requested: true },
+          },
+          business_profile: {
+            name: hotel.name,
+            url: `${appBaseUrl()}/h/${hotel.slug}`,
+          },
+          metadata: { talkstay_hotel_id: hotelId },
+        });
+        accountId = account.id;
+        await admin.from("ts_hotels").update({
+          stripe_account_id: accountId,
+          stripe_connected_at: new Date().toISOString(),
+        }).eq("id", hotelId);
+      }
+
+      const refreshUrl = `${appBaseUrl()}/app?stripe=refresh&hotel=${hotelId}`;
+      const returnUrl = `${appBaseUrl()}/app?stripe=return&hotel=${hotelId}`;
+      const link = await stripe.accountLinks.create({
+        account: accountId!,
+        refresh_url: refreshUrl,
+        return_url: returnUrl,
+        type: "account_onboarding",
+      });
+      return json({ url: link.url, accountId });
+    }
+
+    if (action === "connect_dashboard") {
+      if (!hotel.stripe_account_id) return json({ error: "Connect Stripe first" }, 400);
+      const login = await stripe.accounts.createLoginLink(hotel.stripe_account_id);
+      return json({ url: login.url });
+    }
+
+    if (action === "disconnect") {
+      // Soft-disconnect in TalkStay only — Stripe account remains the property's.
+      await admin.from("ts_hotels").update({
+        stripe_account_id: null,
+        stripe_charges_enabled: false,
+        stripe_details_submitted: false,
+        stripe_connected_at: null,
+      }).eq("id", hotelId);
+      return json({ ok: true });
+    }
+
+    return json({ error: `Unknown action: ${action}` }, 400);
+  } catch (e) {
+    console.error("talkstay-stripe", e);
+    return json({ error: e instanceof Error ? e.message : "Stripe error" }, 500);
+  }
+});

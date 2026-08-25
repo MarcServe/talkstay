@@ -47,6 +47,7 @@ export default function GuestCheckOut() {
   const [reqs, setReqs] = useState<GuestRequest[]>([]);
   const [paymentTiming, setPaymentTimingState] = useState<GuestPaymentTiming | null>(null);
   const [billingRoomNumber, setBillingRoomNumber] = useState<string | null>(null);
+  const [cardPayEnabled, setCardPayEnabled] = useState(false);
   const [payBusy, setPayBusy] = useState(false);
 
   const brand = branding?.primary_color || "#0f766e";
@@ -62,6 +63,7 @@ export default function GuestCheckOut() {
       setReqs(payload.requests);
       setPaymentTimingState(payload.paymentTiming);
       setBillingRoomNumber(payload.billingRoomNumber ?? null);
+      setCardPayEnabled(!!payload.cardPayEnabled);
     } catch {
       // Keep whatever we last showed. Blanking the folio on a transient network
       // blip renders "Nothing to pay" over a real balance, which is the one
@@ -165,6 +167,18 @@ export default function GuestCheckOut() {
     } catch {
       toast.error("Couldn't save that preference. Please try again.");
     } finally {
+      setPayBusy(false);
+    }
+  };
+
+  const payByCard = async () => {
+    setPayBusy(true);
+    try {
+      const { startGuestCardCheckout } = await import("@/talkstay/lib/stripeConnect");
+      const url = await startGuestCardCheckout({ hotelSlug, roomId, token, sessionId: sid });
+      window.location.assign(url);
+    } catch (e: any) {
+      toast.error(e?.message ?? "Couldn't start card payment");
       setPayBusy(false);
     }
   };
@@ -282,6 +296,8 @@ export default function GuestCheckOut() {
                   onPayNow={() => void payNow()}
                   onPayAtCheckout={() => void payAtCheckout()}
                   onChargeToRoom={isPublic ? (c) => chargeToRoom(c) : undefined}
+                  onPayByCard={cardPayEnabled ? () => void payByCard() : undefined}
+                  cardPayEnabled={cardPayEnabled}
                   isPublic={isPublic}
                   billingRoomNumber={billingRoomNumber}
                   variant="page"

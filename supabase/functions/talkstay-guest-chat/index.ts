@@ -979,11 +979,22 @@ serve(async (req) => {
         : null;
       const currency = unpaid.find((r: any) => r.currency)?.currency ?? "GBP";
 
+      let cardPayEnabled = false;
+      {
+        const { data: payHotel } = await admin
+          .from("ts_hotels")
+          .select("stripe_charges_enabled")
+          .eq("id", ctx.hotelId)
+          .maybeSingle();
+        cardPayEnabled = !!payHotel?.stripe_charges_enabled;
+      }
+
       return json({
         requests,
         paymentTiming,
         billingRoomId,
         billingRoomNumber,
+        cardPayEnabled,
         balance: {
           unpaidCount: unpaid.length,
           owedTotal,

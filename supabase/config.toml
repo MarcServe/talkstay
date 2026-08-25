@@ -241,3 +241,9 @@ verify_jwt = false
 
 [functions.send-email-reply]
 verify_jwt = true
+
+[functions.talkstay-stripe]
+verify_jwt = false
+
+[functions.talkstay-stripe-webhook]
+verify_jwt = false

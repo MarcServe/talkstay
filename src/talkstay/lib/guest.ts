@@ -27,6 +27,8 @@ export interface MyRequestsPayload {
   paymentTiming: GuestPaymentTiming | null;
   billingRoomId?: string | null;
   billingRoomNumber?: string | null;
+  /** Property has Stripe Connect live — guest can pay unpaid items by card. */
+  cardPayEnabled?: boolean;
   balance: GuestBalance;
 }
 
@@ -205,6 +207,7 @@ export async function fetchMyRequests(hotelSlug: string, roomId: string, token: 
     paymentTiming: (payload?.paymentTiming ?? null) as GuestPaymentTiming | null,
     billingRoomId: (payload?.billingRoomId ?? null) as string | null,
     billingRoomNumber: (payload?.billingRoomNumber ?? null) as string | null,
+    cardPayEnabled: !!payload?.cardPayEnabled,
     balance: {
       unpaidCount: Number(payload?.balance?.unpaidCount ?? 0),
       owedTotal: payload?.balance?.owedTotal ?? null,

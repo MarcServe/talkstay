@@ -27,7 +27,7 @@ export default function PropertyProfileFields({
           onValueChange={(v) => set("type", (v || null) as PropertyType | null)}
         >
           <SelectTrigger>
-            <SelectValue placeholder="Hotel, Airbnb, B&B…" />
+            <SelectValue placeholder="Hotel, restaurant, Airbnb…" />
           </SelectTrigger>
           <SelectContent>
             {PROPERTY_TYPES.map((t) => (
@@ -68,7 +68,9 @@ export default function PropertyProfileFields({
 
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="space-y-1.5">
-          <Label htmlFor="prop-rooms">Rooms / units at this property</Label>
+          <Label htmlFor="prop-rooms">
+            {value.type === "restaurant" ? "Tables / seating areas" : "Rooms / units at this property"}
+          </Label>
           <Input
             id="prop-rooms"
             type="number"
@@ -79,10 +81,12 @@ export default function PropertyProfileFields({
               const n = e.target.value === "" ? null : Number(e.target.value);
               set("room_count", n != null && Number.isFinite(n) ? n : null);
             }}
-            placeholder="e.g. 12"
+            placeholder={value.type === "restaurant" ? "e.g. 24" : "e.g. 12"}
           />
           <p className="text-xs text-muted-foreground">
-            Hotel rooms, Airbnb bedrooms, or listed units — used for scale-aware Insights advice.
+            {value.type === "restaurant"
+              ? "Rough table count helps Insights — add exact table QRs under Venues & tables."
+              : "Hotel rooms, Airbnb bedrooms, or listed units — used for scale-aware Insights advice."}
           </p>
         </div>
         <div className="space-y-1.5">

@@ -1351,6 +1351,7 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, isPublic = false, onClos
   const [reqs, setReqs] = useState<GuestRequest[] | null>(null);
   const [paymentTiming, setPaymentTimingState] = useState<GuestPaymentTiming | null>(null);
   const [billingRoomNumber, setBillingRoomNumber] = useState<string | null>(null);
+  const [cardPayEnabled, setCardPayEnabled] = useState(false);
   const [payBusy, setPayBusy] = useState(false);
   // Optimistic guest close-out: id → "confirmed" | "reopened".
   const [resolved, setResolved] = useState<Record<string, "confirmed" | "reopened">>({});
@@ -1371,12 +1372,30 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, isPublic = false, onClos
         setReqs(payload.requests);
         setPaymentTimingState(payload.paymentTiming);
         setBillingRoomNumber(payload.billingRoomNumber ?? null);
+        setCardPayEnabled(!!payload.cardPayEnabled);
       })
       .catch(() => setReqs([]));
 
   useEffect(() => {
     reload();
+    try {
+      const pay = new URLSearchParams(window.location.search).get("pay");
+      if (pay === "success") toast.success("Payment received — thank you");
+      if (pay === "cancel") toast.message("Card payment cancelled");
+    } catch { /* ignore */ }
   }, [hotelSlug, roomId, token, sid]);
+
+  const payByCard = async () => {
+    setPayBusy(true);
+    try {
+      const { startGuestCardCheckout } = await import("@/talkstay/lib/stripeConnect");
+      const url = await startGuestCardCheckout({ hotelSlug, roomId, token, sessionId: sid });
+      window.location.assign(url);
+    } catch (e: any) {
+      toast.error(e?.message ?? "Couldn't start card payment");
+      setPayBusy(false);
+    }
+  };
 
   const payNow = async () => {
     setPayBusy(true);
@@ -1598,6 +1617,8 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, isPublic = false, onClos
               onPayNow={() => void payNow()}
               onPayAtCheckout={() => void payAtCheckout()}
               onChargeToRoom={isPublic ? (c) => chargeToRoom(c) : undefined}
+              onPayByCard={cardPayEnabled ? () => void payByCard() : undefined}
+              cardPayEnabled={cardPayEnabled}
               isPublic={isPublic}
               billingRoomNumber={billingRoomNumber}
               variant="compact"
