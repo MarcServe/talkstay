@@ -62,7 +62,7 @@ serve(async (req) => {
 
       const { data: hotel } = await admin
         .from("ts_hotels")
-        .select("id, name, slug, stripe_account_id, stripe_charges_enabled, branding")
+        .select("id, name, slug, stripe_account_id, stripe_charges_enabled, stripe_platform_fee_bps, branding")
         .eq("slug", hotelSlug)
         .maybeSingle();
       if (!hotel) return json({ error: "Property not found" }, 404);
@@ -103,8 +103,28 @@ serve(async (req) => {
         },
       }));
       const amountTotal = rows.reduce((s: number, r: { price: number }) => s + Number(r.price), 0);
+      const amountCents = Math.round(amountTotal * 100);
       const requestIds = rows.map((r: { id: string }) => r.id);
       const guestPath = `/h/${hotel.slug}/r/${roomId}?t=${encodeURIComponent(token)}`;
+
+      // TalkStay platform fee (basis points). Default 2.5% if unset.
+      const envBps = Number(Deno.env.get("TALKSTAY_PLATFORM_FEE_BPS") ?? "250");
+      const hotelBps = hotel.stripe_platform_fee_bps;
+      const feeBps = Math.max(0, Math.min(3000,
+        typeof hotelBps === "number" && Number.isFinite(hotelBps) ? hotelBps : (Number.isFinite(envBps) ? envBps : 250),
+      ));
+      const applicationFeeAmount = feeBps > 0 ? Math.max(1, Math.round(amountCents * feeBps / 10000)) : 0;
+
+      const paymentIntentData: Record<string, unknown> = {
+        metadata: {
+          talkstay_hotel_id: hotel.id,
+          talkstay_guest_session: sessionId.slice(0, 200),
+          talkstay_fee_bps: String(feeBps),
+        },
+      };
+      if (applicationFeeAmount > 0) {
+        paymentIntentData.application_fee_amount = applicationFeeAmount;
+      }
 
       const session = await stripe.checkout.sessions.create(
         {
@@ -118,13 +138,9 @@ serve(async (req) => {
             talkstay_room_id: roomId,
             talkstay_guest_session: sessionId.slice(0, 200),
             talkstay_request_ids: requestIds.join(",").slice(0, 450),
+            talkstay_fee_bps: String(feeBps),
           },
-          payment_intent_data: {
-            metadata: {
-              talkstay_hotel_id: hotel.id,
-              talkstay_guest_session: sessionId.slice(0, 200),
-            },
-          },
+          payment_intent_data: paymentIntentData,
         },
         { stripeAccount: hotel.stripe_account_id },
       );
@@ -139,9 +155,11 @@ serve(async (req) => {
         amount_total: amountTotal,
         currency: currency.toUpperCase(),
         status: "open",
+        application_fee_amount: applicationFeeAmount > 0 ? applicationFeeAmount / 100 : null,
+        platform_fee_bps: feeBps,
       });
 
-      return json({ url: session.url, sessionId: session.id });
+      return json({ url: session.url, sessionId: session.id, feeBps, applicationFeeAmount });
     }
 
     // ─── Staff / owner actions (JWT) ───
@@ -158,7 +176,7 @@ serve(async (req) => {
 
     const { data: hotel } = await admin
       .from("ts_hotels")
-      .select("id, user_id, name, slug, stripe_account_id, stripe_charges_enabled, stripe_details_submitted, stripe_connected_at, contact_email")
+      .select("id, user_id, name, slug, stripe_account_id, stripe_charges_enabled, stripe_details_submitted, stripe_connected_at, stripe_platform_fee_bps, contact_email")
       .eq("id", hotelId)
       .maybeSingle();
     if (!hotel) return json({ error: "Property not found" }, 404);
@@ -191,12 +209,19 @@ serve(async (req) => {
           }).eq("id", hotelId);
         } catch { /* keep cached flags */ }
       }
+      const envBps = Number(Deno.env.get("TALKSTAY_PLATFORM_FEE_BPS") ?? "250");
+      const hotelBps = hotel.stripe_platform_fee_bps;
+      const feeBps = typeof hotelBps === "number" && Number.isFinite(hotelBps)
+        ? hotelBps
+        : (Number.isFinite(envBps) ? envBps : 250);
       return json({
         connected: !!hotel.stripe_account_id,
         accountId: hotel.stripe_account_id,
         chargesEnabled: charges,
         detailsSubmitted: details,
         connectedAt: hotel.stripe_connected_at,
+        platformFeeBps: feeBps,
+        platformFeePercent: feeBps / 100,
       });
     }
 

@@ -38,6 +38,7 @@ import {
   resolveLockedDepartment,
   canSeeNavItem,
   membershipRoleLabel,
+  isRestaurantProperty,
 } from "@/talkstay/lib/hotels";
 import { fetchStripeStatus } from "@/talkstay/lib/stripeConnect";
 import { talkstayKeys } from "@/talkstay/lib/data";
@@ -57,20 +58,94 @@ import {
 
 const StaffPanel = lazy(() => import("@/talkstay/components/StaffPanel"));
 
-const NAV = [
-  // `admin: true` = owner/manager only. Department staff see Operations + Log order.
-  // Account lives in the sidebar footer (extreme bottom) — ops menu ends at Staff.
-  { key: "operations", label: "Operations", icon: Inbox, admin: false, desc: "Live queue — search a room or public area to open tickets fast. Guest-app requests land here automatically." },
-  { key: "log_order", label: "Log order", icon: Phone, admin: false, desc: "Only for phone, walk-in or front-desk calls that aren’t already on the board. Use Public QR areas for lobby, bar, restaurant, and walk-ups." },
-  { key: "insights", label: "Insights", icon: BarChart3, admin: true, desc: "Analytics and business intelligence for this property — or across your portfolio when you own more than one." },
-  { key: "rooms", label: "Rooms & QR", icon: QrCode, admin: true, desc: "Rooms for guest stays, plus Venues & tables for lobby, bar, pool, and restaurant QRs. Scan menus in Knowledge or Departments, then print table QRs here." },
-  { key: "payments", label: "Payments", icon: CreditCard, admin: true, desc: "Connect Stripe once — guests pay unpaid orders by card; TalkStay marks them Paid when Stripe confirms." },
-  { key: "branding", label: "Branding", icon: Palette, admin: true, desc: "Logo, colour, property profile (type/address/scale), and the printable poster." },
-  { key: "departments", label: "Departments", icon: Building2, admin: true, desc: "Teams, routing rules and per-department notifications." },
-  { key: "knowledge", label: "Knowledge", icon: BookOpen, admin: true, desc: "What the assistant knows — website, documents and property info." },
-  { key: "staff", label: "Staff", icon: Users, admin: true, desc: "Invite your team and manage their roles and access." },
-] as const;
-type NavKey = (typeof NAV)[number]["key"] | "account";
+type NavDef = {
+  key: "operations" | "log_order" | "insights" | "rooms" | "payments" | "branding" | "departments" | "knowledge" | "staff";
+  label: string;
+  icon: typeof Inbox;
+  admin: boolean;
+  desc: string;
+};
+
+/** Sidebar items — restaurant properties get table/QR chrome instead of hotel rooms. */
+function navForProperty(restaurantMode: boolean): readonly NavDef[] {
+  return [
+    {
+      key: "operations",
+      label: "Operations",
+      icon: Inbox,
+      admin: false,
+      desc: restaurantMode
+        ? "Live queue — search a table or area to open tickets fast. Guest menu orders and chat land here automatically."
+        : "Live queue — search a room or public area to open tickets fast. Guest-app requests land here automatically.",
+    },
+    {
+      key: "log_order",
+      label: "Log order",
+      icon: Phone,
+      admin: false,
+      desc: restaurantMode
+        ? "Only for phone or walk-in orders that aren’t already on the board. Use Tables & QR for dine-in table codes."
+        : "Only for phone, walk-in or front-desk calls that aren’t already on the board. Use Public QR areas for lobby, bar, restaurant, and walk-ups.",
+    },
+    {
+      key: "insights",
+      label: "Insights",
+      icon: BarChart3,
+      admin: true,
+      desc: "Analytics and business intelligence for this property — or across your portfolio when you own more than one.",
+    },
+    {
+      key: "rooms",
+      label: restaurantMode ? "Tables & QR" : "Rooms & QR",
+      icon: QrCode,
+      admin: true,
+      desc: restaurantMode
+        ? "Table and area QRs for dine-in. Link each to a department, upload the menu under Departments, then print QRs here."
+        : "Rooms for guest stays, plus Venues & tables for lobby, bar, pool, and restaurant QRs. Scan menus in Knowledge or Departments, then print table QRs here.",
+    },
+    {
+      key: "payments",
+      label: "Payments",
+      icon: CreditCard,
+      admin: true,
+      desc: "Connect Stripe once — guests pay unpaid orders by card; TalkStay takes a small application fee and marks them Paid when Stripe confirms.",
+    },
+    {
+      key: "branding",
+      label: "Branding",
+      icon: Palette,
+      admin: true,
+      desc: "Logo, colour, property profile (type/address/scale), and the printable poster.",
+    },
+    {
+      key: "departments",
+      label: "Departments",
+      icon: Building2,
+      admin: true,
+      desc: restaurantMode
+        ? "Kitchen, bar, host — routing rules, menus, and per-team notifications."
+        : "Teams, routing rules and per-department notifications.",
+    },
+    {
+      key: "knowledge",
+      label: restaurantMode ? "Info" : "Knowledge",
+      icon: BookOpen,
+      admin: true,
+      desc: restaurantMode
+        ? "Hours, allergens, house rules — what the guest assistant can answer."
+        : "What the assistant knows — website, documents and property info.",
+    },
+    {
+      key: "staff",
+      label: "Staff",
+      icon: Users,
+      admin: true,
+      desc: "Invite your team and manage their roles and access.",
+    },
+  ] as const;
+}
+
+type NavKey = NavDef["key"] | "account";
 const ACCOUNT_META = {
   key: "account" as const,
   label: "Account",
@@ -373,8 +448,10 @@ export default function HotelApp() {
   usePrefetchHotelData(hotel?.id);
 
   const tabParam = searchParams.get("tab");
+  const hotelTypeHint = hotel?.branding?.property?.type;
+  const navKeys = navForProperty(isRestaurantProperty(hotelTypeHint ?? null));
   const initialNav: NavKey =
-    tabParam === "account" || NAV.some((n) => n.key === tabParam)
+    tabParam === "account" || navKeys.some((n) => n.key === tabParam)
       ? (tabParam as NavKey)
       : "operations";
   const [active, setActive] = useState<NavKey>(initialNav);
@@ -531,6 +608,8 @@ export default function HotelApp() {
     );
   }
 
+  const restaurantMode = isRestaurantProperty(hotel.branding?.property?.type);
+  const NAV = navForProperty(restaurantMode);
   const visibleNav = NAV.filter((n) => canSeeNavItem(membership, { admin: n.admin, key: n.key }));
   const lockedDepartment = resolveLockedDepartment(membership);
   const roleLabel = membershipRoleLabel(membership);

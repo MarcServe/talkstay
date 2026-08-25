@@ -23,16 +23,24 @@ export type StripeConnectStatus = {
   chargesEnabled: boolean;
   detailsSubmitted: boolean;
   connectedAt: string | null;
+  /** TalkStay application fee in basis points (e.g. 250 = 2.5%). */
+  platformFeeBps: number;
+  /** Same fee as a percent (e.g. 2.5). */
+  platformFeePercent: number;
 };
 
 export async function fetchStripeStatus(hotelId: string): Promise<StripeConnectStatus> {
   const data = await invokeStripe({ action: "status", hotelId });
+  const bps = Number(data.platformFeeBps);
+  const pct = Number(data.platformFeePercent);
   return {
     connected: !!data.connected,
     accountId: (data.accountId as string) ?? null,
     chargesEnabled: !!data.chargesEnabled,
     detailsSubmitted: !!data.detailsSubmitted,
     connectedAt: (data.connectedAt as string) ?? null,
+    platformFeeBps: Number.isFinite(bps) ? bps : 250,
+    platformFeePercent: Number.isFinite(pct) ? pct : (Number.isFinite(bps) ? bps / 100 : 2.5),
   };
 }
 

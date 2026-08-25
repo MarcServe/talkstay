@@ -128,6 +128,17 @@ export interface GuestBranding {
   // Full jsonb already flows through from the server — poster.bg_image_url
   // doubles as a faint background photo for the chat screen when set.
   poster?: { bg_image_url?: string | null } | null;
+  property?: { type?: string | null } | null;
+}
+
+export interface GuestMenuItem {
+  id: string;
+  name: string;
+  price: number | null;
+  currency: string;
+  departmentKey: string;
+  departmentName: string;
+  outletRoomId?: string | null;
 }
 
 export async function fetchContext(hotelSlug: string, roomId: string, token: string, code?: string, sessionId?: string) {
@@ -146,6 +157,41 @@ export async function fetchContext(hotelSlug: string, roomId: string, token: str
     pulseAsk?: boolean;
     /** Public QR area — payment options exclude room charge. */
     isPublic?: boolean;
+    propertyType?: string | null;
+    restaurantMode?: boolean;
+  };
+}
+
+export async function fetchGuestMenu(args: {
+  hotelSlug: string; roomId: string; token: string; sessionId: string;
+}): Promise<{
+  items: GuestMenuItem[];
+  departments: { key: string; name: string }[];
+}> {
+  const { data, error } = await fn({ action: "list_menu", ...args });
+  if (error) throw await realError(error);
+  if ((data as any)?.error) throw new Error((data as any).error);
+  return {
+    items: ((data as any)?.items ?? []) as GuestMenuItem[],
+    departments: ((data as any)?.departments ?? []) as { key: string; name: string }[],
+  };
+}
+
+export async function orderGuestMenuItems(args: {
+  hotelSlug: string; roomId: string; token: string; sessionId: string;
+  items: { id: string; qty: number }[];
+}): Promise<{
+  ok: true;
+  reply: string;
+  requests: { id: string; summary: string; price?: number | null; currency?: string }[];
+}> {
+  const { data, error } = await fn({ action: "order_menu_items", ...args });
+  if (error) throw await realError(error);
+  if ((data as any)?.error) throw new Error((data as any).error);
+  return data as {
+    ok: true;
+    reply: string;
+    requests: { id: string; summary: string; price?: number | null; currency?: string }[];
   };
 }
 

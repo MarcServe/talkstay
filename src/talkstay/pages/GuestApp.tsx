@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams, Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Loader2, Send, ClipboardList, Star, X, Mic, MicOff, Square, Globe, Check, MessageCircle, Smile, Meh, Frown, BellRing, Bell, Pencil, ExternalLink, RotateCcw, Banknote, LogOut } from "lucide-react";
+import { Loader2, Send, ClipboardList, Star, X, Mic, MicOff, Square, Globe, Check, MessageCircle, Smile, Meh, Frown, BellRing, Bell, Pencil, ExternalLink, RotateCcw, Banknote, LogOut, UtensilsCrossed } from "lucide-react";
 import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
 import { toast } from "sonner";
 import { RealtimeChat } from "@/utils/RealtimeChat";
@@ -12,6 +12,7 @@ import { alertIncoming } from "@/talkstay/lib/alerts";
 import { iosNeedsHomeScreenInstall, IOS_ADD_HOME_SCREEN_HINT } from "@/talkstay/lib/install";
 import InstallAppBanner from "@/talkstay/components/InstallAppBanner";
 import NoIndexMeta from "@/talkstay/components/NoIndexMeta";
+import GuestMenuSheet from "@/talkstay/components/GuestMenuSheet";
 import {
   fetchContext, sendMessage, fetchMyRequests, submitReview, saveGuestContact,
   confirmRequest, reopenRequest, cancelRequest, nudgeRequest, updateRequest, repeatRequest,
@@ -44,6 +45,8 @@ type Ctx = {
   branding?: GuestBranding; assistantId?: string | null;
   pulseAsk?: boolean;
   isPublic?: boolean;
+  propertyType?: string | null;
+  restaurantMode?: boolean;
 };
 
 type Msg =
@@ -230,6 +233,7 @@ function GuestAppInner({ hotelSlug, roomId, token }: { hotelSlug: string; roomId
   const [busy, setBusy] = useState(false);
   const [notifyOpen, setNotifyOpen] = useState(false);
   const [requestsOpen, setRequestsOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [viewer, setViewer] = useState<ViewerTarget | null>(null);
   const [pulseHidden, setPulseHidden] = useState(false);
   // Pulse only appears after a calm pause — never mid-request / mid-typing.
@@ -682,6 +686,8 @@ function GuestAppInner({ hotelSlug, roomId, token }: { hotelSlug: string; roomId
   const washTop = Math.min(0.97, wash + 0.04);
   const washBot = Math.min(0.97, wash + 0.06);
   const voiceAvailable = !!ctx.assistantId;
+  const restaurantMode = !!ctx.restaurantMode || ctx.branding?.property?.type === "restaurant";
+  const showStayCheckout = !restaurantMode && !ctx.isPublic;
 
   const orbLabel =
     voiceState === "connecting" ? "Setting up your microphone…"
@@ -714,17 +720,23 @@ function GuestAppInner({ hotelSlug, roomId, token }: { hotelSlug: string; roomId
         <div className="min-w-0 flex-1 text-left">
           <h1 className="truncate text-sm font-bold leading-tight">{ctx.hotelName}</h1>
           <p className="truncate text-xs text-muted-foreground">
-            {formatRoomLabel(ctx.roomNumber)} · Voice Stay
+            {formatRoomLabel(ctx.roomNumber)}
+            {restaurantMode ? " · Table" : ctx.isPublic ? " · Venue" : " · Voice Stay"}
           </p>
         </div>
+        <Button variant="outline" size="sm" className="h-8 shrink-0 px-2.5 text-xs" onClick={() => setMenuOpen(true)}>
+          <UtensilsCrossed className="mr-1 h-3.5 w-3.5" /> Menu
+        </Button>
         <Button variant="outline" size="sm" className="h-8 shrink-0 px-2.5 text-xs" onClick={() => setRequestsOpen(true)}>
-          <ClipboardList className="mr-1 h-3.5 w-3.5" /> Requests
+          <ClipboardList className="mr-1 h-3.5 w-3.5" /> {restaurantMode ? "Orders" : "Requests"}
         </Button>
-        <Button variant="outline" size="sm" className="h-8 shrink-0 px-2.5 text-xs" asChild>
-          <Link to={`${guestStayPath(hotelSlug, roomId, "checkout")}?token=${encodeURIComponent(token)}`}>
-            <LogOut className="mr-1 h-3.5 w-3.5" /> Checkout
-          </Link>
-        </Button>
+        {showStayCheckout && (
+          <Button variant="outline" size="sm" className="h-8 shrink-0 px-2.5 text-xs" asChild>
+            <Link to={`${guestStayPath(hotelSlug, roomId, "checkout")}?token=${encodeURIComponent(token)}`}>
+              <LogOut className="mr-1 h-3.5 w-3.5" /> Checkout
+            </Link>
+          </Button>
+        )}
       </header>
 
       {/* Voice-first strip — centred under the header. */}
@@ -770,7 +782,9 @@ function GuestAppInner({ hotelSlug, roomId, token }: { hotelSlug: string; roomId
             <p className="max-w-[18rem] text-[11px] leading-snug text-muted-foreground">
               {voiceState === "idle"
                 ? (msgs.length <= 2
-                  ? "Tap the mic and ask for anything — towels, breakfast, a repair. Or type below."
+                  ? (restaurantMode
+                    ? "Tap Menu to order, or tap the mic / type — kitchen and bar get it."
+                    : "Tap the mic and ask for anything — towels, breakfast, a repair. Or type below.")
                   : "Tap to speak — or type below.")
                 : isSpeaking
                   ? "Assistant is speaking…"
@@ -882,6 +896,20 @@ function GuestAppInner({ hotelSlug, roomId, token }: { hotelSlug: string; roomId
           hotelSlug={hotelSlug} roomId={roomId} token={token} sid={sid}
           isPublic={!!ctx?.isPublic}
           onClose={() => setRequestsOpen(false)}
+        />
+      )}
+      {menuOpen && (
+        <GuestMenuSheet
+          hotelSlug={hotelSlug}
+          roomId={roomId}
+          token={token}
+          sessionId={sid}
+          brand={brand}
+          onClose={() => setMenuOpen(false)}
+          onOrdered={(summaries) => {
+            for (const s of summaries) append({ role: "request", content: s });
+            if (!getNotifyChoice(sid)) setNotifyOpen(true);
+          }}
         />
       )}
       {viewer && (

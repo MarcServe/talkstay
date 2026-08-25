@@ -883,6 +883,8 @@ serve(async (req) => {
       // we don't re-prompt after an answer; counting DB rows here permanently
       // killed the prompt for sticky test sessions after a single submit.
       const pulseAsk = ctx.pulseEnabled;
+      const propertyType = String((ctx.branding as any)?.property?.type ?? "") || null;
+      const restaurantMode = propertyType === "restaurant";
       return json({
         hotelName: ctx.hotelName, roomNumber: ctx.roomNumber, language: ctx.language,
         departments: ctx.departments, branding: ctx.branding, pulseAsk,
@@ -890,9 +892,143 @@ serve(async (req) => {
         // ids are public by design in TalkWeb's widget embeds.
         assistantId: ctx.assistantId,
         isPublic: !!ctx.isPublic,
-        greeting: ctx.isPublic
-          ? `Hi! You're at ${formatRoomLabel(ctx.roomNumber)} in ${ctx.hotelName}. How can I help — food, drinks, or a question about the property?`
+        propertyType,
+        restaurantMode,
+        greeting: restaurantMode || ctx.isPublic
+          ? `Hi! You're at ${formatRoomLabel(ctx.roomNumber)} in ${ctx.hotelName}. Browse the menu, order, or ask anything.`
           : `Hi! You're in ${formatRoomLabel(ctx.roomNumber)} at ${ctx.hotelName}. How can I help — anything you need, or a question about the hotel?`,
+      });
+    }
+
+    // ---- list_menu: guest-facing digital menu from ts_catalog_items ----
+    if (action === "list_menu") {
+      // Prefer this venue's outlet items + shared (null outlet). Fall back to all active.
+      let q = admin
+        .from("ts_catalog_items")
+        .select("id, department_key, name, price, currency, outlet_room_id, sort_order")
+        .eq("hotel_id", ctx.hotelId)
+        .eq("is_active", true)
+        .order("sort_order")
+        .order("name");
+      const { data, error } = await q;
+      if (error) {
+        // Table / column may be missing on older DBs.
+        return json({ items: [], departments: [], outlets: [] });
+      }
+      const all = (data ?? []) as {
+        id: string; department_key: string; name: string; price: number | null;
+        currency: string; outlet_room_id: string | null;
+      }[];
+      // Prefer items for this Public QR outlet + shared; if none, show whole property menu.
+      const forOutlet = all.filter((i) => !i.outlet_room_id || i.outlet_room_id === ctx.roomId);
+      const items = forOutlet.length ? forOutlet : all;
+
+      const { data: depts } = await admin
+        .from("ts_departments")
+        .select("key, display_name")
+        .eq("hotel_id", ctx.hotelId)
+        .eq("is_active", true);
+      const deptMap = new Map((depts ?? []).map((d: any) => [d.key, d.display_name]));
+
+      const { data: venues } = await admin
+        .from("ts_rooms")
+        .select("id, room_number")
+        .eq("hotel_id", ctx.hotelId)
+        .eq("is_public", true);
+
+      return json({
+        items: items.map((i) => ({
+          id: i.id,
+          name: i.name,
+          price: i.price,
+          currency: i.currency || "GBP",
+          departmentKey: i.department_key,
+          departmentName: deptMap.get(i.department_key) || i.department_key,
+          outletRoomId: i.outlet_room_id,
+        })),
+        departments: [...new Set(items.map((i) => i.department_key))].map((k) => ({
+          key: k,
+          name: deptMap.get(k) || k,
+        })),
+        outlets: (venues ?? []).map((v: any) => ({ id: v.id, name: v.room_number })),
+      });
+    }
+
+    // ---- order_menu_items: tap-to-order from digital menu ----
+    if (action === "order_menu_items") {
+      if (!sessionId) return json({ error: "sessionId required" }, 400);
+      const rawItems = Array.isArray(body.items) ? body.items : [];
+      if (!rawItems.length) return json({ error: "Pick at least one item" }, 400);
+
+      const ids = rawItems
+        .map((x: any) => String(x.id || x.catalogItemId || "").trim())
+        .filter(Boolean)
+        .slice(0, 30);
+      if (!ids.length) return json({ error: "Pick at least one item" }, 400);
+
+      const { data: catalog } = await admin
+        .from("ts_catalog_items")
+        .select("id, department_key, name, price, currency, is_active")
+        .eq("hotel_id", ctx.hotelId)
+        .in("id", ids)
+        .eq("is_active", true);
+      const byId = new Map((catalog ?? []).map((c: any) => [c.id, c]));
+
+      const created: any[] = [];
+      for (const raw of rawItems.slice(0, 30)) {
+        const id = String(raw.id || raw.catalogItemId || "").trim();
+        const qty = Math.max(1, Math.min(20, Number(raw.qty) || 1));
+        const row = byId.get(id);
+        if (!row) continue;
+        const summary = qty > 1 ? `${qty}× ${row.name}` : row.name;
+        const price = typeof row.price === "number" ? Number(row.price) * qty : null;
+        const insert: Record<string, unknown> = {
+          hotel_id: ctx.hotelId,
+          room_id: ctx.roomId,
+          session_id: sessionId,
+          department_key: row.department_key,
+          summary,
+          summary_staff: `Menu order · ${summary}`,
+          status: "new",
+          priority: "normal",
+          is_complaint: false,
+          is_chargeable: true,
+          payment_status: "unpaid",
+          source: "guest_menu",
+          guest_language: ctx.language,
+        };
+        if (price != null) {
+          insert.price = price;
+          insert.currency = row.currency || "GBP";
+        }
+        const { data: req, error } = await admin
+          .from("ts_service_requests")
+          .insert(insert)
+          .select("id, department_key, summary, status, is_chargeable, price, currency, payment_status")
+          .single();
+        if (!error && req) created.push(req);
+      }
+
+      if (!created.length) return json({ error: "Couldn't place that order" }, 400);
+
+      for (const req of created) {
+        admin.functions.invoke("talkstay-notify", { body: { requestId: req.id } }).catch(() => {});
+      }
+
+      return json({
+        ok: true,
+        requests: created.map((r) => ({
+          id: r.id,
+          summary: r.summary,
+          department_key: r.department_key,
+          is_chargeable: r.is_chargeable,
+          price: r.price,
+          currency: r.currency,
+          payment_status: r.payment_status,
+        })),
+        reply: created.length === 1
+          ? `Got it — I've sent “${created[0].summary}” to the team.`
+          : `Got it — I've sent ${created.length} items to the team.`,
       });
     }
 

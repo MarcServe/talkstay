@@ -124,6 +124,20 @@ export default function PaymentsPanel({ hotel }: { hotel: Hotel }) {
               )}
             </div>
 
+            <div className="rounded-xl border bg-muted/20 px-4 py-3">
+              <p className="text-sm font-medium">TalkStay application fee</p>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                On each successful guest card payment, TalkStay takes{" "}
+                <span className="font-semibold text-foreground">
+                  {(status?.platformFeePercent ?? 2.5).toLocaleString(undefined, {
+                    maximumFractionDigits: 2,
+                  })}%
+                </span>
+                {" "}as a platform fee (Stripe Connect application fee). The rest settles to your Stripe account.
+                Stripe’s own processing fees still apply on top.
+              </p>
+            </div>
+
             <div className="flex flex-wrap gap-2">
               {!ready && (
                 <Button type="button" disabled={busy} className="bg-violet-600 hover:bg-violet-700" onClick={() => void connect()}>
@@ -150,7 +164,8 @@ export default function PaymentsPanel({ hotel }: { hotel: Hotel }) {
       </div>
 
       <p className="text-xs text-muted-foreground">
-        Platform ops: set <code className="text-[11px]">STRIPE_SECRET_KEY</code>, deploy{" "}
+        Platform ops: set <code className="text-[11px]">STRIPE_SECRET_KEY</code>, optional{" "}
+        <code className="text-[11px]">TALKSTAY_PLATFORM_FEE_BPS</code> (default 250 = 2.5%), deploy{" "}
         <code className="text-[11px]">talkstay-stripe</code> +{" "}
         <code className="text-[11px]">talkstay-stripe-webhook</code>, and point a Stripe Connect
         webhook at the webhook function (events: <code className="text-[11px]">checkout.session.completed</code>,{" "}
