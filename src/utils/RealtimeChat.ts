@@ -546,14 +546,30 @@ export class RealtimeChat {
         }
         break;
 
-      // IGNORE these events - they cause fragmentation
+      // IGNORE streaming deltas — they fragment the transcript in the UI.
       case 'response.audio_transcript.delta':
-        console.log('⏭️ IGNORING audio_transcript.delta - causes fragmentation');
+        if (typeof event.delta === 'string' && event.delta) {
+          this.currentAssistantTranscript = (this.currentAssistantTranscript || '') + event.delta;
+        }
         return;
 
-      case 'response.audio_transcript.done':
-        console.log('⏭️ IGNORING audio_transcript.done - we already have full text');
+      // Canonical spoken transcript for gpt-realtime. output_item.added often
+      // has empty content for audio-only turns — without this, guests hear a
+      // reply that never lands in chat history, so typed follow-ups "restart".
+      case 'response.audio_transcript.done': {
+        const fullText = String(event.transcript || this.currentAssistantTranscript || '').trim();
+        this.currentAssistantTranscript = '';
+        if (!fullText) return;
+        if (this.lastProcessedTranscript === fullText) {
+          console.log('⏭️ SKIPPING DUPLICATE audio_transcript.done');
+          return;
+        }
+        console.log('📝 FULL TEXT (audio_transcript.done):', fullText.substring(0, 80));
+        this.lastProcessedTranscript = fullText;
+        this.lastProcessedResponseId = event.response_id || null;
+        this.callbacks.onAssistantTranscript?.(fullText, true);
         return;
+      }
 
       case 'response.text.delta':
       case 'response.output_text.delta':
@@ -967,6 +983,41 @@ The booking has been successfully submitted. Thank the user for booking!\n`;
 
     this.dc.send(JSON.stringify(event));
     this.dc.send(JSON.stringify({ type: 'response.create' }));
+  }
+
+  /**
+   * Inject a typed user+assistant turn into the live voice session without
+   * triggering another spoken reply. Keeps speak ↔ type on one thread.
+   */
+  syncTypedTurn(userText: string, assistantText: string) {
+    if (!this.dc || this.dc.readyState !== 'open') return;
+    const user = userText.trim();
+    const assistant = assistantText.trim();
+    if (!user && !assistant) return;
+    try {
+      if (user) {
+        this.dc.send(JSON.stringify({
+          type: 'conversation.item.create',
+          item: {
+            type: 'message',
+            role: 'user',
+            content: [{ type: 'input_text', text: user }],
+          },
+        }));
+      }
+      if (assistant) {
+        this.dc.send(JSON.stringify({
+          type: 'conversation.item.create',
+          item: {
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'text', text: assistant }],
+          },
+        }));
+      }
+    } catch (e) {
+      console.warn('syncTypedTurn failed', e);
+    }
   }
 
   isMicrophoneActive() {
