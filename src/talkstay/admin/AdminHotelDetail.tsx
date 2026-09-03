@@ -44,6 +44,8 @@ export default function AdminHotelDetail() {
   const [billingNotes, setBillingNotes] = useState("");
   const [pulse, setPulse] = useState(true);
   const [whiteLabel, setWhiteLabel] = useState(false);
+  const [cardPayments, setCardPayments] = useState(true);
+  const [feeBps, setFeeBps] = useState<string>("");
   const [fromEmail, setFromEmail] = useState("");
   const [requireCode, setRequireCode] = useState(false);
   const [maxDevices, setMaxDevices] = useState(8);
@@ -75,6 +77,15 @@ export default function AdminHotelDetail() {
       setBillingNotes(h.billing_notes ?? "");
       setPulse(h.pulse_enabled !== false);
       setWhiteLabel(!!(h.branding as { white_label?: boolean } | null)?.white_label);
+      // Absent means on — the switch is an opt-out, so a missing value (older
+      // row, or the migration not yet applied) must never read as "off".
+      setCardPayments((h as { card_payments_enabled?: boolean }).card_payments_enabled !== false);
+      // Blank means "use the platform default", not zero.
+      setFeeBps(
+        (h as { stripe_platform_fee_bps?: number | null }).stripe_platform_fee_bps == null
+          ? ""
+          : String((h as { stripe_platform_fee_bps?: number | null }).stripe_platform_fee_bps),
+      );
       setFromEmail(String((h.branding as { from_email?: string } | null)?.from_email ?? ""));
       setRequireCode(!!h.require_checkin_code);
       setMaxDevices(Number(h.max_devices_per_room) || 8);
@@ -151,6 +162,10 @@ export default function AdminHotelDetail() {
         whatsapp_enabled: whatsappEnabled,
         referral_code: referral || null,
         contact_email: contactEmail || null,
+        card_payments_enabled: cardPayments,
+        // Empty clears the override so the property falls back to
+        // TALKSTAY_PLATFORM_FEE_BPS rather than being pinned to 0%.
+        stripe_platform_fee_bps: feeBps.trim() === "" ? null : Number(feeBps),
       });
       setData((d) => d ? { ...d, hotel: res.hotel } : d);
       toast.success("Hotel settings saved");
@@ -375,6 +390,49 @@ export default function AdminHotelDetail() {
               does not cover mail.theirhotel.com.
             </p>
           </div>
+        </section>
+
+        {/* Payments: what this property can do, and what TalkStay takes. Kept
+            next to white label because both are commercial levers only the
+            platform should hold — the property sees the result, not the dial. */}
+        <section className="space-y-3 rounded-2xl border p-4">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div className="min-w-0">
+              <h3 className="text-sm font-semibold">Guest card payments</h3>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Stripe Connect status is set by Stripe and can't be forced here. This
+                switch is the property's own opt-out — useful for turning card pay off
+                on their behalf without disconnecting their payout account.
+              </p>
+            </div>
+            <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${
+              data?.hotel && (data.hotel as { stripe_charges_enabled?: boolean }).stripe_charges_enabled
+                ? "bg-emerald-600 text-white"
+                : "border bg-white text-muted-foreground"
+            }`}>
+              {data?.hotel && (data.hotel as { stripe_charges_enabled?: boolean }).stripe_charges_enabled
+                ? "Stripe live" : "Stripe not ready"}
+            </span>
+          </div>
+
+          <Toggle label="Offer card payment to guests" checked={cardPayments} onChange={setCardPayments} />
+
+          <Field label="Application fee override (basis points)">
+            <Input
+              inputMode="numeric"
+              value={feeBps}
+              onChange={(e) => setFeeBps(e.target.value.replace(/[^0-9]/g, ""))}
+              placeholder="blank = platform default (250 = 2.5%)"
+            />
+          </Field>
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
+            250 = 2.5%. Blank falls back to the platform-wide default rather than
+            charging nothing — set 0 deliberately if a property genuinely pays no fee.
+            Capped at 3000 (30%) when the charge is created.
+            {feeBps.trim() !== "" && Number(feeBps) >= 0 && (
+              <> Currently <strong>{(Number(feeBps) / 100).toFixed(2)}%</strong> per guest card payment.</>
+            )}
+          </p>
         </section>
 
         <div className="rounded-xl border p-4">

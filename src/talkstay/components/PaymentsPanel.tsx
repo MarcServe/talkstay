@@ -164,14 +164,14 @@ export default function PaymentsPanel({ hotel }: { hotel: Hotel }) {
               <div className="min-w-0">
                 <p className="text-sm font-medium">Offer card payment to guests</p>
                 <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                  Off means guests never see a card option — requests still get priced and
-                  tracked, you just collect them your own way (front desk, your POS, cash).
-                  Nothing is disconnected, so you can switch it back on any time.
+                  {!status?.connected
+                    ? "Connect Stripe first — there's nothing to switch on until a payout account exists."
+                    : "Off means guests never see a card option — requests still get priced and tracked, you just collect them your own way (front desk, your POS, cash). Nothing is disconnected, so you can switch it back on any time."}
                 </p>
               </div>
               <Switch
-                checked={cardOn}
-                disabled={busy || loading}
+                checked={cardOn && !!status?.connected}
+                disabled={busy || loading || !status?.connected}
                 onCheckedChange={(v) => void toggleCardPayments(v)}
                 aria-label="Offer card payment to guests"
               />
@@ -301,19 +301,6 @@ export default function PaymentsPanel({ hotel }: { hotel: Hotel }) {
         )}
       </div>
 
-      <p className="text-xs text-muted-foreground">
-        Platform ops: uses <code className="text-[11px]">STRIPE_SECRET_KEY</code> — the same
-        Stripe account as TalkWeb's own billing — unless{" "}
-        <code className="text-[11px]">TALKSTAY_STRIPE_SECRET_KEY</code> is set, which always wins
-        (a <code className="text-[11px]">sk_test_</code> key here is how to try this without
-        touching TalkWeb's live traffic). Optional{" "}
-        <code className="text-[11px]">TALKSTAY_PLATFORM_FEE_BPS</code> (default 250 = 2.5%), deploy{" "}
-        <code className="text-[11px]">talkstay-stripe</code> +{" "}
-        <code className="text-[11px]">talkstay-stripe-webhook</code>, and point a Stripe Connect
-        webhook at the webhook function — matching whichever key/mode is active above — (events:{" "}
-        <code className="text-[11px]">checkout.session.completed</code>,{" "}
-        <code className="text-[11px]">account.updated</code>).
-      </p>
     </div>
   );
 }
