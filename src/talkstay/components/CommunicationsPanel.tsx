@@ -4,6 +4,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
@@ -37,6 +40,10 @@ export default function CommunicationsPanel({ hotel }: { hotel: Hotel }) {
   const [eligibleCount, setEligibleCount] = useState(0);
   const [campaigns, setCampaigns] = useState<GuestCampaign[]>([]);
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "subscribed" | "unsubscribed">("all");
+  const [sourceFilter, setSourceFilter] = useState<"all" | "guest_opt_in" | "checkin_email">("all");
+  // Days since lastSeenAt (their most recent stay), or "any" for no limit.
+  const [dateFilter, setDateFilter] = useState<"any" | "7" | "30" | "90">("any");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
 
@@ -86,13 +93,30 @@ export default function CommunicationsPanel({ hotel }: { hotel: Hotel }) {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return contacts;
-    return contacts.filter((c) =>
-      c.email.includes(q)
-      || (c.firstName ?? "").toLowerCase().includes(q)
-      || (c.roomLabel ?? "").toLowerCase().includes(q),
-    );
-  }, [contacts, search]);
+    const cutoff = dateFilter === "any" ? null : Date.now() - Number(dateFilter) * 86_400_000;
+    return contacts.filter((c) => {
+      if (q && !(
+        c.email.includes(q)
+        || (c.firstName ?? "").toLowerCase().includes(q)
+        || (c.roomLabel ?? "").toLowerCase().includes(q)
+      )) return false;
+      if (statusFilter === "subscribed" && !c.marketingOk) return false;
+      if (statusFilter === "unsubscribed" && c.marketingOk) return false;
+      if (sourceFilter !== "all" && c.source !== sourceFilter) return false;
+      if (cutoff !== null) {
+        // No recorded stay at all is treated as "outside any date window" —
+        // a filter meant to surface recent guests shouldn't also surface
+        // contacts with no known visit.
+        if (!c.lastSeenAt || new Date(c.lastSeenAt).getTime() < cutoff) return false;
+      }
+      return true;
+    });
+  }, [contacts, search, statusFilter, sourceFilter, dateFilter]);
+
+  const filterActive = statusFilter !== "all" || sourceFilter !== "all" || dateFilter !== "any";
+  const resetFilters = () => {
+    setStatusFilter("all"); setSourceFilter("all"); setDateFilter("any");
+  };
 
   const toggle = (email: string, ok: boolean) => {
     if (!ok) return;
@@ -104,8 +128,15 @@ export default function CommunicationsPanel({ hotel }: { hotel: Hotel }) {
     });
   };
 
+  // Scoped to the FILTERED list on purpose: filter down (say, last 30 days,
+  // still subscribed), then "select" picks up exactly that set. Selection only
+  // ever feeds Compose's explicit-recipients path — the "send to all N
+  // eligible" default elsewhere always means the whole property, unaffected by
+  // whatever filter happens to be active here, so filtering can never silently
+  // narrow (or widen) an unfiltered send.
+  const filteredEligible = filtered.filter((c) => c.marketingOk);
   const selectAllEligible = () => {
-    setSelected(new Set(contacts.filter((c) => c.marketingOk).map((c) => c.email)));
+    setSelected(new Set(filteredEligible.map((c) => c.email)));
   };
 
   const clearSelection = () => setSelected(new Set());
@@ -269,8 +300,8 @@ export default function CommunicationsPanel({ hotel }: { hotel: Hotel }) {
             <Button type="button" size="sm" variant="outline" disabled={loading || busy} onClick={() => void refresh()}>
               Refresh
             </Button>
-            <Button type="button" size="sm" variant="outline" disabled={!eligibleCount} onClick={selectAllEligible}>
-              Select eligible ({eligibleCount})
+            <Button type="button" size="sm" variant="outline" disabled={!filteredEligible.length} onClick={selectAllEligible}>
+              Select {filterActive ? "filtered" : "eligible"} ({filteredEligible.length})
             </Button>
             {selected.size > 0 && (
               <Button type="button" size="sm" variant="ghost" onClick={clearSelection}>
@@ -279,9 +310,57 @@ export default function CommunicationsPanel({ hotel }: { hotel: Hotel }) {
             )}
           </div>
 
+          <div className="flex flex-wrap items-center gap-2">
+            <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}>
+              <SelectTrigger className="h-8 w-[150px] text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Any status</SelectItem>
+                <SelectItem value="subscribed">Subscribed</SelectItem>
+                <SelectItem value="unsubscribed">Unsubscribed</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={dateFilter} onValueChange={(v) => setDateFilter(v as typeof dateFilter)}>
+              <SelectTrigger className="h-8 w-[150px] text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="any">Last seen: any time</SelectItem>
+                <SelectItem value="7">Last seen: 7 days</SelectItem>
+                <SelectItem value="30">Last seen: 30 days</SelectItem>
+                <SelectItem value="90">Last seen: 90 days</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={sourceFilter} onValueChange={(v) => setSourceFilter(v as typeof sourceFilter)}>
+              <SelectTrigger className="h-8 w-[150px] text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Any source</SelectItem>
+                <SelectItem value="guest_opt_in">Guest opt-in</SelectItem>
+                <SelectItem value="checkin_email">Check-in email</SelectItem>
+              </SelectContent>
+            </Select>
+            {filterActive && (
+              <Button type="button" size="sm" variant="ghost" onClick={resetFilters}>
+                Reset filters
+              </Button>
+            )}
+            {filterActive && (
+              <span className="text-xs text-muted-foreground">
+                {filtered.length} of {contacts.length} contact{contacts.length === 1 ? "" : "s"}
+              </span>
+            )}
+          </div>
+
           {loading ? (
             <div className="flex items-center gap-2 py-10 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" /> Loading contacts…
+            </div>
+          ) : filtered.length === 0 && (search.trim() || filterActive) ? (
+            // Distinct from the true zero-contacts state below: this property
+            // DOES have guest emails, the search/filters just matched none of
+            // them — "no guest emails yet" here would be actively misleading.
+            <div className="rounded-2xl border border-dashed px-5 py-10 text-center">
+              <p className="text-sm font-medium">No contacts match</p>
+              <p className="mx-auto mt-1 max-w-md text-xs text-muted-foreground">
+                Try a different search, or reset the filters above.
+              </p>
             </div>
           ) : filtered.length === 0 ? (
             <div className="rounded-2xl border border-dashed px-5 py-10 text-center">
