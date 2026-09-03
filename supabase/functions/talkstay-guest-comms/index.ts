@@ -312,10 +312,17 @@ serve(async (req) => {
         // renderEmail's own header already shows the property's logo — this is
         // a second, larger image for the OFFER itself (the spa, the new dish),
         // so it sits inside bodyHtml rather than becoming a renderEmail option.
-        // Width matches the card's inner content area (520px card - 28px*2
-        // padding) so it fills edge-to-edge without overflowing.
+        //
+        // Bounded by BOTH dimensions, and never cropped. width:100% + height:auto
+        // looked right for a landscape photo and catastrophic for a square one —
+        // a logo rendered 464x464 and pushed the actual message and the button
+        // below the fold. Capping height instead lets the client scale to fit
+        // whichever dimension binds first: a square lands at 220x220, a 16:9
+        // photo at ~391x220, both centred. object-fit would crop to fill, which
+        // is fine for a photo and ruins a logo — and we can't know which was
+        // uploaded, so the box gets constrained rather than the image cut.
         const imageHtml = imageUrl
-          ? `<img src="${escapeHtml(imageUrl)}" alt="" width="464" style="display:block;width:100%;max-width:464px;height:auto;border-radius:10px;margin:0 0 16px;" />`
+          ? `<img src="${escapeHtml(imageUrl)}" alt="" style="display:block;width:auto;max-width:100%;max-height:220px;height:auto;border-radius:10px;margin:0 auto 16px;" />`
           : "";
 
         const html = renderEmail({
