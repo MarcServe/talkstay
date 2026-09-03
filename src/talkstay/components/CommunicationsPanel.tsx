@@ -17,6 +17,7 @@ import {
 import type { Hotel } from "@/talkstay/lib/hotels";
 import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
 import {
+  listCampaignRecipients,
   listGuestCampaigns,
   listGuestContacts,
   sendGuestCampaign,
@@ -54,6 +55,7 @@ export default function CommunicationsPanel({ hotel }: { hotel: Hotel }) {
   const [imageUrl, setImageUrl] = useState("");
   const [imageUploading, setImageUploading] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [addQuery, setAddQuery] = useState("");
 
   const refresh = async () => {
     if (demo) {
@@ -112,6 +114,19 @@ export default function CommunicationsPanel({ hotel }: { hotel: Hotel }) {
       return true;
     });
   }, [contacts, search, statusFilter, sourceFilter, dateFilter]);
+
+  /** Eligible guests not already picked, matching the Compose add-box query. */
+  const addable = useMemo(() => {
+    const q = addQuery.trim().toLowerCase();
+    if (!q) return [];
+    return contacts
+      .filter((c) => c.marketingOk && !selected.has(c.email))
+      .filter((c) =>
+        c.email.includes(q)
+        || (c.firstName ?? "").toLowerCase().includes(q)
+        || (c.roomLabel ?? "").toLowerCase().includes(q))
+      .slice(0, 8);
+  }, [contacts, selected, addQuery]);
 
   const filterActive = statusFilter !== "all" || sourceFilter !== "all" || dateFilter !== "any";
   const resetFilters = () => {
@@ -177,14 +192,37 @@ export default function CommunicationsPanel({ hotel }: { hotel: Hotel }) {
    *  something in it first — a date, a rate. Re-firing the stored copy blind
    *  would mail real guests with no review step, so this lands in Compose and
    *  goes out through the same confirm dialog as any other send. */
-  const useAgain = (c: GuestCampaign) => {
+  const useAgain = async (c: GuestCampaign) => {
     setSubject(c.subject);
     setBodyText(c.body_text);
     setCtaLabel(c.cta_label ?? "");
     setCtaUrl(c.cta_url ?? "");
     setImageUrl(c.image_url ?? "");
     setTab("compose");
-    toast.message("Copied into Compose — check the recipients, then send.");
+
+    // Bring the original audience back too, so a resend starts from who it
+    // actually went to rather than silently defaulting to everyone.
+    setBusy(true);
+    try {
+      const prior = await listCampaignRecipients(hotel.id, c.id);
+      const eligibleNow = new Set(contacts.filter((x) => x.marketingOk).map((x) => x.email));
+      // Anyone who has unsubscribed (or is no longer a contact) since that send
+      // is dropped here rather than shown selected. The server filters them out
+      // regardless, so leaving them ticked would misstate who this reaches.
+      const restored = prior.map((r) => r.email).filter((e) => eligibleNow.has(e));
+      const dropped = prior.length - restored.length;
+      setSelected(new Set(restored));
+      toast.message(
+        restored.length
+          ? `Copied into Compose · ${restored.length} recipient${restored.length === 1 ? "" : "s"} restored`
+            + (dropped ? ` · ${dropped} no longer reachable` : "")
+          : "Copied into Compose — none of the original recipients are reachable now, so pick who to send to.",
+      );
+    } catch {
+      toast.message("Copied into Compose — pick who to send to.");
+    } finally {
+      setBusy(false);
+    }
   };
 
   const onPickImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -440,11 +478,91 @@ export default function CommunicationsPanel({ hotel }: { hotel: Hotel }) {
 
         <TabsContent value="compose" className="space-y-4">
           <div className="rounded-2xl border bg-card p-5 shadow-sm space-y-4">
-            <p className="text-sm text-muted-foreground">
-              {selected.size
-                ? `Will send to ${selected.size} selected guest${selected.size === 1 ? "" : "s"}.`
-                : `Will send to all ${eligibleCount} eligible guest${eligibleCount === 1 ? "" : "s"} (not unsubscribed).`}
-            </p>
+            <div className="space-y-2 rounded-xl border bg-muted/20 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm font-medium">
+                  {selected.size
+                    ? `To ${selected.size} selected guest${selected.size === 1 ? "" : "s"}`
+                    : `To all ${eligibleCount} eligible guest${eligibleCount === 1 ? "" : "s"}`}
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {selected.size > 0 && (
+                    <Button type="button" size="sm" variant="ghost" className="h-7 text-xs" onClick={clearSelection}>
+                      Send to everyone instead
+                    </Button>
+                  )}
+                  {!selected.size && !!eligibleCount && (
+                    <Button
+                      type="button" size="sm" variant="ghost" className="h-7 text-xs"
+                      onClick={() => setSelected(new Set(contacts.filter((c) => c.marketingOk).map((c) => c.email)))}
+                    >
+                      Pick individually
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              {selected.size > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {[...selected].map((email) => (
+                    <span key={email} className="inline-flex max-w-full items-center gap-1 rounded-full border bg-background py-0.5 pl-2.5 pr-1 text-xs">
+                      <span className="truncate">{email}</span>
+                      <button
+                        type="button"
+                        className="rounded-full p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                        aria-label={`Remove ${email}`}
+                        onClick={() => setSelected((prev) => {
+                          const next = new Set(prev);
+                          next.delete(email);
+                          return next;
+                        })}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* Add one guest without leaving Compose — the Contacts tab is for
+                  bulk filtering, this is for "and also send it to Kelvin". */}
+              <div className="relative">
+                <Input
+                  value={addQuery}
+                  onChange={(e) => setAddQuery(e.target.value)}
+                  // Dismiss on the way out, or the absolutely-positioned list
+                  // stays parked over the fields below it. The delay lets a
+                  // click on an option land before the list unmounts.
+                  onBlur={() => window.setTimeout(() => setAddQuery(""), 150)}
+                  onKeyDown={(e) => { if (e.key === "Escape") setAddQuery(""); }}
+                  placeholder={selected.size ? "Add another guest by email or name…" : "Send to specific guests instead…"}
+                  className="h-8 text-xs"
+                />
+                {addQuery.trim() && (
+                  <div className="absolute z-20 mt-1 max-h-48 w-full overflow-auto rounded-lg border bg-popover shadow-md">
+                    {addable.length === 0 ? (
+                      <p className="px-3 py-2 text-xs text-muted-foreground">No eligible guest matches.</p>
+                    ) : addable.map((c) => (
+                      <button
+                        key={c.email}
+                        type="button"
+                        className="flex w-full flex-col items-start px-3 py-1.5 text-left hover:bg-accent"
+                        onClick={() => {
+                          setSelected((prev) => new Set(prev).add(c.email));
+                          setAddQuery("");
+                        }}
+                      >
+                        <span className="text-xs font-medium">{c.email}</span>
+                        <span className="text-[10px] text-muted-foreground">
+                          {c.firstName ? `${c.firstName} · ` : ""}
+                          {c.roomLabel ? formatRoomLabel(c.roomLabel) : "Room unknown"}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
             <div className="space-y-1.5">
               <Label>Image (optional)</Label>
               {imageUrl ? (
@@ -567,7 +685,7 @@ export default function CommunicationsPanel({ hotel }: { hotel: Hotel }) {
                       type="button" size="sm" variant="outline"
                       className="shrink-0"
                       disabled={busy}
-                      onClick={() => useAgain(c)}
+                      onClick={() => void useAgain(c)}
                     >
                       <Copy className="mr-1.5 h-3.5 w-3.5" /> Use again
                     </Button>

@@ -213,6 +213,22 @@ serve(async (req) => {
       });
     }
 
+    if (action === "campaign_recipients") {
+      const campaignId = String(body.campaignId ?? "").trim();
+      if (!campaignId) return json({ error: "campaignId required" }, 400);
+      // hotel_id is matched as well as campaign_id: campaignId arrives from the
+      // client, and scoping by the authorised hotel keeps one property from
+      // reading another's recipient list by guessing an id.
+      const { data, error } = await admin
+        .from("ts_guest_campaign_sends")
+        .select("email, status")
+        .eq("campaign_id", campaignId)
+        .eq("hotel_id", hotelId)
+        .order("email");
+      if (error) return json({ error: error.message }, 500);
+      return json({ recipients: data ?? [] });
+    }
+
     if (action === "list_campaigns") {
       const { data } = await admin
         .from("ts_guest_campaigns")

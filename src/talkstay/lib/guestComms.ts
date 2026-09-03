@@ -63,6 +63,16 @@ export async function listGuestContacts(hotelId: string): Promise<{
   };
 }
 
+export type CampaignRecipient = { email: string; status: "sent" | "skipped" | "failed" };
+
+/** Who a past campaign actually went to, and how each one fared. */
+export async function listCampaignRecipients(
+  hotelId: string, campaignId: string,
+): Promise<CampaignRecipient[]> {
+  const data = await invokeComms({ action: "campaign_recipients", hotelId, campaignId });
+  return (data.recipients ?? []) as CampaignRecipient[];
+}
+
 export async function listGuestCampaigns(hotelId: string): Promise<GuestCampaign[]> {
   const data = await invokeComms({ action: "list_campaigns", hotelId });
   return (data.campaigns ?? []) as GuestCampaign[];
