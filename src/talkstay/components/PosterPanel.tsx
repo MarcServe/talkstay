@@ -31,12 +31,15 @@ const BADGE_ICONS = [ShieldCheck, Zap, Globe];
 /** The poster itself — used for both the on-screen preview and the print output.
  *  All sizing is in `cqw` (container-query width) units so it scales identically
  *  whether shown at 420px in the panel or at 190mm on the printed page. */
-function PosterView({ p, hotelName, logo, qrUrl, accent, wrapId, whiteLabel = false }: {
+function PosterView({ p, hotelName, logo, qrUrl, accent, wrapId, whiteLabel = false, roomLabel }: {
   p: Required<PosterConfig>; hotelName: string; logo?: string; qrUrl: string; accent: string;
   /** Optional id for the outer wrap (preview uses ts-poster-print). */
   wrapId?: string;
   /** Paid branding tier — the poster carries only the property's own marks. */
   whiteLabel?: boolean;
+  /** Which room this sheet is for. Printed small in the corner so a bulk run
+   *  can be sorted without scanning every code. */
+  roomLabel?: string;
 }) {
   // Property name is optional — blank hides it. When set, it's always bold
   // (above the eyebrow), whether or not a logo is uploaded.
@@ -72,6 +75,9 @@ function PosterView({ p, hotelName, logo, qrUrl, accent, wrapId, whiteLabel = fa
             background: `linear-gradient(180deg, ${hexA(p.bg_color, Math.min(0.95, p.bg_overlay + 0.08))}, ${hexA(p.bg_color, Math.min(0.98, p.bg_overlay + 0.22))})`,
           }}
         />
+        {roomLabel && (
+          <span className="ts-poster-roomtag" aria-hidden>{roomLabel}</span>
+        )}
         <div className="ts-poster-body">
           {logo && <img src={logo} alt="" className="ts-poster-logo" />}
           {displayName && <div className="ts-poster-name">{displayName}</div>}
@@ -162,6 +168,14 @@ export default function PosterPanel({ hotel, onSaved }: { hotel: Hotel; onSaved?
   const [cfg, setCfg] = useState<Required<PosterConfig>>(merged);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [roomId, setRoomId] = useState<string>("");
+
+  // Declared after rooms/roomId on purpose: this runs during render, so
+  // reading those consts above their declaration is a temporal-dead-zone
+  // ReferenceError — which renders as a blank page, not an error.
+  const selectedRoomLabel = (() => {
+    const r = rooms.find((x) => x.id === roomId);
+    return r ? formatRoomLabel(r.room_number) : undefined;
+  })();
   const [qrUrl, setQrUrl] = useState<string>(`${getPublicBaseUrl()}/h/${hotel.slug}/r/preview?token=preview`);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -170,6 +184,7 @@ export default function PosterPanel({ hotel, onSaved }: { hotel: Hotel; onSaved?
   const [bulkPrinting, setBulkPrinting] = useState(false);
   const [printBatch, setPrintBatch] = useState<{ id: string; label: string; qrUrl: string }[] | null>(null);
   const bulkRootRef = useRef<HTMLDivElement>(null);
+  const [printSize, setPrintSize] = useState<PrintSize>("a4");
   // Separate from cfg.bg_image_url — a write-only field for pasting a URL
   // manually, so the current image shows its filename, not the full link.
   const [bgUrlDraft, setBgUrlDraft] = useState("");
@@ -233,13 +248,13 @@ export default function PosterPanel({ hotel, onSaved }: { hotel: Hotel; onSaved?
       runPrintFromSource(root, () => {
         setPrintBatch(null);
         setBulkPrinting(false);
-      });
+      }, printSize);
     }, 120);
     return () => {
       cancelled = true;
       window.clearTimeout(t);
     };
-  }, [printBatch]);
+  }, [printBatch, printSize]);
 
   const set = <K extends keyof PosterConfig>(k: K, v: Required<PosterConfig>[K]) => setCfg((c) => ({ ...c, [k]: v }));
   const setFeature = (i: number, v: string) => setCfg((c) => ({ ...c, features: c.features.map((f, j) => (j === i ? v : f)) }));
@@ -477,8 +492,25 @@ export default function PosterPanel({ hotel, onSaved }: { hotel: Hotel; onSaved?
               </SelectContent>
             </Select>
           </div>
+          <div className="mt-4 space-y-1.5">
+            <Label className="text-xs text-muted-foreground">Print size</Label>
+            <Select value={printSize} onValueChange={(v) => setPrintSize(v as PrintSize)}>
+              <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {(Object.keys(SHEETS) as PrintSize[]).map((k) => (
+                  <SelectItem key={k} value={k}>
+                    {SHEETS[k].label} <span className="text-muted-foreground">· {SHEETS[k].hint}</span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-[11px] text-muted-foreground">
+              Choose the size here, then leave your print dialog at 100%. Scaling
+              there shrinks the artwork but not the paper, which is what breaks the layout.
+            </p>
+          </div>
           <div className="flex flex-wrap gap-2">
-            <Button className="mt-4" variant="outline" onClick={() => printPoster()} disabled={bulkPrinting}>
+            <Button className="mt-4" variant="outline" onClick={() => printPoster(printSize)} disabled={bulkPrinting}>
               <Printer className="mr-1 h-4 w-4" /> Print this room
             </Button>
             <Button
@@ -544,7 +576,7 @@ export default function PosterPanel({ hotel, onSaved }: { hotel: Hotel; onSaved?
         )}
 
         <div className="rounded-2xl border bg-muted/40 p-4">
-          <PosterView wrapId="ts-poster-print" p={cfg} hotelName={hotel.name} logo={logo} qrUrl={qrUrl} accent={accent} whiteLabel={whiteLabel} />
+          <PosterView wrapId="ts-poster-print" p={cfg} hotelName={hotel.name} logo={logo} qrUrl={qrUrl} accent={accent} whiteLabel={whiteLabel} roomLabel={selectedRoomLabel} />
         </div>
         <p className="text-[11px] text-muted-foreground">
           Tip: choose <strong>Save as PDF</strong>, A4, and margins <strong>None</strong> (or Default). Colours and the photo are forced in the print stylesheet.
@@ -568,6 +600,7 @@ export default function PosterPanel({ hotel, onSaved }: { hotel: Hotel; onSaved?
               qrUrl={item.qrUrl}
               accent={accent}
               whiteLabel={whiteLabel}
+              roomLabel={item.label}
             />
           ))}
         </div>
@@ -605,26 +638,68 @@ function escapeAccent(text: string, hotelName: string, accent: string): string {
 }
 
 /**
+ * Sheet sizes offered at print time.
+ *
+ * The poster is sized entirely in cqw — every font, icon, gap and radius is a
+ * percentage of the sheet's own width — so it survives being made smaller as
+ * long as the SHEET shrinks. Shrinking with the print dialog's scale slider is
+ * what breaks it: that scales the rendering while the paper stays A4, and the
+ * two disagree. So we shrink the paper here instead, and the layout holds.
+ *
+ * `card` is the poster; `paper` is the physical sheet. They differ only for
+ * a6x4, which tiles four A6 cards onto one A4 to be guillotined into table
+ * cards — four tables per sheet rather than four sheets.
+ *
+ * Heights run a hair under the true paper so sub-pixel rounding in the print
+ * engine can't tip a sheet over into a blank second page.
+ */
+export type PrintSize = "a4" | "a5" | "a6x4";
+
+const SHEETS: Record<PrintSize, {
+  label: string; hint: string; paper: string;
+  paperW: string; paperH: string; cardW: string; cardH: string; multi: boolean;
+}> = {
+  a4:   { label: "A4 — full page",      hint: "Door backs and lobby walls",
+          paper: "A4 portrait",  paperW: "210mm", paperH: "296.5mm", cardW: "210mm", cardH: "296.5mm", multi: false },
+  a5:   { label: "A5 — half page",      hint: "Desks, bedside tables",
+          paper: "A5 portrait",  paperW: "148mm", paperH: "209.5mm", cardW: "148mm", cardH: "209.5mm", multi: false },
+  a6x4: { label: "A6 — 4 per A4 sheet", hint: "Table cards; cut into four",
+          paper: "A4 portrait",  paperW: "210mm", paperH: "296.5mm", cardW: "105mm", cardH: "148.25mm", multi: true },
+};
+
+/**
  * Print one or more A4 pages with colours/photo intact.
  * Clones the poster source onto <body> so we can hide the rest of the app without
  * `display:none` on ancestors (which would hide the poster too). Canvas QR
  * pixels are copied to an <img> because cloneNode does not keep canvas bits.
  */
-function printPoster() {
+function printPoster(size: PrintSize) {
   const src = document.getElementById("ts-poster-print");
   if (!src) {
     window.print();
     return;
   }
-  runPrintFromSource(src);
+  runPrintFromSource(src, undefined, size);
 }
 
-function runPrintFromSource(src: HTMLElement, onDone?: () => void) {
-  const clone = src.cloneNode(true) as HTMLElement;
+function runPrintFromSource(src: HTMLElement, onDone?: () => void, size: PrintSize = "a4") {
+  const copy = src.cloneNode(true) as HTMLElement;
+  copy.removeAttribute("id"); // never duplicate the live source's id
+  copy.removeAttribute("aria-hidden");
+  copy.classList.remove("pointer-events-none");
+  copy.style.cssText = "";
+
+  // Always print through a wrapper, so a sheet is ALWAYS a descendant of the
+  // clone. Printing one room used to hand us the .ts-poster-page element
+  // itself, and every page rule is written as `#ts-poster-print-clone
+  // .ts-poster-page` — a descendant selector that then matched nothing. The
+  // sheet lost its height, its overflow clip and its break-inside:avoid, so
+  // the poster stopped at its natural height (blank band below) and was free
+  // to spill onto a second page. Bulk printing passes a container and was
+  // unaffected, which is why this only ever showed up on a single room.
+  const clone = document.createElement("div");
   clone.id = "ts-poster-print-clone";
-  clone.removeAttribute("aria-hidden");
-  clone.classList.remove("pointer-events-none");
-  clone.style.cssText = "";
+  clone.appendChild(copy);
 
   const srcCanvases = src.querySelectorAll("canvas");
   const cloneCanvases = clone.querySelectorAll("canvas");
@@ -655,34 +730,43 @@ function runPrintFromSource(src: HTMLElement, onDone?: () => void) {
     firstPoster?.style.getPropertyValue("--poster-bg")?.trim()
     || firstPoster?.style.backgroundColor
     || "#2e1065";
+  // Set on <html> as well: the html/body print rule reads this variable, and a
+  // custom property set on the clone can never reach an ancestor. Without it
+  // the sheet fell back to the default dark purple behind the poster.
   clone.style.setProperty("--ts-print-page-bg", pageBg);
+  document.documentElement.style.setProperty("--ts-print-page-bg", pageBg);
+
+  const sheet = SHEETS[size];
+  clone.style.setProperty("--ts-card-w", sheet.cardW);
+  clone.style.setProperty("--ts-card-h", sheet.cardH);
+  document.documentElement.style.setProperty("--ts-paper-w", sheet.paperW);
+  document.documentElement.style.setProperty("--ts-paper-h", sheet.paperH);
+
+  if (sheet.multi) {
+    clone.classList.add("ts-poster-tiled");
+    // Tiling one room would waste three quarters of the sheet, and a table card
+    // is exactly the thing you want several of. Fill the sheet with copies.
+    const pages = clone.querySelectorAll(".ts-poster-page");
+    if (pages.length === 1) {
+      for (let i = 0; i < 3; i++) clone.appendChild(pages[0].cloneNode(true));
+    }
+  }
+
+  // @page can't read custom properties, so the paper size is written out.
+  const pageStyle = document.createElement("style");
+  pageStyle.id = "ts-poster-page-size";
+  pageStyle.textContent = `@media print { @page { size: ${sheet.paper}; margin: 0; } }`;
+  document.head.appendChild(pageStyle);
 
   document.body.appendChild(clone);
   document.documentElement.classList.add("ts-printing-poster");
 
-  // Scale each A4 sheet so QR + copy fit one page (no second blank page).
-  const fitPages = () => {
-    const mmToPx = 96 / 25.4;
-    const pageH = 297 * mmToPx;
-    clone.querySelectorAll<HTMLElement>(".ts-poster-page").forEach((page) => {
-      page.style.height = "297mm";
-      page.style.width = "210mm";
-      page.style.overflow = "hidden";
-      page.style.backgroundColor = pageBg;
-      const poster = page.querySelector<HTMLElement>(".ts-poster");
-      if (!poster) return;
-      poster.style.transformOrigin = "top center";
-      poster.style.transform = "none";
-      poster.style.width = "210mm";
-      // Measure natural height after layout.
-      const natural = poster.scrollHeight;
-      if (natural > pageH + 2) {
-        const scale = Math.max(0.55, Math.min(1, pageH / natural));
-        poster.style.transform = `scale(${scale})`;
-        poster.style.width = `${100 / scale}%`;
-      }
-    });
-  };
+  // No JS sizing here on purpose. There used to be a fitPages() that measured
+  // the clone and scaled any over-long sheet down. It could never have worked:
+  // it ran before window.print(), when screen CSS still applies and the clone is
+  // `display: none`, so scrollHeight was always 0 and the scale branch never
+  // executed. The inline widths it set were inert too, losing to the print
+  // rules' !important. The A4 fit is done entirely in CSS below.
 
   let cleaned = false;
   const cleanup = () => {
@@ -690,6 +774,10 @@ function runPrintFromSource(src: HTMLElement, onDone?: () => void) {
     cleaned = true;
     clone.remove();
     document.documentElement.classList.remove("ts-printing-poster");
+    document.documentElement.style.removeProperty("--ts-print-page-bg");
+    document.documentElement.style.removeProperty("--ts-paper-w");
+    document.documentElement.style.removeProperty("--ts-paper-h");
+    document.getElementById("ts-poster-page-size")?.remove();
     window.removeEventListener("afterprint", cleanup);
     onDone?.();
   };
@@ -698,7 +786,6 @@ function runPrintFromSource(src: HTMLElement, onDone?: () => void) {
   // Let the clone paint (and QR data-URL decode) before the dialog opens.
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
-      fitPages();
       window.print();
       // Fallback if afterprint never fires (some mobile browsers).
       window.setTimeout(cleanup, 60_000);
@@ -717,6 +804,13 @@ const POSTER_CSS = `
 .ts-poster-bg-img {
   position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center;
   z-index: 0; pointer-events: none;
+}
+.ts-poster-roomtag {
+  position: absolute; top: 2.6cqw; right: 3.2cqw; z-index: 3;
+  padding: 0.9cqw 2.2cqw; border-radius: 99cqw;
+  background: rgba(255,255,255,0.9); color: #3b0764;
+  font-size: 2.4cqw; font-weight: 700; letter-spacing: 0.01em; line-height: 1;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact;
 }
 .ts-poster-overlay { position: absolute; inset: 0; z-index: 1;
   -webkit-print-color-adjust: exact; print-color-adjust: exact;
@@ -761,10 +855,10 @@ const POSTER_CSS = `
 
 /* A4 sheet(s): print only the body-level clone (see runPrintFromSource()). */
 @media print {
-  @page { size: A4 portrait; margin: 0; }
+  /* @page is injected per print — see runPrintFromSource(). */
   html.ts-printing-poster,
   html.ts-printing-poster body {
-    width: 210mm !important;
+    width: var(--ts-paper-w, 210mm) !important;
     height: auto !important;
     margin: 0 !important; padding: 0 !important;
     background: var(--ts-print-page-bg, #2e1065) !important;
@@ -776,7 +870,7 @@ const POSTER_CSS = `
   html.ts-printing-poster #ts-poster-print-clone {
     display: block !important;
     position: static !important;
-    width: 210mm !important;
+    width: var(--ts-paper-w, 210mm) !important;
     margin: 0 !important; padding: 0 !important;
     overflow: visible !important;
     background: var(--ts-print-page-bg, #2e1065) !important;
@@ -786,9 +880,14 @@ const POSTER_CSS = `
   html.ts-printing-poster #ts-poster-print-clone .ts-poster-page {
     display: block !important;
     box-sizing: border-box !important;
-    width: 210mm !important;
-    height: 297mm !important;
-    max-height: 297mm !important;
+    /* Both from the chosen sheet (see SHEETS). The card carries
+       container-type, so every cqw in the design re-resolves against this
+       width — which is why an A5 or A6 card is a faithful reduction rather
+       than a squashed A4. Heights run a hair under the true paper so
+       sub-pixel rounding can't tip a sheet into a blank second page. */
+    width: var(--ts-card-w, 210mm) !important;
+    height: var(--ts-card-h, 296.5mm) !important;
+    max-height: var(--ts-card-h, 296.5mm) !important;
     margin: 0 !important; padding: 0 !important;
     overflow: hidden !important;
     background: var(--ts-print-page-bg, #2e1065) !important;
@@ -802,9 +901,27 @@ const POSTER_CSS = `
     break-after: auto;
     page-break-after: auto;
   }
+  /* Four A6 cards to an A4. inline-block rather than grid or flex because only
+     normal flow paginates reliably across print engines; break-inside: avoid
+     (set above) keeps a card from being sliced by the page boundary. */
+  html.ts-printing-poster #ts-poster-print-clone.ts-poster-tiled {
+    font-size: 0; /* kills the whitespace gap between inline-block cards */
+  }
+  html.ts-printing-poster #ts-poster-print-clone.ts-poster-tiled .ts-poster-page {
+    display: inline-block !important;
+    vertical-align: top !important;
+    break-after: auto !important;
+    page-break-after: auto !important;
+  }
   html.ts-printing-poster #ts-poster-print-clone .ts-poster {
-    width: 210mm !important;
-    min-height: 297mm !important;
+    width: 100% !important;
+    /* height, not min-height: min-height let the content push the poster past
+       the sheet, and everything below the fold became page 2. Now it fills the
+       page exactly and anything that would overflow is clipped. */
+    height: 100% !important;
+    max-height: 100% !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
     border-radius: 0 !important;
     display: flex !important; flex-direction: column !important;
     background-color: var(--poster-bg, var(--ts-print-page-bg, #2e1065)) !important;
@@ -830,6 +947,7 @@ const POSTER_CSS = `
   }
   html.ts-printing-poster #ts-poster-print-clone .ts-poster-footer { flex: 0 0 auto; }
   html.ts-printing-poster #ts-poster-print-clone .ts-poster-bg-img,
+  html.ts-printing-poster #ts-poster-print-clone .ts-poster-roomtag,
   html.ts-printing-poster #ts-poster-print-clone .ts-poster-overlay,
   html.ts-printing-poster #ts-poster-print-clone .ts-poster-qrcard,
   html.ts-printing-poster #ts-poster-print-clone .ts-poster-qr,

@@ -10,7 +10,7 @@ import { Loader2, Plus, Trash2, X, MapPin } from "lucide-react";
 import { listRooms, type Hotel, type Room } from "@/talkstay/lib/hotels";
 import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
 
-interface StaffRow { id: string; user_id: string; name: string | null; email: string; department_key: string | null; }
+interface StaffRow { id: string; user_id: string; name: string | null; email: string; department_key: string | null; room_id?: string | null; }
 
 const DEFAULT_KEYS = ["housekeeping","laundry","kitchen","bar","maintenance","concierge","front_desk","duty_manager"];
 const deptKeyFromName = (name: string) =>
@@ -33,6 +33,9 @@ export default function DepartmentsPanel({ hotel }: { hotel: Hotel }) {
   const [newDept, setNewDept] = useState("");
   const [adding, setAdding] = useState(false);
   const [escPhone, setEscPhone] = useState("");
+  // Public QR areas double as the outlets staff can be assigned to.
+  const [publicAreas, setPublicAreas] = useState<Room[]>([]);
+  const [areaFor, setAreaFor] = useState<Record<string, string>>({});
 
   const refresh = async () => {
     setLoading(true);
@@ -48,7 +51,13 @@ export default function DepartmentsPanel({ hotel }: { hotel: Hotel }) {
     setDepts((data as Dept[]) ?? []);
     setRoster(((staffRes.data as any)?.staff as StaffRow[]) ?? []);
     setEscPhone((hotelRes.data as any)?.escalation_phone ?? "");
+    // Two lists from one fetch, and they are not the same set:
+    // `venues` are outlets wired to a department (menus and pricing hang off
+    // these); `publicAreas` is every public QR area, which is what a staff
+    // member can be assigned to cover — an area with no department linked yet
+    // still needs someone on it.
     setVenues(rooms.filter((r) => !!r.is_public && !!r.department_key));
+    setPublicAreas(rooms.filter((r) => !!r.is_public));
     setLoading(false);
   };
 
@@ -72,10 +81,11 @@ export default function DepartmentsPanel({ hotel }: { hotel: Hotel }) {
     });
   };
 
-  const assign = async (deptKey: string, person: StaffRow) => {
+  const assign = async (deptKey: string, person: StaffRow, roomId?: string | null) => {
     const { error } = await supabase.from("ts_staff").insert({
       hotel_id: hotel.id, user_id: person.user_id, name: person.name,
       department_key: deptKey, role: "staff", status: "active",
+      ...(roomId ? { room_id: roomId } : {}),
     });
     if (error) { toast.error(error.message); return; }
     refresh();
@@ -214,14 +224,42 @@ export default function DepartmentsPanel({ hotel }: { hotel: Hotel }) {
             {/* Assigned staff (alerts + escalation) */}
             <div className="flex flex-wrap items-center gap-2 pl-11">
               <span className="text-xs text-muted-foreground">Staff:</span>
-              {assignedTo(d.key).map((s) => (
-                <span key={s.id} className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs">
-                  {s.name || s.email}
-                  <button onClick={() => unassign(s.id)} aria-label="remove"><X className="h-3 w-3 text-muted-foreground" /></button>
-                </span>
-              ))}
+              {assignedTo(d.key).map((s) => {
+                const area = s.room_id ? publicAreas.find((a) => a.id === s.room_id) : null;
+                return (
+                  <span key={s.id} className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs">
+                    {s.name || s.email}
+                    {area && (
+                      <span className="rounded-full bg-sky-100 px-1.5 text-[10px] font-medium text-sky-900">
+                        {area.room_number}
+                      </span>
+                    )}
+                    <button onClick={() => unassign(s.id)} aria-label="remove"><X className="h-3 w-3 text-muted-foreground" /></button>
+                  </span>
+                );
+              })}
+              {/* Area is optional — leaving it blank means the whole department,
+                  which is how every existing assignment already behaves. */}
+              {publicAreas.length > 0 && (
+                <Select
+                  value={areaFor[d.key] ?? "__all__"}
+                  onValueChange={(v) => setAreaFor((m) => ({ ...m, [d.key]: v }))}
+                >
+                  <SelectTrigger className="h-7 w-32 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__all__">All areas</SelectItem>
+                    {publicAreas.map((a) => (
+                      <SelectItem key={a.id} value={a.id}>{a.room_number}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
               {peopleFor(d.key).length > 0 && (
-                <Select value="" onValueChange={(uid) => { const p = roster.find((r) => r.user_id === uid); if (p) assign(d.key, p); }}>
+                <Select value="" onValueChange={(uid) => {
+                  const p = roster.find((r) => r.user_id === uid);
+                  const picked = areaFor[d.key];
+                  if (p) assign(d.key, p, picked && picked !== "__all__" ? picked : null);
+                }}>
                   <SelectTrigger className="h-7 w-36 text-xs"><SelectValue placeholder="+ add staff" /></SelectTrigger>
                   <SelectContent>
                     {peopleFor(d.key).map((p) => <SelectItem key={p.user_id} value={p.user_id}>{p.name || p.email}</SelectItem>)}

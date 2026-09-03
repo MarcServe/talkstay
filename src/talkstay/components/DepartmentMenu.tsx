@@ -8,8 +8,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { formatMoney } from "@/talkstay/lib/statusStyles";
 import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
 import {
-  listCatalogItems, addCatalogItem, updateCatalogItem, deleteCatalogItem, listRooms,
-  type CatalogItem, type Room,
+  listCatalogItems, addCatalogItem, updateCatalogItem, deleteCatalogItem, menuItemKey,
+  listRooms, type CatalogItem, type Room,
 } from "@/talkstay/lib/hotels";
 
 type OutletFilter = "all" | "shared" | string; // string = room id
@@ -39,6 +39,7 @@ export default function DepartmentMenu({
   itemsRef.current = items;
   const [name, setName] = useState("");
   const [price, setPrice] = useState("");
+  const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
 
   // Menu import: candidates are reviewed before anything is written, because
@@ -46,7 +47,18 @@ export default function DepartmentMenu({
   const [scanOpen, setScanOpen] = useState(false);
   const [scanBusy, setScanBusy] = useState(false);
   const [pasted, setPasted] = useState("");
-  const [found, setFound] = useState<{ name: string; price: number | null; keep: boolean }[] | null>(null);
+  const [found, setFound] = useState<
+    { name: string; price: number | null; keep: boolean; dupe: boolean }[] | null
+  >(null);
+
+  // Public QR areas are the outlets — a pool bar and a lobby bar are already
+  // separate rooms, so no new concept is needed to tell their menus apart.
+  useEffect(() => {
+    if (!open || outlets.length) return;
+    listRooms(hotelId)
+      .then((rs) => setOutlets(rs.filter((r) => r.is_public)))
+      .catch(() => setOutlets([]));
+  }, [open, hotelId, outlets.length]);
 
   useEffect(() => {
     if (!open || loaded) return;
@@ -122,14 +134,30 @@ export default function DepartmentMenu({
         toast.message("No items found — try a clearer photo, or paste the text.");
         return;
       }
-      // Anything already on this outlet's menu is unticked by default.
+      // Photograph a menu twice, or scan an overlapping second page, and the
+      // same dishes come back. Flag them visibly and untick them, rather than
+      // dropping them silently — an item that vanishes looks like a bug, and
+      // "why is this unticked?" is a fair question to be able to answer.
+      // menuItemKey, not toLowerCase: "Club Sandwich." and "club  sandwich"
+      // are the same dish, and only the normalised key catches that.
       const existing = new Set(
         itemsRef.current
           .filter((i) => (resolvedOutletId ? i.outlet_room_id === resolvedOutletId : !i.outlet_room_id)
             || !i.outlet_room_id)
-          .map((i) => i.name.trim().toLowerCase()),
+          .map((i) => menuItemKey(i.name)),
       );
-      setFound(scanned.map((i) => ({ ...i, keep: !existing.has(i.name.trim().toLowerCase()) })));
+      const seenInScan = new Set<string>();
+      const rows = scanned.map((i) => {
+        const key = menuItemKey(i.name);
+        const dupe = existing.has(key) || seenInScan.has(key);
+        seenInScan.add(key);
+        return { ...i, dupe, keep: !dupe };
+      });
+      setFound(rows);
+      const dupes = rows.filter((r) => r.dupe).length;
+      if (dupes) {
+        toast.message(`${dupes} already on this menu — unticked so you don't add them twice.`);
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Couldn't read that menu");
     } finally {
@@ -444,7 +472,8 @@ export default function DepartmentMenu({
               </div>
               <p className="text-[11px] text-violet-900/75">
                 Prices are read from the menu, never guessed — anything unpriced is blank
-                for you to fill. Items already on the menu are unticked.
+                for you to fill. Anything already on this menu is flagged and unticked,
+                so scanning the same menu twice adds nothing.
               </p>
               <div className="max-h-64 divide-y overflow-y-auto rounded-lg border bg-background">
                 {found.map((f, idx) => (
@@ -457,12 +486,19 @@ export default function DepartmentMenu({
                       className="h-4 w-4 shrink-0"
                       aria-label={`Add ${f.name}`}
                     />
-                    <Input
-                      value={f.name}
-                      onChange={(e) => setFound((prev) =>
-                        (prev ?? []).map((x, i) => i === idx ? { ...x, name: e.target.value } : x))}
-                      className="h-8 min-w-0 flex-1"
-                    />
+                    <div className="min-w-0 flex-1">
+                      <Input
+                        value={f.name}
+                        onChange={(e) => setFound((prev) =>
+                          (prev ?? []).map((x, i) => i === idx ? { ...x, name: e.target.value, dupe: false } : x))}
+                        className="h-8 w-full"
+                      />
+                      {f.dupe && (
+                        <span className="mt-0.5 block text-[10px] font-medium text-amber-700">
+                          Already on this menu
+                        </span>
+                      )}
+                    </div>
                     <Input
                       type="number" min="0" step="0.01" inputMode="decimal"
                       value={f.price ?? ""}

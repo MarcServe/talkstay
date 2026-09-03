@@ -1899,6 +1899,44 @@ serve(async (req) => {
     }
     const deliverTo = guestSpot ? `${guestLocation} · ${guestSpot}` : guestLocation;
 
+    // The price list for exactly where this guest is: this outlet's items plus
+    // the department-wide ones. A guest at the pool bar is quoted pool-bar
+    // prices; the same drink inside can cost something else. Best-effort — if
+    // the table isn't there yet the assistant simply falls back to the menus in
+    // Knowledge, which is how it priced before.
+    let priceList = "";
+    try {
+      const { data: catalog } = await admin
+        .from("ts_catalog_items")
+        .select("department_key, name, price, currency, outlet_room_id")
+        .eq("hotel_id", ctx.hotelId)
+        .eq("is_active", true)
+        .or(`outlet_room_id.is.null,outlet_room_id.eq.${ctx.roomId}`)
+        .not("price", "is", null)
+        .order("department_key")
+        .order("name")
+        .limit(200);
+      const rows = (catalog ?? []) as any[];
+      if (rows.length) {
+        // Outlet-specific wins over department-wide for the same item.
+        const byKey = new Map<string, any>();
+        for (const r of rows) {
+          const k = `${r.department_key}::${String(r.name).toLowerCase()}`;
+          if (!byKey.has(k) || r.outlet_room_id) byKey.set(k, r);
+        }
+        const cur = rows.find((r) => r.currency)?.currency ?? "GBP";
+        const byDept = new Map<string, string[]>();
+        for (const r of byKey.values()) {
+          const line = `${r.name} — ${Number(r.price).toFixed(2)}`;
+          byDept.set(r.department_key, [...(byDept.get(r.department_key) ?? []), line]);
+        }
+        priceList = `\n\nPRICE LIST for ${deliverTo} (${cur}) — the ONLY prices you may quote:\n`
+          + [...byDept.entries()]
+              .map(([d, lines]) => `${d}: ${lines.join("; ")}`)
+              .join("\n");
+      }
+    } catch { /* pricing is a bonus, never a blocker on the guest's request */ }
+
     const system = `You are the guest assistant for ${ctx.hotelName}, ${guestLocation}.
 Be warm, brief and natural — like a helpful concierge, not a form. The guest should feel they just ask and it's handled.
 
@@ -1938,10 +1976,10 @@ DEPARTMENTS available (use exactly these keys): ${deptListForPrompt(ctx.departme
 Routing guide: ${routingGuideFor(ctx.departmentMeta)}.
 Mark is_chargeable true for room service food, drinks, laundry, minibar, late checkout, spa. Towels, cleaning, maintenance, wifi help and complaints are free.
 PRICING — a guest should see what an order costs at the moment they order it, not discover it at checkout.
-Before you create a CHARGEABLE request (food, drinks, minibar, laundry, spa…), if you do not already know the
-price from this conversation, call answer_from_knowledge FIRST to look the item up on the menu, then pass the
-numeric price (unit price × quantity) on create_service_request. Never invent or guess a price — if the menu
-doesn't have it, leave price unset and don't mention a figure; staff will add it.
+When the PRICE LIST below is present, take prices ONLY from it: multiply the unit price by the quantity and pass
+that on create_service_request. It is already scoped to where this guest is, so it is the right price for them.
+If an item is not on that list, call answer_from_knowledge to check the menu. Never invent, guess or average a
+price — if you can't find one, leave price unset and don't mention a figure; staff will add it.${priceList}
 When you do set a price, state the total back to the guest in your reply (e.g. "that's £20 for the two").
 Keep replies to 1–3 short sentences.
 

@@ -8,8 +8,8 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { ChevronDown, Loader2, Phone, AlertTriangle, X, Plus, Minus } from "lucide-react";
-import { listRooms, listCatalogItems, type CatalogItem, type Hotel, type Room } from "@/talkstay/lib/hotels";
+import { ChevronDown, Loader2, Phone, AlertTriangle, X, Plus, Minus, Search } from "lucide-react";
+import { listRooms, listCatalogItems, menuItemKey, type CatalogItem, type Hotel, type Room } from "@/talkstay/lib/hotels";
 import { formatRoomLabel, guestStayLabel } from "@/talkstay/lib/roomLabel";
 import { useDemo } from "@/talkstay/demo/DemoContext";
 import { OPEN_STATUSES } from "@/talkstay/lib/data";
@@ -90,6 +90,10 @@ export default function LogOrderDialog({
   // overwrites something a staff member is part-way through typing.
   const [items, setItems] = useState<CatalogItem[]>([]);
   const [picked, setPicked] = useState<Record<string, number>>({});
+  const [itemQuery, setItemQuery] = useState("");
+  // Set once someone types in Amount, so we never overwrite a deliberate
+  // override (a comp, a discount, a corkage waiver) with the menu total.
+  const [priceEdited, setPriceEdited] = useState(false);
   const [busy, setBusy] = useState(false);
   const [openRows, setOpenRows] = useState<OpenRow[]>([]);
   const [dupBlock, setDupBlock] = useState<OpenRow[] | null>(null);
@@ -156,15 +160,40 @@ export default function LogOrderDialog({
     let cancelled = false;
     setPicked({});
     if (demo || !activeDept) { setItems([]); return; }
-    listCatalogItems(hotel.id, activeDept).then((rows) => {
+    // Scoped to where the order is being taken: the outlet's own list plus the
+    // department-wide items, so a pool-bar ticket shows pool-bar prices.
+    listCatalogItems(hotel.id, activeDept, { outletRoomId: roomId || null }).then((rows) => {
       if (!cancelled) setItems(rows);
     });
     return () => { cancelled = true; };
-  }, [hotel.id, activeDept, demo]);
+  }, [hotel.id, activeDept, roomId, demo]);
+
+  // This outlet's price beats the department-wide one for the same item, so the
+  // bar only ever sees one "House Red" — the price that applies where the order
+  // is being taken. Showing both was a genuine hazard: two identical chips at
+  // different prices and no way to tell which is which.
+  const menu = useMemo(() => {
+    const byKey = new Map<string, CatalogItem>();
+    for (const i of items) {
+      const k = menuItemKey(i.name);
+      const held = byKey.get(k);
+      if (!held || (i.outlet_room_id && !held.outlet_room_id)) byKey.set(k, i);
+    }
+    return [...byKey.values()];
+  }, [items]);
+
+  const visibleMenu = useMemo(() => {
+    const q = itemQuery.trim().toLowerCase();
+    if (!q) return menu;
+    return menu.filter((i) => i.name.toLowerCase().includes(q));
+  }, [menu, itemQuery]);
+
+  const areaName = (id: string | null) =>
+    id ? rooms.find((r) => r.id === id)?.room_number ?? null : null;
 
   const pickedList = useMemo(
-    () => items.filter((i) => (picked[i.id] ?? 0) > 0),
-    [items, picked],
+    () => menu.filter((i) => (picked[i.id] ?? 0) > 0),
+    [menu, picked],
   );
   const pickedLine = pickedList
     .map((i) => (picked[i.id] > 1 ? `${picked[i.id]}× ${i.name}` : i.name))
@@ -172,6 +201,21 @@ export default function LogOrderDialog({
   const pickedTotal = pickedList.reduce(
     (sum, i) => sum + (typeof i.price === "number" ? i.price * picked[i.id] : 0), 0,
   );
+
+  // Tapping priced items IS the charge: tick Chargeable and show the running
+  // total in Amount, rather than holding it as a hidden fallback applied at
+  // save. Staff were looking at an empty field with a "0.00" placeholder and
+  // reasonably concluding the order would be charged nothing.
+  useEffect(() => {
+    if (pickedTotal <= 0) return;
+    setChargeable(true);
+    if (!priceEdited) setPrice(pickedTotal.toFixed(2));
+  }, [pickedTotal, priceEdited]);
+
+  // Clearing the basket clears the figure it put there — but never a typed one.
+  useEffect(() => {
+    if (pickedTotal === 0 && !priceEdited) setPrice("");
+  }, [pickedTotal, priceEdited]);
   const bump = (id: string, by: number) =>
     setPicked((p) => {
       const next = Math.max(0, (p[id] ?? 0) + by);
@@ -209,6 +253,7 @@ export default function LogOrderDialog({
         }
         toast.success(`Logged for ${formatRoomLabel(rooms.find((r) => r.id === roomId)?.room_number)} — on the Operations queue.`);
         setSummary("");
+      setPriceEdited(false);
         setGuestNote("");
         onCreated();
         onClose?.();
@@ -229,14 +274,24 @@ export default function LogOrderDialog({
           price: chargeable ? (price.trim() !== "" ? Number(price) : (pickedTotal > 0 ? pickedTotal : null)) : null,
         },
       });
-      const bodyErr = (data as any)?.error as string | undefined;
-      if ((data as any)?.duplicate) {
-        setDupBlock(((data as any).open as OpenRow[]) ?? []);
+      // supabase-js gives data: null on any non-2xx and a message that says
+      // nothing. Read the real body so errors are legible — and so a duplicate
+      // prompt from an older deployed function still works.
+      let payload: any = data;
+      if (error && !payload) {
+        try {
+          const ctx = (error as { context?: Response }).context;
+          if (ctx) payload = await (typeof ctx.clone === "function" ? ctx.clone() : ctx).json();
+        } catch { /* not JSON — fall through to the generic message */ }
+      }
+      const bodyErr = payload?.error as string | undefined;
+      if (payload?.duplicate) {
+        setDupBlock((payload.open as OpenRow[]) ?? []);
         setBusy(false);
         return;
       }
       if (error || bodyErr) throw new Error(bodyErr || error?.message || "Couldn't log order");
-      toast.success(`Logged for ${formatRoomLabel((data as any)?.roomNumber)} — team notified.`);
+      toast.success(`Logged for ${formatRoomLabel(payload?.roomNumber)} — team notified.`);
       setSummary("");
       setGuestNote("");
       onCreated();
@@ -426,10 +481,17 @@ export default function LogOrderDialog({
           )}
         </div>
 
-        {items.length > 0 && (
+        {menu.length > 0 && (
           <div className="space-y-2 rounded-xl border bg-muted/30 p-3">
             <div className="flex items-center justify-between gap-2">
-              <Label className="text-xs">Tap to add</Label>
+              <Label className="text-xs">
+                Tap to add
+                {itemQuery.trim() && (
+                  <span className="ml-1 font-normal text-muted-foreground">
+                    · {visibleMenu.length} of {menu.length}
+                  </span>
+                )}
+              </Label>
               {pickedList.length > 0 && (
                 <button
                   type="button"
@@ -440,8 +502,26 @@ export default function LogOrderDialog({
                 </button>
               )}
             </div>
-            <div className="flex flex-wrap gap-1.5">
-              {items.map((i) => {
+            {menu.length > 5 && (
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={itemQuery}
+                  onChange={(e) => setItemQuery(e.target.value)}
+                  placeholder={`Search ${menu.length} items…`}
+                  aria-label="Search the menu"
+                  className="h-9 pl-8"
+                />
+              </div>
+            )}
+
+            <div className="flex max-h-56 flex-wrap gap-1.5 overflow-y-auto">
+              {visibleMenu.length === 0 && (
+                <span className="py-1 text-xs text-muted-foreground">
+                  Nothing matches "{itemQuery}".
+                </span>
+              )}
+              {visibleMenu.map((i) => {
                 const qty = picked[i.id] ?? 0;
                 return (
                   <span
@@ -460,6 +540,13 @@ export default function LogOrderDialog({
                       {typeof i.price === "number" && (
                         <span className="ml-1 text-muted-foreground">
                           {formatMoney(i.price, i.currency)}
+                        </span>
+                      )}
+                      {/* Only outlet-specific items are tagged — an untagged
+                          chip is the department-wide price. */}
+                      {i.outlet_room_id && areaName(i.outlet_room_id) && (
+                        <span className="ml-1 rounded-full bg-sky-100 px-1.5 text-[10px] font-medium text-sky-900">
+                          {areaName(i.outlet_room_id)}
                         </span>
                       )}
                     </button>
@@ -537,10 +624,15 @@ export default function LogOrderDialog({
                 step="0.01"
                 inputMode="decimal"
                 value={price}
-                onChange={(e) => setPrice(e.target.value)}
+                onChange={(e) => { setPrice(e.target.value); setPriceEdited(true); }}
                 placeholder="0.00"
                 className="max-w-[10rem] bg-white"
               />
+              {pickedTotal > 0 && !priceEdited && (
+                <p className="text-[11px] text-emerald-900/75">
+                  From the {pickedList.length} item{pickedList.length === 1 ? "" : "s"} tapped above — edit to override.
+                </p>
+              )}
             </div>
           )}
         </div>

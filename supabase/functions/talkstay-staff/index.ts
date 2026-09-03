@@ -418,7 +418,7 @@ serve(async (req) => {
     if (action === "list") {
       let q = admin
         .from("ts_staff")
-        .select("id, user_id, department_key, role, status, name, created_at")
+        .select("id, user_id, department_key, role, status, name, room_id, created_at")
         .eq("hotel_id", hotelId)
         .order("created_at", { ascending: true });
       if (isDeptManager && callerStaff?.department_key) {
@@ -784,12 +784,17 @@ serve(async (req) => {
         .limit(8);
 
       if ((openSame?.length ?? 0) > 0 && !force) {
+        // 200, not 409: this is a confirmation prompt, not a failure. On a
+        // non-2xx, supabase-js hands the caller data: null and a generic
+        // "Edge Function returned a non-2xx status code", so the duplicate
+        // payload never reached the UI and the staff member simply could not
+        // log a second order for a team that already had one open.
         return json({
           ok: false,
           duplicate: true,
           error: "This room already has an open order for that team — confirm to log another.",
           open: openSame,
-        }, 409);
+        });
       }
 
       const actorLabel = callerStaff?.name || caller.email || "staff";
