@@ -39,6 +39,10 @@ const FAQS: { q: string; a: string }[] = [
     a: "Enable alert sounds and notifications from the dashboard sidebar. Department notify emails and escalation timers are set under Departments. Push works best when the ops app is installed to the home screen on phones.",
   },
   {
+    q: "Where do guest emails live, and can I send offers?",
+    a: "Under Communications (owner/manager). You’ll see emails guests shared for stay updates or that staff sent a check-in code to. You can send an occasional campaign (offers, news) yourself — TalkStay does not auto-send monthly newsletters. Every campaign includes unsubscribe. The one-time post-checkout “book again” email is separate and configured under Branding → Property.",
+  },
+  {
     q: "I was referred by a partner — who do I contact?",
     a: "If your property has a referral code on file, Support in your signed-in Account routes to that partner. Otherwise email TalkStay at the address below. You can also open Account in the dashboard for a direct, property-aware Support link.",
   },

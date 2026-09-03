@@ -38,7 +38,7 @@ export default function PrivacyPolicyPage() {
         <ul>
           <li><strong>Account data:</strong> name, email, role, department, property name and profile</li>
           <li><strong>Operational data:</strong> room/unit details, request tickets, status events, staff replies, ratings, escalation notes</li>
-          <li><strong>Guest interaction data:</strong> messages, voice session tokens, device claim tokens, check-in codes, optional guest email for code delivery</li>
+          <li><strong>Guest interaction data:</strong> messages, voice session tokens, device claim tokens, check-in codes, optional guest email for code delivery or stay-update opt-in (also used for optional return-guest offers if the property sends them)</li>
           <li><strong>Knowledge content:</strong> website URLs, uploaded documents, FAQs and media you add for the assistant</li>
           <li><strong>Technical data:</strong> IP address, device/browser type, approximate location from IP, cookies/local storage, push subscription endpoints</li>
           <li><strong>Billing data:</strong> processed by our payment provider (e.g. Stripe); we do not store full card numbers</li>
@@ -51,6 +51,7 @@ export default function PrivacyPolicyPage() {
           <li>Provide, secure, and improve TalkStay (routing, alerts, insights, voice/chat)</li>
           <li>Authenticate users and enforce roles / department locks</li>
           <li>Send operational emails and optional push/sound alerts</li>
+          <li>Send property-authored return-guest / offer emails when the property chooses to (always with unsubscribe; not an automatic newsletter)</li>
           <li>Prevent abuse, duplicates, and fraud</li>
           <li>Comply with law and respond to lawful requests</li>
           <li>With consent or legitimate interest, improve product analytics (aggregated where practical)</li>
