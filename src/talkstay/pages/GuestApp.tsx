@@ -12,6 +12,7 @@ import { alertIncoming } from "@/talkstay/lib/alerts";
 import { iosNeedsHomeScreenInstall, IOS_ADD_HOME_SCREEN_HINT } from "@/talkstay/lib/install";
 import InstallAppBanner from "@/talkstay/components/InstallAppBanner";
 import NoIndexMeta from "@/talkstay/components/NoIndexMeta";
+import PostStayReturn from "@/talkstay/components/PostStayReturn";
 import {
   fetchContext, sendMessage, fetchMyRequests, submitReview, saveGuestContact,
   confirmRequest, reopenRequest, cancelRequest, nudgeRequest, updateRequest, repeatRequest,
@@ -225,6 +226,9 @@ function GuestAppInner({ hotelSlug, roomId, token }: { hotelSlug: string; roomId
   const [codeInput, setCodeInput] = useState("");
   // Labels for gate screens (ended / code) — from API or last successful visit.
   const [roomLabel, setRoomLabel] = useState<{ hotelName?: string; roomNumber?: string }>({});
+  const [postStay, setPostStay] = useState<{
+    bookingUrl?: string; returnOffer?: string; primaryColor?: string;
+  }>({});
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -290,6 +294,11 @@ function GuestAppInner({ hotelSlug, roomId, token }: { hotelSlug: string; roomId
             localStorage.removeItem(`talkstay:notify:${sid}`);
             localStorage.removeItem(`talkstay:pulse:${sid}`);
           } catch { /* ignore */ }
+          setPostStay({
+            bookingUrl: typeof e?.bookingUrl === "string" ? e.bookingUrl : undefined,
+            returnOffer: typeof e?.returnOffer === "string" ? e.returnOffer : undefined,
+            primaryColor: typeof e?.primaryColor === "string" ? e.primaryColor : undefined,
+          });
           setCheckedOut(true);
           setNeedCode(false);
         } else if (msg.includes("room_full")) {
@@ -568,7 +577,7 @@ function GuestAppInner({ hotelSlug, roomId, token }: { hotelSlug: string; roomId
         <p className="max-w-sm text-sm text-muted-foreground">
           Thank you for staying with us. The assistant for <strong>{roomLine}</strong>{hotelBit} is no longer
           active for the previous stay.
-          If you've just checked in again, enter the new check-in code from reception — or ask them to
+          If you&apos;ve just checked in again, enter the new check-in code from reception — or ask them to
           confirm {roomLabel.roomNumber ? roomLine : "the room"} is checked in.
         </p>
         {roomLabel.roomNumber && (
@@ -576,6 +585,16 @@ function GuestAppInner({ hotelSlug, roomId, token }: { hotelSlug: string; roomId
             Mention <strong>{roomLine}</strong> if you contact reception or share feedback.
           </p>
         )}
+        <div className="w-full max-w-sm">
+          <PostStayReturn
+            retention={{
+              hotelName: roomLabel.hotelName,
+              bookingUrl: postStay.bookingUrl,
+              returnOffer: postStay.returnOffer,
+              brandColor: postStay.primaryColor,
+            }}
+          />
+        </div>
         <form
           className="flex w-full max-w-xs flex-col gap-3"
           onSubmit={(e) => {

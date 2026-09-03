@@ -93,6 +93,17 @@ serve(async (req) => {
       return json({ error: `Email send failed: ${(resp.error ?? "").slice(0, 200)}` }, 502);
     }
 
+    // Remember this email on the stay so post-checkout rebooking can reach them.
+    const cleanEmail = String(email).trim().toLowerCase();
+    await admin.from("ts_guest_sessions").upsert({
+      hotel_id: hotel.id,
+      room_id: room.id,
+      session_id: `staff_email:${cleanEmail}`,
+      contact_email: cleanEmail,
+      notify_channel: "email",
+      language: "English",
+    }, { onConflict: "hotel_id,session_id" }).then(() => {}, () => {});
+
     return json({ ok: true, emailed: email });
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : String(e) }, 500);

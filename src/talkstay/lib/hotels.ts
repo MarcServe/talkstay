@@ -59,6 +59,13 @@ export interface HotelBranding {
    * Default ~0.88 keeps text readable; lower to show more of the property image.
    */
   guest_bg_wash?: number | null;
+  /**
+   * Direct booking / booking-engine URL for post-stay “book your next stay with us”.
+   * Shown on stay-ended screens and in the post-checkout retention email.
+   */
+  booking_url?: string | null;
+  /** Optional return-guest offer line, e.g. “10% off your next direct stay — code RETURN”. */
+  return_offer?: string | null;
 }
 
 /** Clamp guest background wash; higher = more transparent photo (heavier veil). */
