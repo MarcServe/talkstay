@@ -111,14 +111,34 @@ serve(async (req) => {
         .maybeSingle();
       if (!tok) return json({ error: "Invalid guest link" }, 403);
 
-      const { data: unpaid } = await admin
+      // Scope the bill exactly as the guest's folio does, or the card charges
+      // the wrong amount. talkstay-guest-chat's scopeToGuestBill() bills a
+      // checked-in room for its whole stay (room + everything since
+      // checked_in_at, across however many chat sessions the guest opened) and
+      // bills a public area by session alone, since a bar stool has no stay to
+      // anchor to. Scoping by session here regardless meant a room guest saw a
+      // stay total on their folio and Checkout collected only the current
+      // session's slice of it — or refused with "nothing to pay" when the
+      // charges were raised in an earlier session. Same rule, duplicated rather
+      // than shared only because these are two separate edge functions.
+      const { data: payRoom } = await admin
+        .from("ts_rooms")
+        .select("is_public, checked_in_at")
+        .eq("id", roomId)
+        .maybeSingle();
+
+      let unpaidQ = admin
         .from("ts_service_requests")
         .select("id, summary, price, currency, payment_status, is_chargeable, session_id")
         .eq("hotel_id", hotel.id)
-        .eq("room_id", roomId)
-        .eq("session_id", sessionId)
         .eq("is_chargeable", true)
         .eq("payment_status", "unpaid");
+
+      unpaidQ = !payRoom?.is_public && payRoom?.checked_in_at
+        ? unpaidQ.eq("room_id", roomId).gte("created_at", payRoom.checked_in_at)
+        : unpaidQ.eq("room_id", roomId).eq("session_id", sessionId);
+
+      const { data: unpaid } = await unpaidQ;
 
       const rows = (unpaid ?? []).filter((r: { price: number | null }) => typeof r.price === "number" && Number(r.price) > 0);
       if (!rows.length) return json({ error: "Nothing to pay with a card right now." }, 400);
