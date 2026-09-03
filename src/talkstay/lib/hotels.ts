@@ -11,13 +11,23 @@ export const DEPARTMENTS: { key: string; display_name: string }[] = [
   { key: "duty_manager", display_name: "Duty Manager" },
 ];
 
-/** What kind of stay this property is — shapes Insights BI advice. */
+/** Departments seeded for restaurant / café / bar properties (menus + table QRs). */
+export const RESTAURANT_DEPARTMENTS: { key: string; display_name: string }[] = [
+  { key: "restaurant", display_name: "Restaurant" },
+  { key: "kitchen", display_name: "Kitchen" },
+  { key: "bar", display_name: "Bar" },
+  { key: "front_desk", display_name: "Host / front of house" },
+  { key: "duty_manager", display_name: "Duty Manager" },
+];
+
+/** What kind of stay this property is — shapes Insights BI advice + onboarding. */
 export type PropertyType =
   | "hotel"
   | "serviced_apartment"
   | "airbnb"
   | "bnb"
   | "hostel"
+  | "restaurant"
   | "other";
 
 export const PROPERTY_TYPES: { key: PropertyType; label: string }[] = [
@@ -26,8 +36,17 @@ export const PROPERTY_TYPES: { key: PropertyType; label: string }[] = [
   { key: "airbnb", label: "Airbnb / short-let" },
   { key: "bnb", label: "B&B / guest house" },
   { key: "hostel", label: "Hostel" },
+  { key: "restaurant", label: "Restaurant / café / bar" },
   { key: "other", label: "Other" },
 ];
+
+export function isRestaurantProperty(type?: PropertyType | null): boolean {
+  return type === "restaurant";
+}
+
+export function seedDepartmentsForProperty(type?: PropertyType | null) {
+  return isRestaurantProperty(type) ? RESTAURANT_DEPARTMENTS : DEPARTMENTS;
+}
 
 /** Operator context so Insights can advise for a 10-room Airbnb vs a 200-room hotel. */
 export interface PropertyProfile {
@@ -129,6 +148,11 @@ export interface Hotel {
   referral_code?: string | null;
   /** Property contact / ops email — not the owner login. */
   contact_email?: string | null;
+  /** Stripe Connect Express account (acct_…). */
+  stripe_account_id?: string | null;
+  stripe_charges_enabled?: boolean;
+  stripe_details_submitted?: boolean;
+  stripe_connected_at?: string | null;
   created_at?: string;
 }
 
@@ -681,9 +705,10 @@ export async function createHotel(input: {
   }
   if (hErr) throw hErr;
 
-  // 3. Seed departments.
+  // 3. Seed departments — restaurant properties get F&B / host teams, not housekeeping.
+  const depts = seedDepartmentsForProperty(input.property?.type ?? null);
   await supabase.from("ts_departments").insert(
-    DEPARTMENTS.map((d) => ({
+    depts.map((d) => ({
       hotel_id: hotel.id,
       key: d.key,
       display_name: d.display_name,
