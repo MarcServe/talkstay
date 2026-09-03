@@ -216,7 +216,7 @@ serve(async (req) => {
     if (action === "list_campaigns") {
       const { data } = await admin
         .from("ts_guest_campaigns")
-        .select("id, subject, body_text, cta_label, cta_url, recipient_count, sent_count, created_at")
+        .select("id, subject, body_text, cta_label, cta_url, image_url, recipient_count, sent_count, created_at")
         .eq("hotel_id", hotelId)
         .order("created_at", { ascending: false })
         .limit(50);
@@ -250,6 +250,11 @@ serve(async (req) => {
       const bodyText = String(body.bodyText ?? body.body ?? "").trim().slice(0, 4000);
       const ctaLabel = String(body.ctaLabel ?? "").trim().slice(0, 60) || null;
       const ctaUrl = normalizeHttpUrl(body.ctaUrl);
+      // Trust boundary matches ctaUrl: normalized to a real http(s) URL, never
+      // raw HTML — the client only ever supplies this from a completed Storage
+      // upload, but a forged request could send anything, so it's validated
+      // exactly like every other guest-facing URL in this function.
+      const imageUrl = normalizeHttpUrl(body.imageUrl);
       if (!subject || !bodyText) return json({ error: "Subject and message are required" }, 400);
       if ((ctaLabel && !ctaUrl) || (!ctaLabel && ctaUrl)) {
         return json({ error: "Provide both a button label and URL, or neither" }, 400);
@@ -283,6 +288,7 @@ serve(async (req) => {
         body_text: bodyText,
         cta_label: ctaLabel,
         cta_url: ctaUrl,
+        image_url: imageUrl,
         recipient_count: recipients.length,
         sent_count: 0,
         created_by: uid,
@@ -303,6 +309,15 @@ serve(async (req) => {
           .map((p) => `<p style="margin:0 0 12px;">${escapeHtml(p).replace(/\n/g, "<br/>")}</p>`)
           .join("");
 
+        // renderEmail's own header already shows the property's logo — this is
+        // a second, larger image for the OFFER itself (the spa, the new dish),
+        // so it sits inside bodyHtml rather than becoming a renderEmail option.
+        // Width matches the card's inner content area (520px card - 28px*2
+        // padding) so it fills edge-to-edge without overflowing.
+        const imageHtml = imageUrl
+          ? `<img src="${escapeHtml(imageUrl)}" alt="" width="464" style="display:block;width:100%;max-width:464px;height:auto;border-radius:10px;margin:0 0 16px;" />`
+          : "";
+
         const html = renderEmail({
           hotelName,
           logoUrl: branding.logo_url as string | null | undefined,
@@ -310,6 +325,7 @@ serve(async (req) => {
           whiteLabel: isWhiteLabel(branding),
           heading: subject,
           bodyHtml: `
+            ${imageHtml}
             <p style="margin:0 0 12px;">${hello}</p>
             ${paragraphs}
           `,

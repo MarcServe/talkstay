@@ -3,9 +3,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import {
-  Loader2, Mail, Send, Users, Ban, RotateCcw, Search,
+  Loader2, Mail, Send, Users, Ban, RotateCcw, Search, ImagePlus, X,
 } from "lucide-react";
 import type { Hotel } from "@/talkstay/lib/hotels";
 import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
@@ -15,6 +19,7 @@ import {
   sendGuestCampaign,
   staffResubscribeGuest,
   staffUnsubscribeGuest,
+  uploadCampaignImage,
   type GuestCampaign,
   type GuestContact,
 } from "@/talkstay/lib/guestComms";
@@ -39,6 +44,9 @@ export default function CommunicationsPanel({ hotel }: { hotel: Hotel }) {
   const [bodyText, setBodyText] = useState("");
   const [ctaLabel, setCtaLabel] = useState("");
   const [ctaUrl, setCtaUrl] = useState(hotel.branding?.booking_url ?? "");
+  const [imageUrl, setImageUrl] = useState("");
+  const [imageUploading, setImageUploading] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const refresh = async () => {
     if (demo) {
@@ -130,14 +138,46 @@ export default function CommunicationsPanel({ hotel }: { hotel: Hotel }) {
     }
   };
 
-  const send = async () => {
+  const onPickImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (demo) {
+      toast.message("Images aren’t uploaded in the design demo.");
+      return;
+    }
+    if (!file.type.startsWith("image/")) {
+      toast.error("Choose an image file");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Image is too large — keep it under 5MB");
+      return;
+    }
+    setImageUploading(true);
+    try {
+      setImageUrl(await uploadCampaignImage(hotel.id, file));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't upload that image");
+    } finally {
+      setImageUploading(false);
+    }
+  };
+
+  const sendCount = (selected.size ? selected.size : eligibleCount);
+
+  /** Checks only — opens the confirm dialog rather than sending directly.
+   *  A native confirm() used to sit here. In an installed PWA (this app
+   *  promotes "add to home screen" throughout), window.confirm/alert are
+   *  frequently suppressed or silently no-op depending on the browser engine
+   *  — the button looked live but nothing happened, no dialog, no error, no
+   *  send. An in-app AlertDialog doesn't depend on browser chrome at all. */
+  const requestSend = () => {
     if (demo) {
       toast.message("Campaigns aren’t sent in the design demo.");
       return;
     }
-    const emails = selected.size ? [...selected] : undefined;
-    const count = emails?.length ?? eligibleCount;
-    if (!count) {
+    if (!sendCount) {
       toast.error("No eligible guests to email yet");
       return;
     }
@@ -145,9 +185,12 @@ export default function CommunicationsPanel({ hotel }: { hotel: Hotel }) {
       toast.error("Add a subject and message");
       return;
     }
-    if (!confirm(`Send this email to ${count} guest${count === 1 ? "" : "s"}? This is a one-off send — TalkStay does not auto-repeat campaigns.`)) {
-      return;
-    }
+    setConfirmOpen(true);
+  };
+
+  const send = async () => {
+    setConfirmOpen(false);
+    const emails = selected.size ? [...selected] : undefined;
     setBusy(true);
     try {
       const res = await sendGuestCampaign({
@@ -156,11 +199,13 @@ export default function CommunicationsPanel({ hotel }: { hotel: Hotel }) {
         bodyText: bodyText.trim(),
         ctaLabel: ctaLabel.trim() || undefined,
         ctaUrl: ctaUrl.trim() || undefined,
+        imageUrl: imageUrl || undefined,
         emails,
       });
       toast.success(`Sent to ${res.sent} of ${res.attempted}`);
       setSubject("");
       setBodyText("");
+      setImageUrl("");
       clearSelection();
       setTab("sent");
       await refresh();
@@ -304,6 +349,29 @@ export default function CommunicationsPanel({ hotel }: { hotel: Hotel }) {
                 : `Will send to all ${eligibleCount} eligible guest${eligibleCount === 1 ? "" : "s"} (not unsubscribed).`}
             </p>
             <div className="space-y-1.5">
+              <Label>Image (optional)</Label>
+              {imageUrl ? (
+                <div className="relative w-full max-w-xs overflow-hidden rounded-lg border">
+                  <img src={imageUrl} alt="" className="block h-32 w-full object-cover" />
+                  <Button
+                    type="button" size="icon" variant="secondary"
+                    className="absolute right-1.5 top-1.5 h-6 w-6 rounded-full shadow"
+                    onClick={() => setImageUrl("")}
+                    aria-label="Remove image"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ) : (
+                <label className="flex w-full max-w-xs cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed px-4 py-3 text-sm text-muted-foreground hover:border-violet-400 hover:text-violet-700">
+                  {imageUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />}
+                  {imageUploading ? "Uploading…" : "Add a photo"}
+                  <input type="file" accept="image/*" className="hidden" disabled={imageUploading} onChange={(e) => void onPickImage(e)} />
+                </label>
+              )}
+              <p className="text-[11px] text-muted-foreground">Shown above the message, e.g. the spa or the new dish.</p>
+            </div>
+            <div className="space-y-1.5">
               <Label htmlFor="camp-subject">Subject</Label>
               <Input
                 id="camp-subject"
@@ -351,13 +419,31 @@ export default function CommunicationsPanel({ hotel }: { hotel: Hotel }) {
               type="button"
               disabled={busy || loading || (!selected.size && !eligibleCount)}
               className="bg-violet-600 hover:bg-violet-700"
-              onClick={() => void send()}
+              onClick={requestSend}
             >
               {busy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Send className="mr-1.5 h-4 w-4" />}
               Send campaign
             </Button>
           </div>
         </TabsContent>
+
+        <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Send this campaign?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Send this email to {sendCount} guest{sendCount === 1 ? "" : "s"}? This is a one-off
+                send — TalkStay does not auto-repeat campaigns.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction className="bg-violet-600 hover:bg-violet-700" onClick={() => void send()}>
+                Send
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         <TabsContent value="sent" className="space-y-3">
           {loading ? (
