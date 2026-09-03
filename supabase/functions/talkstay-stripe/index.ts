@@ -125,8 +125,17 @@ serve(async (req) => {
       if (applicationFeeAmount > 0) {
         paymentIntentData.application_fee_amount = applicationFeeAmount;
       }
+      // This account also runs TalkWeb's own subscription billing on its
+      // platform balance. A direct charge on a connected account (below) uses
+      // that account's OWN statement descriptor by default — Stripe doesn't
+      // borrow the platform's — so this suffix is redundant for correctness.
+      // It's set anyway so a guest's card statement is legible at a glance:
+      // "PROPERTY NAME* TALKSTAY" rather than a bare property name that gives
+      // no hint which system took the payment. 22-char Stripe limit; 8 well
+      // inside it.
+      paymentIntentData.statement_descriptor_suffix = "TALKSTAY";
 
-      const session = await stripe.checkout.sessions.create(
+      const session = await stripe.checkout.sessions.create
         {
           mode: "payment",
           line_items,
