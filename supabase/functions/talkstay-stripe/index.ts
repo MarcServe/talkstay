@@ -135,7 +135,7 @@ serve(async (req) => {
       // inside it.
       paymentIntentData.statement_descriptor_suffix = "TALKSTAY";
 
-      const session = await stripe.checkout.sessions.create
+      const session = await stripe.checkout.sessions.create(
         {
           mode: "payment",
           line_items,
