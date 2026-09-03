@@ -2,28 +2,37 @@
  * TalkStay Stripe Connect — property onboarding + guest Checkout.
  *
  * Secrets (Supabase Edge):
- *   TALKSTAY_STRIPE_SECRET_KEY     optional — set this to test with a sk_test_
- *                                  key without touching TalkWeb's own key below.
- *   STRIPE_SECRET_KEY              shared with TalkWeb's subscription billing on
- *                                  this same Stripe account. Used only when
- *                                  TALKSTAY_STRIPE_SECRET_KEY is unset — that is
- *                                  the intended end state (§ below).
+ *   TALKSTAY_STRIPE_SECRET_KEY     REQUIRED in practice, not just for testing —
+ *                                  see below. Falls back to STRIPE_SECRET_KEY
+ *                                  only because that keeps this function from
+ *                                  hard-failing when unset.
+ *   STRIPE_SECRET_KEY              TalkWeb's own key on this shared account —
+ *                                  a RESTRICTED key scoped to TalkWeb's billing
+ *                                  (Customers, Subscriptions, Checkout Sessions
+ *                                  for TalkWeb's OWN products). It has no
+ *                                  Connect permissions and CANNOT create or
+ *                                  manage connected accounts — confirmed live,
+ *                                  2026-09-03: stripe.accounts.create() failed
+ *                                  with "does not have the required
+ *                                  permissions ... connected_account_write".
  *   STRIPE_CONNECT_WEBHOOK_SECRET  (for talkstay-stripe-webhook)
  *   PUBLIC_APP_URL                 (e.g. https://talkstay.talkweb.io)
  *
  * Owners never paste API keys — they click Connect and finish Stripe Express.
  *
- * On the shared key: this account's STRIPE_SECRET_KEY is TalkWeb's LIVE key —
- * it collects real payments today. There is no way to make a live key produce
- * a test-mode charge; test mode strictly requires a sk_test_ key, and Stripe
- * secrets in this Supabase project are project-wide (one value, read by every
- * function, TalkWeb's and TalkStay's alike) — so testing this feature was
- * otherwise impossible without either risking real money or replacing
- * TalkWeb's live key out from under it. TALKSTAY_STRIPE_SECRET_KEY exists so
- * this function can run on a sk_test_ key during development, then simply be
- * unset once confident, at which point TalkStay quietly starts using the same
- * live key TalkWeb already does — the reuse decision this integration was
- * built on, without ever having put that decision at risk to test it.
+ * On the key: earlier revisions of this comment said TALKSTAY_STRIPE_SECRET_KEY
+ * was a testing convenience to be unset once confident, falling back to the
+ * shared key permanently. That was wrong — the shared key's restricted scope
+ * means it can NEVER perform Connect operations, test or live, so falling back
+ * to it is a dead end, not an end state. TalkStay needs its own key: a second
+ * RESTRICTED key on the same Stripe account, created separately from TalkWeb's,
+ * granted write access to Accounts / Account Links / Checkout Sessions (and
+ * whatever this account's dashboard groups under "Connect") and nothing else —
+ * so it is exactly as unable to touch TalkWeb's customers or subscriptions as
+ * TalkWeb's key is unable to touch TalkStay's connected accounts. That is the
+ * real separation: not two Stripe accounts, but two keys with disjoint,
+ * minimal scopes on one. Use a sk_test_/rk_test_ key here during development,
+ * then a properly-scoped rk_live_ key for production — never the shared one.
  */
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
@@ -42,11 +51,12 @@ const json = (body: unknown, status = 200) =>
   });
 
 function stripeClient() {
-  // TALKSTAY_STRIPE_SECRET_KEY, when set, always wins — it is the explicit
-  // opt-in to run on a key OTHER than TalkWeb's shared live one. Falling back
-  // silently to STRIPE_SECRET_KEY, rather than requiring both to be set, is
-  // what lets this function work today with zero extra config: reusing
-  // TalkWeb's key was the decision, this override is only the escape hatch.
+  // TALKSTAY_STRIPE_SECRET_KEY should always be set in any working deployment —
+  // TalkWeb's STRIPE_SECRET_KEY is a restricted key with no Connect permissions,
+  // so falling back to it doesn't degrade this function, it breaks it (confirmed
+  // live: "connected_account_write" permission denied on accounts.create).
+  // The fallback exists only so a missing config fails with Stripe's own clear
+  // permission error instead of a confusing empty-string key error here.
   const key = Deno.env.get("TALKSTAY_STRIPE_SECRET_KEY") || Deno.env.get("STRIPE_SECRET_KEY");
   if (!key) throw new Error("STRIPE_SECRET_KEY is not configured");
   return new Stripe(key, {
