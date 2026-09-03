@@ -28,7 +28,12 @@ serve(async (req) => {
     });
   }
 
-  const STRIPE_KEY = Deno.env.get("STRIPE_SECRET_KEY");
+  // Same override as talkstay-stripe: prefer a TalkStay-only test key over
+  // TalkWeb's shared live one, so the two never need to agree on which mode
+  // they're in. constructEvent() below is a local signature check, not a
+  // network call, so this key only matters if a future addition here calls
+  // out to the Stripe API — kept consistent with talkstay-stripe regardless.
+  const STRIPE_KEY = Deno.env.get("TALKSTAY_STRIPE_SECRET_KEY") || Deno.env.get("STRIPE_SECRET_KEY");
   const WH_SECRET = Deno.env.get("STRIPE_CONNECT_WEBHOOK_SECRET");
   if (!STRIPE_KEY || !WH_SECRET) {
     console.error("Missing STRIPE_SECRET_KEY or STRIPE_CONNECT_WEBHOOK_SECRET");

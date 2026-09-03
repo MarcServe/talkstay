@@ -164,11 +164,16 @@ export default function PaymentsPanel({ hotel }: { hotel: Hotel }) {
       </div>
 
       <p className="text-xs text-muted-foreground">
-        Platform ops: set <code className="text-[11px]">STRIPE_SECRET_KEY</code>, optional{" "}
+        Platform ops: uses <code className="text-[11px]">STRIPE_SECRET_KEY</code> — the same
+        Stripe account as TalkWeb's own billing — unless{" "}
+        <code className="text-[11px]">TALKSTAY_STRIPE_SECRET_KEY</code> is set, which always wins
+        (a <code className="text-[11px]">sk_test_</code> key here is how to try this without
+        touching TalkWeb's live traffic). Optional{" "}
         <code className="text-[11px]">TALKSTAY_PLATFORM_FEE_BPS</code> (default 250 = 2.5%), deploy{" "}
         <code className="text-[11px]">talkstay-stripe</code> +{" "}
         <code className="text-[11px]">talkstay-stripe-webhook</code>, and point a Stripe Connect
-        webhook at the webhook function (events: <code className="text-[11px]">checkout.session.completed</code>,{" "}
+        webhook at the webhook function — matching whichever key/mode is active above — (events:{" "}
+        <code className="text-[11px]">checkout.session.completed</code>,{" "}
         <code className="text-[11px]">account.updated</code>).
       </p>
     </div>

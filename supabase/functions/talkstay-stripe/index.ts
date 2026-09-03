@@ -2,11 +2,28 @@
  * TalkStay Stripe Connect — property onboarding + guest Checkout.
  *
  * Secrets (Supabase Edge):
- *   STRIPE_SECRET_KEY
+ *   TALKSTAY_STRIPE_SECRET_KEY     optional — set this to test with a sk_test_
+ *                                  key without touching TalkWeb's own key below.
+ *   STRIPE_SECRET_KEY              shared with TalkWeb's subscription billing on
+ *                                  this same Stripe account. Used only when
+ *                                  TALKSTAY_STRIPE_SECRET_KEY is unset — that is
+ *                                  the intended end state (§ below).
  *   STRIPE_CONNECT_WEBHOOK_SECRET  (for talkstay-stripe-webhook)
  *   PUBLIC_APP_URL                 (e.g. https://talkstay.talkweb.io)
  *
  * Owners never paste API keys — they click Connect and finish Stripe Express.
+ *
+ * On the shared key: this account's STRIPE_SECRET_KEY is TalkWeb's LIVE key —
+ * it collects real payments today. There is no way to make a live key produce
+ * a test-mode charge; test mode strictly requires a sk_test_ key, and Stripe
+ * secrets in this Supabase project are project-wide (one value, read by every
+ * function, TalkWeb's and TalkStay's alike) — so testing this feature was
+ * otherwise impossible without either risking real money or replacing
+ * TalkWeb's live key out from under it. TALKSTAY_STRIPE_SECRET_KEY exists so
+ * this function can run on a sk_test_ key during development, then simply be
+ * unset once confident, at which point TalkStay quietly starts using the same
+ * live key TalkWeb already does — the reuse decision this integration was
+ * built on, without ever having put that decision at risk to test it.
  */
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
@@ -25,7 +42,12 @@ const json = (body: unknown, status = 200) =>
   });
 
 function stripeClient() {
-  const key = Deno.env.get("STRIPE_SECRET_KEY");
+  // TALKSTAY_STRIPE_SECRET_KEY, when set, always wins — it is the explicit
+  // opt-in to run on a key OTHER than TalkWeb's shared live one. Falling back
+  // silently to STRIPE_SECRET_KEY, rather than requiring both to be set, is
+  // what lets this function work today with zero extra config: reusing
+  // TalkWeb's key was the decision, this override is only the escape hatch.
+  const key = Deno.env.get("TALKSTAY_STRIPE_SECRET_KEY") || Deno.env.get("STRIPE_SECRET_KEY");
   if (!key) throw new Error("STRIPE_SECRET_KEY is not configured");
   return new Stripe(key, {
     apiVersion: "2023-10-16",
