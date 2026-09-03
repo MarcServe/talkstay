@@ -25,6 +25,15 @@ export interface EmailShellOptions {
   /** Paid branding tier: drop the "Powered by TalkStay" mark so the email
    *  reads as the property's own. */
   whiteLabel?: boolean;
+  /** Centre the card's content (heading, body, button, footer note).
+   *
+   *  Defaults to left, which is what every transactional email here wants —
+   *  a check-in code, an order summary or a reply is prose, and centred prose
+   *  is harder to read the longer it runs. Marketing campaigns opt in: they're
+   *  short, they lead with a centred image, and a left-aligned line under a
+   *  centred picture reads as a mistake. Header bar is deliberately untouched
+   *  either way, so branding stays identical across every email. */
+  align?: "left" | "center";
 }
 
 /** Our own verified sender — always deliverable, used as the safety net. */
@@ -102,6 +111,7 @@ export function renderEmail(opts: EmailShellOptions): string {
   const accent = isHexColor(opts.accentColor) ? opts.accentColor : "#7c3aed";
   const hotel = escapeHtml(opts.hotelName || "Your hotel");
   const logo = opts.logoUrl ? escapeHtml(opts.logoUrl) : null;
+  const align = opts.align === "center" ? "center" : "left";
 
   return `<!doctype html>
 <html>
@@ -117,7 +127,7 @@ export function renderEmail(opts: EmailShellOptions): string {
               </td>
             </tr>
             <tr>
-              <td style="padding:26px 28px;">
+              <td style="padding:26px 28px;text-align:${align};">
                 <div style="font-size:17px;font-weight:700;color:#111827;margin:0 0 14px;">${escapeHtml(opts.heading)}</div>
                 <div style="font-size:14px;line-height:1.6;color:#374151;">${opts.bodyHtml}</div>
                 ${opts.cta ? `
@@ -128,7 +138,7 @@ export function renderEmail(opts: EmailShellOptions): string {
             </tr>
             ${opts.footerNote ? `
             <tr>
-              <td style="padding:0 28px 24px;">
+              <td style="padding:0 28px 24px;text-align:${align};">
                 <div style="font-size:12px;color:#9ca3af;border-top:1px solid #f3f4f6;padding-top:16px;">${escapeHtml(opts.footerNote)}</div>
               </td>
             </tr>` : ""}

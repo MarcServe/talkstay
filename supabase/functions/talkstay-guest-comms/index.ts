@@ -330,6 +330,8 @@ serve(async (req) => {
           logoUrl: branding.logo_url as string | null | undefined,
           accentColor: branding.primary_color as string | null | undefined,
           whiteLabel: isWhiteLabel(branding),
+          // Campaigns only — every other email in the product stays left.
+          align: "center",
           heading: subject,
           bodyHtml: `
             ${imageHtml}
