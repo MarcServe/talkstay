@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import {
-  Loader2, Mail, Send, Users, Ban, RotateCcw, Search, ImagePlus, X,
+  Loader2, Mail, Send, Users, Ban, RotateCcw, Search, ImagePlus, X, Copy,
 } from "lucide-react";
 import type { Hotel } from "@/talkstay/lib/hotels";
 import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
@@ -167,6 +167,24 @@ export default function CommunicationsPanel({ hotel }: { hotel: Hotel }) {
     } finally {
       setBusy(false);
     }
+  };
+
+  /** Reuse a sent campaign: repopulate Compose and switch to it.
+   *
+   *  Deliberately NOT a one-click re-send to the same list. The recipient set
+   *  is resolved fresh at send time (who's eligible now, who has unsubscribed
+   *  since), and the reason to send an offer twice is almost always to change
+   *  something in it first — a date, a rate. Re-firing the stored copy blind
+   *  would mail real guests with no review step, so this lands in Compose and
+   *  goes out through the same confirm dialog as any other send. */
+  const useAgain = (c: GuestCampaign) => {
+    setSubject(c.subject);
+    setBodyText(c.body_text);
+    setCtaLabel(c.cta_label ?? "");
+    setCtaUrl(c.cta_url ?? "");
+    setImageUrl(c.image_url ?? "");
+    setTab("compose");
+    toast.message("Copied into Compose — check the recipients, then send.");
   };
 
   const onPickImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -543,7 +561,23 @@ export default function CommunicationsPanel({ hotel }: { hotel: Hotel }) {
                       {new Date(c.created_at).toLocaleString()} · {c.sent_count}/{c.recipient_count} sent
                     </p>
                   </div>
-                  <p className="mt-1 line-clamp-2 text-xs text-muted-foreground whitespace-pre-wrap">{c.body_text}</p>
+                  <div className="mt-1 flex items-end justify-between gap-3">
+                    <p className="line-clamp-2 flex-1 text-xs text-muted-foreground whitespace-pre-wrap">{c.body_text}</p>
+                    <Button
+                      type="button" size="sm" variant="outline"
+                      className="shrink-0"
+                      disabled={busy}
+                      onClick={() => useAgain(c)}
+                    >
+                      <Copy className="mr-1.5 h-3.5 w-3.5" /> Use again
+                    </Button>
+                  </div>
+                  {c.sent_count < c.recipient_count && (
+                    <p className="mt-1.5 text-[11px] text-amber-700">
+                      {c.recipient_count - c.sent_count} didn’t send — resending copies everyone, so
+                      select just those guests under Contacts if you only want to retry them.
+                    </p>
+                  )}
                 </div>
               ))}
             </div>
