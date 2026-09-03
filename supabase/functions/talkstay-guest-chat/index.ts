@@ -1155,12 +1155,30 @@ serve(async (req) => {
 
       let cardPayEnabled = false;
       {
+        // Two independent gates: Stripe's verdict on the connected account, and
+        // the property's own choice to offer it at all (a venue on its own POS
+        // can be fully connected and still want the button gone).
+        //
+        // card_payments_enabled is read separately and treated as ON when the
+        // read fails, so this keeps working if the function is deployed before
+        // the migration lands — selecting it alongside stripe_charges_enabled
+        // would 42703 the whole query and silently kill card pay for everyone.
         const { data: payHotel } = await admin
           .from("ts_hotels")
           .select("stripe_charges_enabled")
           .eq("id", ctx.hotelId)
           .maybeSingle();
-        cardPayEnabled = !!payHotel?.stripe_charges_enabled;
+        const stripeReady = !!payHotel?.stripe_charges_enabled;
+
+        let propertyWantsIt = true;
+        const { data: optRow, error: optErr } = await admin
+          .from("ts_hotels")
+          .select("card_payments_enabled")
+          .eq("id", ctx.hotelId)
+          .maybeSingle();
+        if (!optErr && optRow) propertyWantsIt = optRow.card_payments_enabled !== false;
+
+        cardPayEnabled = stripeReady && propertyWantsIt;
       }
 
       return json({

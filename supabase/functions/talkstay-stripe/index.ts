@@ -101,6 +101,20 @@ serve(async (req) => {
       if (!hotel.stripe_account_id || !hotel.stripe_charges_enabled) {
         return json({ error: "Card payments are not enabled for this property yet." }, 400);
       }
+      // The guest UI already hides the button when a property has switched card
+      // pay off; this refuses the request too, so a stale tab or a replayed URL
+      // can't take a payment the property has opted out of. Read defensively:
+      // a failed read (migration not applied) means "not opted out".
+      {
+        const { data: optRow, error: optErr } = await admin
+          .from("ts_hotels")
+          .select("card_payments_enabled")
+          .eq("id", hotel.id)
+          .maybeSingle();
+        if (!optErr && optRow && optRow.card_payments_enabled === false) {
+          return json({ error: "This property is not taking card payments right now." }, 400);
+        }
+      }
 
       const { data: tok } = await admin
         .from("ts_room_tokens")
@@ -275,6 +289,15 @@ serve(async (req) => {
       const feeBps = typeof hotelBps === "number" && Number.isFinite(hotelBps)
         ? hotelBps
         : (Number.isFinite(envBps) ? envBps : 250);
+      let cardPaymentsEnabled = true;
+      {
+        const { data: optRow, error: optErr } = await admin
+          .from("ts_hotels")
+          .select("card_payments_enabled")
+          .eq("id", hotelId)
+          .maybeSingle();
+        if (!optErr && optRow) cardPaymentsEnabled = optRow.card_payments_enabled !== false;
+      }
       return json({
         connected: !!hotel.stripe_account_id,
         accountId: hotel.stripe_account_id,
@@ -283,6 +306,7 @@ serve(async (req) => {
         connectedAt: hotel.stripe_connected_at,
         platformFeeBps: feeBps,
         platformFeePercent: feeBps / 100,
+        cardPaymentsEnabled,
       });
     }
 
@@ -325,6 +349,100 @@ serve(async (req) => {
       if (!hotel.stripe_account_id) return json({ error: "Connect Stripe first" }, 400);
       const login = await stripe.accounts.createLoginLink(hotel.stripe_account_id);
       return json({ url: login.url });
+    }
+
+    if (action === "payments_summary") {
+      const sinceDays = Math.min(365, Math.max(1, Number(body.sinceDays ?? 30)));
+      const since = new Date(Date.now() - sinceDays * 86_400_000).toISOString();
+
+      const [{ data: checkouts }, { data: charges }, { data: rooms }] = await Promise.all([
+        admin.from("ts_stripe_checkouts")
+          .select("id, room_id, amount_total, currency, status, created_at, completed_at, request_ids, application_fee_amount")
+          .eq("hotel_id", hotelId)
+          .gte("created_at", since)
+          .order("created_at", { ascending: false })
+          .limit(200),
+        // The operations side of the ledger: every chargeable request, however
+        // it was eventually settled.
+        admin.from("ts_service_requests")
+          .select("id, price, currency, payment_status, created_at")
+          .eq("hotel_id", hotelId)
+          .eq("is_chargeable", true)
+          .gte("created_at", since)
+          .limit(2000),
+        admin.from("ts_rooms").select("id, room_number, is_public").eq("hotel_id", hotelId),
+      ]);
+
+      const roomById = new Map((rooms ?? []).map((r: any) => [r.id, r]));
+      const money = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : Number(v ?? 0) || 0);
+
+      const paidCheckouts = (checkouts ?? []).filter((c: any) => c.status === "complete");
+      const cardCollected = paidCheckouts.reduce((t: number, c: any) => t + money(c.amount_total), 0);
+      // Requests Stripe actually settled, so "paid by other means" is the
+      // remainder rather than a guess.
+      const cardSettledIds = new Set<string>(
+        paidCheckouts.flatMap((c: any) => (c.request_ids ?? []) as string[]),
+      );
+
+      const chargeRows = (charges ?? []) as any[];
+      const paidRows = chargeRows.filter((r) => r.payment_status === "paid");
+      const totalPaid = paidRows.reduce((t, r) => t + money(r.price), 0);
+      const otherCollected = paidRows
+        .filter((r) => !cardSettledIds.has(r.id))
+        .reduce((t, r) => t + money(r.price), 0);
+      const outstanding = chargeRows
+        .filter((r) => r.payment_status !== "paid")
+        .reduce((t, r) => t + money(r.price), 0);
+
+      const currency = paidRows.find((r) => r.currency)?.currency
+        ?? (checkouts ?? []).find((c: any) => c.currency)?.currency ?? "GBP";
+
+      return json({
+        sinceDays,
+        currency,
+        totals: {
+          cardCollected,
+          otherCollected,
+          totalPaid,
+          outstanding,
+          cardCount: paidCheckouts.length,
+          chargeableCount: chargeRows.length,
+        },
+        payments: (checkouts ?? []).map((c: any) => {
+          const room = roomById.get(c.room_id);
+          return {
+            id: c.id,
+            amount: money(c.amount_total),
+            currency: c.currency ?? currency,
+            status: c.status,
+            createdAt: c.created_at,
+            completedAt: c.completed_at,
+            itemCount: (c.request_ids ?? []).length,
+            fee: c.application_fee_amount == null ? null : money(c.application_fee_amount),
+            roomLabel: room ? String(room.room_number) : null,
+            isPublicArea: !!room?.is_public,
+          };
+        }),
+      });
+    }
+
+    if (action === "set_card_payments") {
+      const enabled = body.enabled !== false;
+      const { error } = await admin
+        .from("ts_hotels")
+        .update({ card_payments_enabled: enabled })
+        .eq("id", hotelId);
+      if (error) {
+        // Say which step is missing rather than surfacing "column ... does not
+        // exist" to someone looking at a toggle.
+        const missing = /card_payments_enabled/i.test(error.message) || error.code === "42703";
+        return json({
+          error: missing
+            ? "This switch needs the card-payments migration applied first (20260903000005)."
+            : error.message,
+        }, missing ? 400 : 500);
+      }
+      return json({ ok: true, cardPaymentsEnabled: enabled });
     }
 
     if (action === "disconnect") {

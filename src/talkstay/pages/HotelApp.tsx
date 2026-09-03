@@ -119,13 +119,6 @@ function navForProperty(restaurantMode: boolean): readonly NavDef[] {
       desc: "Logo, colour, property profile (type/address/scale), and the printable poster.",
     },
     {
-      key: "communications",
-      label: "Communications",
-      icon: Mail,
-      admin: true,
-      desc: "Guest emails who opted in — send occasional offers or news yourself. Not an automatic newsletter; every send includes unsubscribe.",
-    },
-    {
       key: "departments",
       label: "Departments",
       icon: Building2,
@@ -136,7 +129,7 @@ function navForProperty(restaurantMode: boolean): readonly NavDef[] {
     },
     {
       key: "knowledge",
-      label: restaurantMode ? "Info" : "Knowledge",
+      label: restaurantMode ? "Info" : "Knowledge-base",
       icon: BookOpen,
       admin: true,
       desc: restaurantMode
@@ -157,7 +150,16 @@ type NavKey = NavDef["key"] | "account";
 const ACCOUNT_META = {
   key: "account" as const,
   label: "Account",
-  desc: "Your email, role, Direct Support, and sign out.",
+  desc: "Your email, role, guest communications, Direct Support, and sign out.",
+};
+
+/** Communications is a real view but no longer a sidebar tab — it's occasional
+ *  work, and it was crowding the tabs used every shift. Reached from Account,
+ *  so it still needs its own title/description here. */
+const COMMUNICATIONS_META = {
+  key: "communications" as const,
+  label: "Communications",
+  desc: "Guest emails who opted in — send occasional offers or news yourself. Not an automatic newsletter; every send includes unsubscribe.",
 };
 
 function CreateHotel({
@@ -381,7 +383,7 @@ function NoAccess({ email }: { email?: string | null }) {
   );
 }
 
-function Panel({ active, hotel, onHotel, departmentKey, focusRequestId, onOpenRequest, identity, portfolioHotels, canAddProperty, onAddProperty }: {
+function Panel({ active, hotel, onHotel, departmentKey, focusRequestId, onOpenRequest, identity, portfolioHotels, canAddProperty, onAddProperty, onOpenCommunications }: {
   active: NavKey;
   hotel: Hotel;
   onHotel: (h: Hotel) => void;
@@ -393,6 +395,9 @@ function Panel({ active, hotel, onHotel, departmentKey, focusRequestId, onOpenRe
   portfolioHotels?: Hotel[];
   canAddProperty?: boolean;
   onAddProperty?: () => void;
+  /** Undefined for non-admins — Communications left the sidebar, not the
+   *  permission model, so the Account entry point is gated the same way. */
+  onOpenCommunications?: () => void;
 }) {
   const qc = useQueryClient();
   switch (active) {
@@ -444,6 +449,7 @@ function Panel({ active, hotel, onHotel, departmentKey, focusRequestId, onOpenRe
         roleLabel={identity.roleLabel}
         canAddProperty={canAddProperty}
         onAddProperty={onAddProperty}
+        onOpenCommunications={onOpenCommunications}
       />
     );
   }
@@ -628,11 +634,18 @@ export default function HotelApp() {
   const roleLabel = membershipRoleLabel(membership);
 
   // A department member should never sit on an admin tab (e.g. after a refresh).
+  const canSeeComms = canSeeNavItem(membership, { admin: true, key: "communications" });
   const effectiveActive: NavKey =
-    active === "account" || visibleNav.some((n) => n.key === active) ? active : "operations";
+    active === "account"
+    || (active === "communications" && canSeeComms)
+    || visibleNav.some((n) => n.key === active)
+      ? active
+      : "operations";
   const activeNav = effectiveActive === "account"
     ? ACCOUNT_META
-    : NAV.find((n) => n.key === effectiveActive);
+    : effectiveActive === "communications"
+      ? COMMUNICATIONS_META
+      : NAV.find((n) => n.key === effectiveActive);
   const activeLabel = activeNav?.label ?? "";
   const activeDesc = activeNav?.desc ?? "";
   const go = (k: NavKey) => {
@@ -802,6 +815,7 @@ export default function HotelApp() {
               portfolioHotels={portfolioHotels}
               canAddProperty={ownsAny || !!membership?.isOwner || membership?.role === "owner"}
               onAddProperty={() => setAddingProperty(true)}
+              onOpenCommunications={canSeeComms ? () => go("communications") : undefined}
               identity={{
                 email: user?.email,
                 displayName: identityName,

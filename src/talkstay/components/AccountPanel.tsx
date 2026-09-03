@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Building2, LifeBuoy, Mail, BookOpen, LogOut, ExternalLink, Plus } from "lucide-react";
+import { Building2, LifeBuoy, Mail, BookOpen, LogOut, ExternalLink, Plus, ChevronRight } from "lucide-react";
 import type { Hotel } from "@/talkstay/lib/hotels";
 import {
   directSupportMailto,
@@ -21,6 +21,7 @@ export default function AccountPanel({
   roleLabel,
   canAddProperty,
   onAddProperty,
+  onOpenCommunications,
 }: {
   hotel: Hotel;
   email?: string | null;
@@ -29,6 +30,8 @@ export default function AccountPanel({
   /** Owners can add another property from Account (easier than sidebar-only). */
   canAddProperty?: boolean;
   onAddProperty?: () => void;
+  /** Opens the Communications view. Undefined for non-admins. */
+  onOpenCommunications?: () => void;
 }) {
   useEffect(() => {
     void ensurePartnersLoaded();
@@ -46,6 +49,23 @@ export default function AccountPanel({
   return (
     <div className="mx-auto max-w-lg space-y-4">
       <GuestAccessTip compact />
+
+      {onOpenCommunications && (
+        <button
+          type="button"
+          onClick={onOpenCommunications}
+          className="flex w-full items-center gap-3 rounded-2xl border bg-card p-4 text-left shadow-sm transition hover:border-violet-300 hover:bg-violet-50/40"
+        >
+          <Mail className="h-5 w-5 shrink-0 text-violet-600" />
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-medium">Guest communications</span>
+            <span className="mt-0.5 block text-xs text-muted-foreground">
+              Contacts who opted in, and one-off offers or news you send yourself.
+            </span>
+          </span>
+          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+        </button>
+      )}
       <div className="rounded-2xl border bg-card p-5 shadow-sm">
         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Profile</p>
         <h2 className="mt-1 text-xl font-semibold tracking-tight">{displayName}</h2>

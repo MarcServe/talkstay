@@ -27,7 +27,39 @@ export type StripeConnectStatus = {
   platformFeeBps: number;
   /** Same fee as a percent (e.g. 2.5). */
   platformFeePercent: number;
+  /** The property's own switch — card pay needs this AND chargesEnabled. */
+  cardPaymentsEnabled: boolean;
 };
+
+export type PaymentRow = {
+  id: string; amount: number; currency: string;
+  status: "open" | "complete" | "expired";
+  createdAt: string; completedAt: string | null;
+  itemCount: number; fee: number | null;
+  roomLabel: string | null; isPublicArea: boolean;
+};
+
+export type PaymentsSummary = {
+  sinceDays: number;
+  currency: string;
+  totals: {
+    cardCollected: number; otherCollected: number; totalPaid: number;
+    outstanding: number; cardCount: number; chargeableCount: number;
+  };
+  payments: PaymentRow[];
+};
+
+/** Card payments plus the operations-side reconciliation for the same window. */
+export async function fetchPaymentsSummary(
+  hotelId: string, sinceDays = 30,
+): Promise<PaymentsSummary> {
+  return await invokeStripe({ action: "payments_summary", hotelId, sinceDays }) as unknown as PaymentsSummary;
+}
+
+/** Turn the guest-facing card option on or off for this property. */
+export async function setCardPayments(hotelId: string, enabled: boolean): Promise<void> {
+  await invokeStripe({ action: "set_card_payments", hotelId, enabled });
+}
 
 export async function fetchStripeStatus(hotelId: string): Promise<StripeConnectStatus> {
   const data = await invokeStripe({ action: "status", hotelId });
@@ -41,6 +73,9 @@ export async function fetchStripeStatus(hotelId: string): Promise<StripeConnectS
     connectedAt: (data.connectedAt as string) ?? null,
     platformFeeBps: Number.isFinite(bps) ? bps : 250,
     platformFeePercent: Number.isFinite(pct) ? pct : (Number.isFinite(bps) ? bps / 100 : 2.5),
+    // Absent (older deployed function, or migration not applied) means on —
+    // the switch is an opt-OUT, so a missing value must never read as "off".
+    cardPaymentsEnabled: data.cardPaymentsEnabled !== false,
   };
 }
 
