@@ -2,13 +2,14 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import {
-  ArrowLeft, BarChart3, BookOpen, Building2, Inbox, LogOut,
+  ArrowLeft, BarChart3, BookOpen, Building2, Inbox, LogOut, Mail,
   Menu, Palette, Phone, QrCode, RotateCcw, Users, X,
 } from "lucide-react";
 import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
 import OperationsPanel from "@/talkstay/components/OperationsPanel";
 import InsightsPanel from "@/talkstay/components/InsightsPanel";
 import BrandingPanel from "@/talkstay/components/BrandingPanel";
+import CommunicationsPanel from "@/talkstay/components/CommunicationsPanel";
 import KnowledgePanel from "@/talkstay/components/KnowledgePanel";
 import LogOrderDialog from "@/talkstay/components/LogOrderDialog";
 import {
@@ -28,6 +29,7 @@ const NAV = [
   { key: "insights", label: "Insights", icon: BarChart3, desc: "See volumes, departments, ratings and guest pulse.", adminOnly: true },
   { key: "rooms", label: "Rooms & QR", icon: QrCode, desc: "Rooms for stays, plus Venues & tables for bar, pool, and restaurant QRs.", adminOnly: true },
   { key: "branding", label: "Branding", icon: Palette, desc: "Your logo, colour and the printable in-room poster.", adminOnly: true },
+  { key: "communications", label: "Communications", icon: Mail, desc: "Guest emails and occasional offers — not an automatic newsletter.", adminOnly: true },
   { key: "departments", label: "Departments", icon: Building2, desc: "Teams, routing rules and per-department notifications.", adminOnly: true },
   { key: "knowledge", label: "Knowledge", icon: BookOpen, desc: "What the assistant knows — website, documents and property info.", adminOnly: true },
   { key: "staff", label: "Staff", icon: Users, desc: "Invite your team and manage their roles and access.", adminOnly: true },
@@ -293,6 +295,7 @@ function DemoDashboard() {
                 onSaved={(b) => demo.updateBranding(b)}
               />
             )}
+            {active === "communications" && isAdmin && <CommunicationsPanel hotel={demo.hotel} />}
             {active === "departments" && isAdmin && <DemoDepartmentsPanel />}
             {active === "knowledge" && isAdmin && <KnowledgePanel hotel={demo.hotel} />}
             {active === "staff" && (isAdmin || isDeptMgr) && <DemoStaffPanel />}

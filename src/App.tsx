@@ -26,6 +26,7 @@ const CookiePolicyPage = lazy(() => import("@/talkstay/pages/legal/CookiePolicyP
 const AcceptableUsePage = lazy(() => import("@/talkstay/pages/legal/AcceptableUsePage"));
 const DataProcessingPage = lazy(() => import("@/talkstay/pages/legal/DataProcessingPage"));
 const SupportPage = lazy(() => import("@/talkstay/pages/SupportPage"));
+const UnsubscribePage = lazy(() => import("@/talkstay/pages/UnsubscribePage"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -68,6 +69,7 @@ const App = () => (
               <Route path="/acceptable-use" element={<AcceptableUsePage />} />
               <Route path="/data-processing" element={<DataProcessingPage />} />
               <Route path="/support" element={<SupportPage />} />
+              <Route path="/unsubscribe" element={<UnsubscribePage />} />
 
               {/* Guest PWA — scanned from a room QR code */}
               <Route path="/h/:hotelSlug/r/:roomId" element={<GuestApp />} />

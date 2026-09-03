@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import {
   Loader2, Menu, X, Phone,
-  Inbox, BarChart3, QrCode, Building2, BookOpen, Users, Palette, LifeBuoy, CreditCard,
+  Inbox, BarChart3, QrCode, Building2, BookOpen, Users, Palette, LifeBuoy, CreditCard, Mail,
 } from "lucide-react";
 import AuthPage, { isPasswordSetupUrl } from "@/talkstay/pages/AuthPage";
 import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
@@ -57,9 +57,10 @@ import {
 } from "@/talkstay/lib/partners";
 
 const StaffPanel = lazy(() => import("@/talkstay/components/StaffPanel"));
+const CommunicationsPanel = lazy(() => import("@/talkstay/components/CommunicationsPanel"));
 
 type NavDef = {
-  key: "operations" | "log_order" | "insights" | "rooms" | "payments" | "branding" | "departments" | "knowledge" | "staff";
+  key: "operations" | "log_order" | "insights" | "rooms" | "payments" | "branding" | "communications" | "departments" | "knowledge" | "staff";
   label: string;
   icon: typeof Inbox;
   admin: boolean;
@@ -116,6 +117,13 @@ function navForProperty(restaurantMode: boolean): readonly NavDef[] {
       icon: Palette,
       admin: true,
       desc: "Logo, colour, property profile (type/address/scale), and the printable poster.",
+    },
+    {
+      key: "communications",
+      label: "Communications",
+      icon: Mail,
+      admin: true,
+      desc: "Guest emails who opted in — send occasional offers or news yourself. Not an automatic newsletter; every send includes unsubscribe.",
     },
     {
       key: "departments",
@@ -415,6 +423,11 @@ function Panel({ active, hotel, onHotel, departmentKey, focusRequestId, onOpenRe
         onSaved={(b) => onHotel({ ...hotel, branding: b })}
         onHotel={onHotel}
       />
+    );
+    case "communications": return (
+      <Suspense fallback={<div className="flex justify-center py-16"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>}>
+        <CommunicationsPanel hotel={hotel} />
+      </Suspense>
     );
     case "departments": return <DepartmentsPanel hotel={hotel} />;
     case "knowledge": return <KnowledgePanel hotel={hotel} />;

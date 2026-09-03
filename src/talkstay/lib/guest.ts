@@ -61,6 +61,10 @@ export type GuestFnError = Error & {
   code?: string;
   roomNumber?: string;
   hotelName?: string;
+  bookingUrl?: string;
+  returnOffer?: string;
+  primaryColor?: string;
+  logoUrl?: string;
 };
 
 /** supabase.functions.invoke() returns a GENERIC message on a non-2xx response
@@ -76,6 +80,10 @@ async function realError(error: any): Promise<GuestFnError> {
       e.code = body.error;
       if (body.roomNumber) e.roomNumber = String(body.roomNumber);
       if (body.hotelName) e.hotelName = String(body.hotelName);
+      if (body.bookingUrl) e.bookingUrl = String(body.bookingUrl);
+      if (body.returnOffer) e.returnOffer = String(body.returnOffer);
+      if (body.primaryColor) e.primaryColor = String(body.primaryColor);
+      if (body.logoUrl) e.logoUrl = String(body.logoUrl);
       return e;
     }
   } catch { /* not JSON */ }
