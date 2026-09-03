@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Loader2, MessageCircle, DoorOpen, LogOut } from "lucide-react";
 import NoIndexMeta from "@/talkstay/components/NoIndexMeta";
+import PostStayReturn from "@/talkstay/components/PostStayReturn";
 import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
 import {
   fetchContext,
@@ -35,8 +36,11 @@ export default function GuestCheckIn() {
   const [roomNumber, setRoomNumber] = useState("");
   const [branding, setBranding] = useState<GuestBranding | undefined>();
   const [ready, setReady] = useState(false);
+  const [postStay, setPostStay] = useState<{
+    bookingUrl?: string; returnOffer?: string; primaryColor?: string;
+  }>({});
 
-  const brand = branding?.primary_color || "#0f766e";
+  const brand = branding?.primary_color || postStay.primaryColor || "#0f766e";
   const chatHref = `${guestStayPath(hotelSlug, roomId, "chat")}?token=${encodeURIComponent(token)}`;
   const checkoutHref = `${guestStayPath(hotelSlug, roomId, "checkout")}?token=${encodeURIComponent(token)}`;
 
@@ -64,6 +68,11 @@ export default function GuestCheckIn() {
         if (typeof e?.hotelName === "string") setHotelName(e.hotelName);
         if (typeof e?.roomNumber === "string") setRoomNumber(e.roomNumber);
         if (msg.includes("checked_out")) {
+          setPostStay({
+            bookingUrl: typeof e?.bookingUrl === "string" ? e.bookingUrl : undefined,
+            returnOffer: typeof e?.returnOffer === "string" ? e.returnOffer : undefined,
+            primaryColor: typeof e?.primaryColor === "string" ? e.primaryColor : undefined,
+          });
           setCheckedOut(true);
           setNeedCode(false);
         } else if (msg.includes("room_full")) {
@@ -118,6 +127,15 @@ export default function GuestCheckIn() {
                 <p className="text-xs text-slate-600">
                   When reception checks you in again, they’ll give you a new code for this QR.
                 </p>
+                <PostStayReturn
+                  compact
+                  retention={{
+                    hotelName,
+                    bookingUrl: postStay.bookingUrl,
+                    returnOffer: postStay.returnOffer,
+                    brandColor: brand,
+                  }}
+                />
               </div>
             ) : roomFull ? (
               <p className="text-sm text-slate-700">

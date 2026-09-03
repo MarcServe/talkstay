@@ -70,15 +70,22 @@ function PropertyTab({
   const demo = useDemo();
   const [profile, setProfile] = useState<PropertyProfile>(() => ({ ...(hotel.branding?.property ?? {}) }));
   const [contactEmail, setContactEmail] = useState(hotel.contact_email ?? "");
+  const [bookingUrl, setBookingUrl] = useState(hotel.branding?.booking_url ?? "");
+  const [returnOffer, setReturnOffer] = useState(hotel.branding?.return_offer ?? "");
   const [saving, setSaving] = useState(false);
 
   const save = async () => {
     setSaving(true);
     try {
+      const retention = {
+        booking_url: bookingUrl.trim() || null,
+        return_offer: returnOffer.trim() || null,
+      };
       if (demo) {
         const branding: HotelBranding = {
           ...(hotel.branding ?? {}),
           property: profile,
+          ...retention,
         };
         const email = contactEmail.trim().toLowerCase() || null;
         demo.updateBranding(branding);
@@ -88,10 +95,13 @@ function PropertyTab({
         return;
       }
       const branding = await updatePropertyProfile(hotel.id, hotel.branding, profile);
+      const next: HotelBranding = { ...branding, ...retention };
+      const { error: brandErr } = await supabase.from("ts_hotels").update({ branding: next }).eq("id", hotel.id);
+      if (brandErr) throw brandErr;
       const email = await updateHotelContactEmail(hotel.id, contactEmail);
-      onSaved?.(branding);
-      onHotel?.({ ...hotel, branding, contact_email: email });
-      toast.success("Property profile saved — Insights will use this for smarter advice.");
+      onSaved?.(next);
+      onHotel?.({ ...hotel, branding: next, contact_email: email });
+      toast.success("Property profile saved — Insights and post-stay rebooking use this.");
     } catch (err: any) {
       toast.error(err?.message ?? "Couldn't save property profile");
     } finally {
@@ -123,6 +133,42 @@ function PropertyTab({
         </p>
       </div>
       <PropertyProfileFields value={profile} onChange={setProfile} />
+
+      <div className="space-y-3 rounded-2xl border bg-muted/20 p-4">
+        <div>
+          <h3 className="text-sm font-medium">Post-stay · book again directly</h3>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            After checkout, guests who reopen their room link — and guests who shared an email —
+            see a thank-you with a link to your own booking engine (not the OTA). Optional offer line helps convert return stays.
+          </p>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="booking-url">Direct booking URL</Label>
+          <Input
+            id="booking-url"
+            type="url"
+            value={bookingUrl}
+            onChange={(e) => setBookingUrl(e.target.value)}
+            placeholder="https://yourhotel.com/book"
+            autoComplete="off"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="return-offer">Return-guest offer (optional)</Label>
+          <Input
+            id="return-offer"
+            value={returnOffer}
+            onChange={(e) => setReturnOffer(e.target.value)}
+            placeholder="10% off your next direct stay — use code RETURN"
+            maxLength={280}
+            autoComplete="off"
+          />
+          <p className="text-[11px] text-muted-foreground">
+            Shown on the stay-ended screen and in the post-checkout email when a booking URL is set.
+          </p>
+        </div>
+      </div>
+
       <Button onClick={save} disabled={saving}>
         {saving ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null} Save property profile
       </Button>

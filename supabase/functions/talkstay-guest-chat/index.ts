@@ -123,7 +123,15 @@ function classifyDeterministic(message: string, ctx: RoomCtx): { dept: string; s
   return best ? { dept: best.dept, source: "keyword" } : null;
 }
 
-type CheckedOutHint = { status: "checked_out"; hotelName: string; roomNumber: string };
+type CheckedOutHint = {
+  status: "checked_out";
+  hotelName: string;
+  roomNumber: string;
+  bookingUrl?: string | null;
+  returnOffer?: string | null;
+  primaryColor?: string | null;
+  logoUrl?: string | null;
+};
 
 // Returns the room context, null (bad token/room), or checked_out (valid room,
 // but the stay has ended — saved links must stop working). Includes hotel/room
@@ -181,7 +189,21 @@ async function resolveRoom(
   // Public/shared QR areas (lobby, bar, spa) stay reachable without a stay.
   const isPublic = !!room.is_public;
   if (room.occupancy_status === "vacant" && !isPublic) {
-    return { status: "checked_out", hotelName: hotel.name, roomNumber: room.room_number };
+    const branding = (hotel.branding ?? {}) as Record<string, unknown>;
+    const propertyType = String((branding.property as { type?: string } | undefined)?.type ?? "");
+    const bookingUrl = propertyType === "restaurant"
+      ? null
+      : (String(branding.booking_url ?? "").trim() || null);
+    const returnOffer = bookingUrl ? (String(branding.return_offer ?? "").trim() || null) : null;
+    return {
+      status: "checked_out",
+      hotelName: hotel.name,
+      roomNumber: room.room_number,
+      bookingUrl,
+      returnOffer,
+      primaryColor: typeof branding.primary_color === "string" ? branding.primary_color : null,
+      logoUrl: typeof branding.logo_url === "string" ? branding.logo_url : null,
+    };
   }
 
   const departmentMeta = ((depts ?? []) as { key: string; display_name: string }[]).map((d) => ({
@@ -849,12 +871,28 @@ serve(async (req) => {
 
     const ctx = await resolveRoom(admin, hotelSlug, roomId, token);
     if (ctx && "status" in ctx && ctx.status === "checked_out") {
-      return json({ error: "checked_out", hotelName: ctx.hotelName, roomNumber: ctx.roomNumber }, 403);
+      return json({
+        error: "checked_out",
+        hotelName: ctx.hotelName,
+        roomNumber: ctx.roomNumber,
+        bookingUrl: ctx.bookingUrl ?? null,
+        returnOffer: ctx.returnOffer ?? null,
+        primaryColor: ctx.primaryColor ?? null,
+        logoUrl: ctx.logoUrl ?? null,
+      }, 403);
     }
     if (!ctx) return json({ error: "invalid_token" }, 403);
 
     const endedPayload = () =>
-      json({ error: "checked_out", hotelName: ctx.hotelName, roomNumber: ctx.roomNumber }, 403);
+      json({
+        error: "checked_out",
+        hotelName: ctx.hotelName,
+        roomNumber: ctx.roomNumber,
+        bookingUrl: (ctx.branding as any)?.booking_url ?? null,
+        returnOffer: (ctx.branding as any)?.return_offer ?? null,
+        primaryColor: (ctx.branding as any)?.primary_color ?? null,
+        logoUrl: (ctx.branding as any)?.logo_url ?? null,
+      }, 403);
 
     // Bind this device to the current stay. A device from a previous stay (the
     // ex-guest refreshing a saved link after the room was re-let) is rejected;

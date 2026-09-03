@@ -6,6 +6,7 @@ import { Loader2, MessageCircle, DoorOpen, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import NoIndexMeta from "@/talkstay/components/NoIndexMeta";
 import { GuestFolio } from "@/talkstay/components/GuestFolio";
+import PostStayReturn from "@/talkstay/components/PostStayReturn";
 import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
 import { folioPayCopy, orderLocationKind } from "@/talkstay/lib/locationOrders";
 import {
@@ -48,8 +49,11 @@ export default function GuestCheckOut() {
   const [paymentTiming, setPaymentTimingState] = useState<GuestPaymentTiming | null>(null);
   const [billingRoomNumber, setBillingRoomNumber] = useState<string | null>(null);
   const [payBusy, setPayBusy] = useState(false);
+  const [postStay, setPostStay] = useState<{
+    bookingUrl?: string; returnOffer?: string; primaryColor?: string;
+  }>({});
 
-  const brand = branding?.primary_color || "#0f766e";
+  const brand = branding?.primary_color || postStay.primaryColor || "#0f766e";
   const chatHref = `${guestStayPath(hotelSlug, roomId, "chat")}?token=${encodeURIComponent(token)}`;
   const checkinHref = `${guestStayPath(hotelSlug, roomId, "checkin")}?token=${encodeURIComponent(token)}`;
   const payCopy = folioPayCopy(orderLocationKind(isPublic));
@@ -96,6 +100,11 @@ export default function GuestCheckOut() {
         if (typeof e?.hotelName === "string") setHotelName(e.hotelName);
         if (typeof e?.roomNumber === "string") setRoomNumber(e.roomNumber);
         if (msg.includes("checked_out")) {
+          setPostStay({
+            bookingUrl: typeof e?.bookingUrl === "string" ? e.bookingUrl : undefined,
+            returnOffer: typeof e?.returnOffer === "string" ? e.returnOffer : undefined,
+            primaryColor: typeof e?.primaryColor === "string" ? e.primaryColor : undefined,
+          });
           setCheckedOut(true);
           setNeedCode(false);
         } else if (msg.includes("need_code")) {
@@ -233,6 +242,15 @@ export default function GuestCheckOut() {
                 <p className="text-xs text-muted-foreground">
                   For a new stay, reception will check the room in and give you a code.
                 </p>
+                <PostStayReturn
+                  compact
+                  retention={{
+                    hotelName,
+                    bookingUrl: postStay.bookingUrl,
+                    returnOffer: postStay.returnOffer,
+                    brandColor: brand,
+                  }}
+                />
                 <Button asChild variant="outline" className="h-10 w-full">
                   <Link to={checkinHref}>
                     <DoorOpen className="mr-1.5 h-4 w-4" /> Go to check-in
