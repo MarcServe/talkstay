@@ -103,13 +103,19 @@ serve(async (req) => {
       .not("contact_email", "is", null);
     if (stayStart) sessQ = sessQ.gte("started_at", stayStart);
 
-    const { data: sessions } = await sessQ;
+    const [{ data: sessions }, { data: unsubs }] = await Promise.all([
+      sessQ,
+      admin.from("ts_guest_marketing_unsubscribes").select("email").eq("hotel_id", hotel.id),
+    ]);
+    const unsub = new Set((unsubs ?? []).map((u: { email: string }) => String(u.email).toLowerCase()));
+
     const byEmail = new Map<string, { id: string; firstName: string | null }>();
     for (const s of sessions ?? []) {
       if (s.post_stay_email_sent_at) continue;
       if (s.notify_channel === "none") continue;
       const email = String(s.contact_email ?? "").trim().toLowerCase();
       if (!EMAIL_RE.test(email)) continue;
+      if (unsub.has(email)) continue;
       if (!byEmail.has(email)) {
         byEmail.set(email, {
           id: s.id,

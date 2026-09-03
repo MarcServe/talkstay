@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import {
   Loader2, Menu, X, Phone,
-  Inbox, BarChart3, QrCode, Building2, BookOpen, Users, Palette, LifeBuoy,
+  Inbox, BarChart3, QrCode, Building2, BookOpen, Users, Palette, LifeBuoy, Mail,
 } from "lucide-react";
 import AuthPage, { isPasswordSetupUrl } from "@/talkstay/pages/AuthPage";
 import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
@@ -54,6 +54,7 @@ import {
 } from "@/talkstay/lib/partners";
 
 const StaffPanel = lazy(() => import("@/talkstay/components/StaffPanel"));
+const CommunicationsPanel = lazy(() => import("@/talkstay/components/CommunicationsPanel"));
 
 const NAV = [
   // `admin: true` = owner/manager only. Department staff see Operations + Log order.
@@ -63,6 +64,7 @@ const NAV = [
   { key: "insights", label: "Insights", icon: BarChart3, admin: true, desc: "Analytics and business intelligence for this property — or across your portfolio when you own more than one." },
   { key: "rooms", label: "Rooms & QR", icon: QrCode, admin: true, desc: "Rooms for guest stays, plus Venues & tables for lobby, bar, pool, and restaurant QRs. Scan menus in Knowledge or Departments, then print table QRs here." },
   { key: "branding", label: "Branding", icon: Palette, admin: true, desc: "Logo, colour, property profile (type/address/scale), and the printable poster." },
+  { key: "communications", label: "Communications", icon: Mail, admin: true, desc: "Guest emails who opted in — send occasional offers or news yourself. Not an automatic newsletter; every send includes unsubscribe." },
   { key: "departments", label: "Departments", icon: Building2, admin: true, desc: "Teams, routing rules and per-department notifications." },
   { key: "knowledge", label: "Knowledge", icon: BookOpen, admin: true, desc: "What the assistant knows — website, documents and property info." },
   { key: "staff", label: "Staff", icon: Users, admin: true, desc: "Invite your team and manage their roles and access." },
@@ -336,6 +338,11 @@ function Panel({ active, hotel, onHotel, departmentKey, focusRequestId, onOpenRe
         onSaved={(b) => onHotel({ ...hotel, branding: b })}
         onHotel={onHotel}
       />
+    );
+    case "communications": return (
+      <Suspense fallback={<div className="flex justify-center py-16"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>}>
+        <CommunicationsPanel hotel={hotel} />
+      </Suspense>
     );
     case "departments": return <DepartmentsPanel hotel={hotel} />;
     case "knowledge": return <KnowledgePanel hotel={hotel} />;
