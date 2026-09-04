@@ -75,6 +75,12 @@ export type PaymentRow = {
   roomLabel: string | null; isPublicArea: boolean;
 };
 
+export type ChargeItem = {
+  id: string; summary: string; price: number; currency: string;
+  paid: boolean; settledByCard: boolean;
+  createdAt: string; roomLabel: string | null;
+};
+
 export type PaymentsSummary = {
   sinceDays: number;
   currency: string;
@@ -83,6 +89,8 @@ export type PaymentsSummary = {
     outstanding: number; cardCount: number; chargeableCount: number;
   };
   payments: PaymentRow[];
+  /** The chargeable requests behind the totals, newest first (capped at 300). */
+  items: ChargeItem[];
 };
 
 /** Card payments plus the operations-side reconciliation for the same window. */
