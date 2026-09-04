@@ -3,18 +3,27 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import {
-  Loader2, Mail, Send, Users, Ban, RotateCcw, Search,
+  Loader2, Mail, Send, Users, Ban, RotateCcw, Search, ImagePlus, X, Copy,
 } from "lucide-react";
 import type { Hotel } from "@/talkstay/lib/hotels";
 import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
 import {
+  listCampaignRecipients,
   listGuestCampaigns,
   listGuestContacts,
   sendGuestCampaign,
   staffResubscribeGuest,
   staffUnsubscribeGuest,
+  uploadCampaignImage,
   type GuestCampaign,
   type GuestContact,
 } from "@/talkstay/lib/guestComms";
@@ -32,6 +41,10 @@ export default function CommunicationsPanel({ hotel }: { hotel: Hotel }) {
   const [eligibleCount, setEligibleCount] = useState(0);
   const [campaigns, setCampaigns] = useState<GuestCampaign[]>([]);
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "subscribed" | "unsubscribed">("all");
+  const [sourceFilter, setSourceFilter] = useState<"all" | "guest_opt_in" | "checkin_email">("all");
+  // Days since lastSeenAt (their most recent stay), or "any" for no limit.
+  const [dateFilter, setDateFilter] = useState<"any" | "7" | "30" | "90">("any");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
 
@@ -39,6 +52,10 @@ export default function CommunicationsPanel({ hotel }: { hotel: Hotel }) {
   const [bodyText, setBodyText] = useState("");
   const [ctaLabel, setCtaLabel] = useState("");
   const [ctaUrl, setCtaUrl] = useState(hotel.branding?.booking_url ?? "");
+  const [imageUrl, setImageUrl] = useState("");
+  const [imageUploading, setImageUploading] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [addQuery, setAddQuery] = useState("");
 
   const refresh = async () => {
     if (demo) {
@@ -78,13 +95,43 @@ export default function CommunicationsPanel({ hotel }: { hotel: Hotel }) {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return contacts;
-    return contacts.filter((c) =>
-      c.email.includes(q)
-      || (c.firstName ?? "").toLowerCase().includes(q)
-      || (c.roomLabel ?? "").toLowerCase().includes(q),
-    );
-  }, [contacts, search]);
+    const cutoff = dateFilter === "any" ? null : Date.now() - Number(dateFilter) * 86_400_000;
+    return contacts.filter((c) => {
+      if (q && !(
+        c.email.includes(q)
+        || (c.firstName ?? "").toLowerCase().includes(q)
+        || (c.roomLabel ?? "").toLowerCase().includes(q)
+      )) return false;
+      if (statusFilter === "subscribed" && !c.marketingOk) return false;
+      if (statusFilter === "unsubscribed" && c.marketingOk) return false;
+      if (sourceFilter !== "all" && c.source !== sourceFilter) return false;
+      if (cutoff !== null) {
+        // No recorded stay at all is treated as "outside any date window" —
+        // a filter meant to surface recent guests shouldn't also surface
+        // contacts with no known visit.
+        if (!c.lastSeenAt || new Date(c.lastSeenAt).getTime() < cutoff) return false;
+      }
+      return true;
+    });
+  }, [contacts, search, statusFilter, sourceFilter, dateFilter]);
+
+  /** Eligible guests not already picked, matching the Compose add-box query. */
+  const addable = useMemo(() => {
+    const q = addQuery.trim().toLowerCase();
+    if (!q) return [];
+    return contacts
+      .filter((c) => c.marketingOk && !selected.has(c.email))
+      .filter((c) =>
+        c.email.includes(q)
+        || (c.firstName ?? "").toLowerCase().includes(q)
+        || (c.roomLabel ?? "").toLowerCase().includes(q))
+      .slice(0, 8);
+  }, [contacts, selected, addQuery]);
+
+  const filterActive = statusFilter !== "all" || sourceFilter !== "all" || dateFilter !== "any";
+  const resetFilters = () => {
+    setStatusFilter("all"); setSourceFilter("all"); setDateFilter("any");
+  };
 
   const toggle = (email: string, ok: boolean) => {
     if (!ok) return;
@@ -96,8 +143,15 @@ export default function CommunicationsPanel({ hotel }: { hotel: Hotel }) {
     });
   };
 
+  // Scoped to the FILTERED list on purpose: filter down (say, last 30 days,
+  // still subscribed), then "select" picks up exactly that set. Selection only
+  // ever feeds Compose's explicit-recipients path — the "send to all N
+  // eligible" default elsewhere always means the whole property, unaffected by
+  // whatever filter happens to be active here, so filtering can never silently
+  // narrow (or widen) an unfiltered send.
+  const filteredEligible = filtered.filter((c) => c.marketingOk);
   const selectAllEligible = () => {
-    setSelected(new Set(contacts.filter((c) => c.marketingOk).map((c) => c.email)));
+    setSelected(new Set(filteredEligible.map((c) => c.email)));
   };
 
   const clearSelection = () => setSelected(new Set());
@@ -130,14 +184,87 @@ export default function CommunicationsPanel({ hotel }: { hotel: Hotel }) {
     }
   };
 
-  const send = async () => {
+  /** Reuse a sent campaign: repopulate Compose and switch to it.
+   *
+   *  Deliberately NOT a one-click re-send to the same list. The recipient set
+   *  is resolved fresh at send time (who's eligible now, who has unsubscribed
+   *  since), and the reason to send an offer twice is almost always to change
+   *  something in it first — a date, a rate. Re-firing the stored copy blind
+   *  would mail real guests with no review step, so this lands in Compose and
+   *  goes out through the same confirm dialog as any other send. */
+  const useAgain = async (c: GuestCampaign) => {
+    setSubject(c.subject);
+    setBodyText(c.body_text);
+    setCtaLabel(c.cta_label ?? "");
+    setCtaUrl(c.cta_url ?? "");
+    setImageUrl(c.image_url ?? "");
+    setTab("compose");
+
+    // Bring the original audience back too, so a resend starts from who it
+    // actually went to rather than silently defaulting to everyone.
+    setBusy(true);
+    try {
+      const prior = await listCampaignRecipients(hotel.id, c.id);
+      const eligibleNow = new Set(contacts.filter((x) => x.marketingOk).map((x) => x.email));
+      // Anyone who has unsubscribed (or is no longer a contact) since that send
+      // is dropped here rather than shown selected. The server filters them out
+      // regardless, so leaving them ticked would misstate who this reaches.
+      const restored = prior.map((r) => r.email).filter((e) => eligibleNow.has(e));
+      const dropped = prior.length - restored.length;
+      setSelected(new Set(restored));
+      toast.message(
+        restored.length
+          ? `Copied into Compose · ${restored.length} recipient${restored.length === 1 ? "" : "s"} restored`
+            + (dropped ? ` · ${dropped} no longer reachable` : "")
+          : "Copied into Compose — none of the original recipients are reachable now, so pick who to send to.",
+      );
+    } catch {
+      toast.message("Copied into Compose — pick who to send to.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onPickImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (demo) {
+      toast.message("Images aren’t uploaded in the design demo.");
+      return;
+    }
+    if (!file.type.startsWith("image/")) {
+      toast.error("Choose an image file");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Image is too large — keep it under 5MB");
+      return;
+    }
+    setImageUploading(true);
+    try {
+      setImageUrl(await uploadCampaignImage(hotel.id, file));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't upload that image");
+    } finally {
+      setImageUploading(false);
+    }
+  };
+
+  const sendCount = (selected.size ? selected.size : eligibleCount);
+
+  /** Checks only — opens the confirm dialog rather than sending directly.
+   *  A native confirm() used to sit here. In an installed PWA (this app
+   *  promotes "add to home screen" throughout), window.confirm/alert are
+   *  frequently suppressed or silently no-op depending on the browser engine
+   *  — the button looked live but nothing happened, no dialog, no error, no
+   *  send. An in-app AlertDialog doesn't depend on browser chrome at all. */
+  const requestSend = () => {
     if (demo) {
       toast.message("Campaigns aren’t sent in the design demo.");
       return;
     }
-    const emails = selected.size ? [...selected] : undefined;
-    const count = emails?.length ?? eligibleCount;
-    if (!count) {
+    if (!sendCount) {
       toast.error("No eligible guests to email yet");
       return;
     }
@@ -145,9 +272,12 @@ export default function CommunicationsPanel({ hotel }: { hotel: Hotel }) {
       toast.error("Add a subject and message");
       return;
     }
-    if (!confirm(`Send this email to ${count} guest${count === 1 ? "" : "s"}? This is a one-off send — TalkStay does not auto-repeat campaigns.`)) {
-      return;
-    }
+    setConfirmOpen(true);
+  };
+
+  const send = async () => {
+    setConfirmOpen(false);
+    const emails = selected.size ? [...selected] : undefined;
     setBusy(true);
     try {
       const res = await sendGuestCampaign({
@@ -156,11 +286,13 @@ export default function CommunicationsPanel({ hotel }: { hotel: Hotel }) {
         bodyText: bodyText.trim(),
         ctaLabel: ctaLabel.trim() || undefined,
         ctaUrl: ctaUrl.trim() || undefined,
+        imageUrl: imageUrl || undefined,
         emails,
       });
       toast.success(`Sent to ${res.sent} of ${res.attempted}`);
       setSubject("");
       setBodyText("");
+      setImageUrl("");
       clearSelection();
       setTab("sent");
       await refresh();
@@ -224,8 +356,8 @@ export default function CommunicationsPanel({ hotel }: { hotel: Hotel }) {
             <Button type="button" size="sm" variant="outline" disabled={loading || busy} onClick={() => void refresh()}>
               Refresh
             </Button>
-            <Button type="button" size="sm" variant="outline" disabled={!eligibleCount} onClick={selectAllEligible}>
-              Select eligible ({eligibleCount})
+            <Button type="button" size="sm" variant="outline" disabled={!filteredEligible.length} onClick={selectAllEligible}>
+              Select {filterActive ? "filtered" : "eligible"} ({filteredEligible.length})
             </Button>
             {selected.size > 0 && (
               <Button type="button" size="sm" variant="ghost" onClick={clearSelection}>
@@ -234,9 +366,57 @@ export default function CommunicationsPanel({ hotel }: { hotel: Hotel }) {
             )}
           </div>
 
+          <div className="flex flex-wrap items-center gap-2">
+            <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}>
+              <SelectTrigger className="h-8 w-[150px] text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Any status</SelectItem>
+                <SelectItem value="subscribed">Subscribed</SelectItem>
+                <SelectItem value="unsubscribed">Unsubscribed</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={dateFilter} onValueChange={(v) => setDateFilter(v as typeof dateFilter)}>
+              <SelectTrigger className="h-8 w-[150px] text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="any">Last seen: any time</SelectItem>
+                <SelectItem value="7">Last seen: 7 days</SelectItem>
+                <SelectItem value="30">Last seen: 30 days</SelectItem>
+                <SelectItem value="90">Last seen: 90 days</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={sourceFilter} onValueChange={(v) => setSourceFilter(v as typeof sourceFilter)}>
+              <SelectTrigger className="h-8 w-[150px] text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Any source</SelectItem>
+                <SelectItem value="guest_opt_in">Guest opt-in</SelectItem>
+                <SelectItem value="checkin_email">Check-in email</SelectItem>
+              </SelectContent>
+            </Select>
+            {filterActive && (
+              <Button type="button" size="sm" variant="ghost" onClick={resetFilters}>
+                Reset filters
+              </Button>
+            )}
+            {filterActive && (
+              <span className="text-xs text-muted-foreground">
+                {filtered.length} of {contacts.length} contact{contacts.length === 1 ? "" : "s"}
+              </span>
+            )}
+          </div>
+
           {loading ? (
             <div className="flex items-center gap-2 py-10 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" /> Loading contacts…
+            </div>
+          ) : filtered.length === 0 && (search.trim() || filterActive) ? (
+            // Distinct from the true zero-contacts state below: this property
+            // DOES have guest emails, the search/filters just matched none of
+            // them — "no guest emails yet" here would be actively misleading.
+            <div className="rounded-2xl border border-dashed px-5 py-10 text-center">
+              <p className="text-sm font-medium">No contacts match</p>
+              <p className="mx-auto mt-1 max-w-md text-xs text-muted-foreground">
+                Try a different search, or reset the filters above.
+              </p>
             </div>
           ) : filtered.length === 0 ? (
             <div className="rounded-2xl border border-dashed px-5 py-10 text-center">
@@ -298,11 +478,114 @@ export default function CommunicationsPanel({ hotel }: { hotel: Hotel }) {
 
         <TabsContent value="compose" className="space-y-4">
           <div className="rounded-2xl border bg-card p-5 shadow-sm space-y-4">
-            <p className="text-sm text-muted-foreground">
-              {selected.size
-                ? `Will send to ${selected.size} selected guest${selected.size === 1 ? "" : "s"}.`
-                : `Will send to all ${eligibleCount} eligible guest${eligibleCount === 1 ? "" : "s"} (not unsubscribed).`}
-            </p>
+            <div className="space-y-2 rounded-xl border bg-muted/20 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm font-medium">
+                  {selected.size
+                    ? `To ${selected.size} selected guest${selected.size === 1 ? "" : "s"}`
+                    : `To all ${eligibleCount} eligible guest${eligibleCount === 1 ? "" : "s"}`}
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {selected.size > 0 && (
+                    <Button type="button" size="sm" variant="ghost" className="h-7 text-xs" onClick={clearSelection}>
+                      Send to everyone instead
+                    </Button>
+                  )}
+                  {!selected.size && !!eligibleCount && (
+                    <Button
+                      type="button" size="sm" variant="ghost" className="h-7 text-xs"
+                      onClick={() => setSelected(new Set(contacts.filter((c) => c.marketingOk).map((c) => c.email)))}
+                    >
+                      Pick individually
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              {selected.size > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {[...selected].map((email) => (
+                    <span key={email} className="inline-flex max-w-full items-center gap-1 rounded-full border bg-background py-0.5 pl-2.5 pr-1 text-xs">
+                      <span className="truncate">{email}</span>
+                      <button
+                        type="button"
+                        className="rounded-full p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                        aria-label={`Remove ${email}`}
+                        onClick={() => setSelected((prev) => {
+                          const next = new Set(prev);
+                          next.delete(email);
+                          return next;
+                        })}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* Add one guest without leaving Compose — the Contacts tab is for
+                  bulk filtering, this is for "and also send it to Kelvin". */}
+              <div className="relative">
+                <Input
+                  value={addQuery}
+                  onChange={(e) => setAddQuery(e.target.value)}
+                  // Dismiss on the way out, or the absolutely-positioned list
+                  // stays parked over the fields below it. The delay lets a
+                  // click on an option land before the list unmounts.
+                  onBlur={() => window.setTimeout(() => setAddQuery(""), 150)}
+                  onKeyDown={(e) => { if (e.key === "Escape") setAddQuery(""); }}
+                  placeholder={selected.size ? "Add another guest by email or name…" : "Send to specific guests instead…"}
+                  className="h-8 text-xs"
+                />
+                {addQuery.trim() && (
+                  <div className="absolute z-20 mt-1 max-h-48 w-full overflow-auto rounded-lg border bg-popover shadow-md">
+                    {addable.length === 0 ? (
+                      <p className="px-3 py-2 text-xs text-muted-foreground">No eligible guest matches.</p>
+                    ) : addable.map((c) => (
+                      <button
+                        key={c.email}
+                        type="button"
+                        className="flex w-full flex-col items-start px-3 py-1.5 text-left hover:bg-accent"
+                        onClick={() => {
+                          setSelected((prev) => new Set(prev).add(c.email));
+                          setAddQuery("");
+                        }}
+                      >
+                        <span className="text-xs font-medium">{c.email}</span>
+                        <span className="text-[10px] text-muted-foreground">
+                          {c.firstName ? `${c.firstName} · ` : ""}
+                          {c.roomLabel ? formatRoomLabel(c.roomLabel) : "Room unknown"}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Image (optional)</Label>
+              {imageUrl ? (
+                <div className="relative w-full max-w-xs overflow-hidden rounded-lg border">
+                  <img src={imageUrl} alt="" className="block h-32 w-full object-cover" />
+                  <Button
+                    type="button" size="icon" variant="secondary"
+                    className="absolute right-1.5 top-1.5 h-6 w-6 rounded-full shadow"
+                    onClick={() => setImageUrl("")}
+                    aria-label="Remove image"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ) : (
+                <label className="flex w-full max-w-xs cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed px-4 py-3 text-sm text-muted-foreground hover:border-violet-400 hover:text-violet-700">
+                  {imageUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />}
+                  {imageUploading ? "Uploading…" : "Add a photo"}
+                  <input type="file" accept="image/*" className="hidden" disabled={imageUploading} onChange={(e) => void onPickImage(e)} />
+                </label>
+              )}
+              <p className="text-[11px] text-muted-foreground">Shown above the message, e.g. the spa or the new dish.</p>
+            </div>
             <div className="space-y-1.5">
               <Label htmlFor="camp-subject">Subject</Label>
               <Input
@@ -351,13 +634,31 @@ export default function CommunicationsPanel({ hotel }: { hotel: Hotel }) {
               type="button"
               disabled={busy || loading || (!selected.size && !eligibleCount)}
               className="bg-violet-600 hover:bg-violet-700"
-              onClick={() => void send()}
+              onClick={requestSend}
             >
               {busy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Send className="mr-1.5 h-4 w-4" />}
               Send campaign
             </Button>
           </div>
         </TabsContent>
+
+        <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Send this campaign?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Send this email to {sendCount} guest{sendCount === 1 ? "" : "s"}? This is a one-off
+                send — TalkStay does not auto-repeat campaigns.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction className="bg-violet-600 hover:bg-violet-700" onClick={() => void send()}>
+                Send
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         <TabsContent value="sent" className="space-y-3">
           {loading ? (
@@ -378,7 +679,23 @@ export default function CommunicationsPanel({ hotel }: { hotel: Hotel }) {
                       {new Date(c.created_at).toLocaleString()} · {c.sent_count}/{c.recipient_count} sent
                     </p>
                   </div>
-                  <p className="mt-1 line-clamp-2 text-xs text-muted-foreground whitespace-pre-wrap">{c.body_text}</p>
+                  <div className="mt-1 flex items-end justify-between gap-3">
+                    <p className="line-clamp-2 flex-1 text-xs text-muted-foreground whitespace-pre-wrap">{c.body_text}</p>
+                    <Button
+                      type="button" size="sm" variant="outline"
+                      className="shrink-0"
+                      disabled={busy}
+                      onClick={() => void useAgain(c)}
+                    >
+                      <Copy className="mr-1.5 h-3.5 w-3.5" /> Use again
+                    </Button>
+                  </div>
+                  {c.sent_count < c.recipient_count && (
+                    <p className="mt-1.5 text-[11px] text-amber-700">
+                      {c.recipient_count - c.sent_count} didn’t send — resending copies everyone, so
+                      select just those guests under Contacts if you only want to retry them.
+                    </p>
+                  )}
                 </div>
               ))}
             </div>

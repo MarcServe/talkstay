@@ -125,10 +125,30 @@ serve(async (req) => {
     const recipients = new Set<string>();
     if (deptEmail) recipients.add(deptEmail);
 
-    // Staff assigned to this department also get the alert.
-    const { data: assigned } = await admin
-      .from("ts_staff").select("user_id")
-      .eq("hotel_id", r.hotel_id).eq("department_key", r.department_key).eq("status", "active");
+    // Staff assigned to this department also get the alert. When someone covers
+    // a specific area (pool bar vs lobby bar), alert only that area's people —
+    // otherwise every bar order pings the whole bar team, which is how staff
+    // learn to ignore alerts. Falls back to the department when nobody is
+    // assigned to this particular area.
+    let assigned: { user_id: string }[] | null = null;
+    {
+      const all = await admin
+        .from("ts_staff").select("user_id, room_id")
+        .eq("hotel_id", r.hotel_id).eq("department_key", r.department_key).eq("status", "active");
+      if (all.error?.message?.includes("room_id")) {
+        const legacy = await admin
+          .from("ts_staff").select("user_id")
+          .eq("hotel_id", r.hotel_id).eq("department_key", r.department_key).eq("status", "active");
+        assigned = legacy.data ?? [];
+      } else {
+        const rows = (all.data ?? []) as { user_id: string; room_id: string | null }[];
+        const atThisArea = r.room_id ? rows.filter((x) => x.room_id === r.room_id) : [];
+        // Department-wide people (no area set) always count — they cover everything.
+        const departmentWide = rows.filter((x) => !x.room_id);
+        assigned = (atThisArea.length ? [...atThisArea, ...departmentWide] : rows)
+          .map((x) => ({ user_id: x.user_id }));
+      }
+    }
     const staffEmails = await Promise.all(
       (assigned ?? []).map(async (s) => {
         try {

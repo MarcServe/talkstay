@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
 import NoIndexMeta from "@/talkstay/components/NoIndexMeta";
+import DemoVideo, { DEMO_VIDEO_URL, youTubeId } from "@/talkstay/components/DemoVideo";
 import { GUEST_ACCESS_MARKETING } from "@/talkstay/lib/guestAccessCopy";
 
 const GUEST_IMG = {
@@ -50,6 +51,18 @@ export default function DemoHub() {
             See what hotel staff see when requests come in.
           </p>
         </div>
+
+        {/* Campaign traffic arrives cold and not everyone wants to click into a
+            demo first. The video is the low-commitment path; the demos stay the
+            primary CTA below it. Renders nothing until a URL is configured. */}
+        {youTubeId(DEMO_VIDEO_URL) && (
+          <div className="mx-auto mt-10 max-w-3xl">
+            <DemoVideo />
+            <p className="mt-3 text-center text-sm text-muted-foreground">
+              Rather try it yourself? Pick a side below — nothing to install, no signup.
+            </p>
+          </div>
+        )}
 
         <div className="mt-10 grid gap-5 lg:grid-cols-2">
           {/* Guest — full promo art, labels below the image */}

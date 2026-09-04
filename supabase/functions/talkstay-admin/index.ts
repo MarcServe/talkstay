@@ -622,6 +622,19 @@ serve(async (req) => {
       if (body?.pulse_enabled !== undefined) patch.pulse_enabled = !!body.pulse_enabled;
       if (body?.require_checkin_code !== undefined) patch.require_checkin_code = !!body.require_checkin_code;
       if (body?.whatsapp_enabled !== undefined) patch.whatsapp_enabled = !!body.whatsapp_enabled;
+      if (body?.card_payments_enabled !== undefined) {
+        patch.card_payments_enabled = !!body.card_payments_enabled;
+      }
+      // null clears the override so the property falls back to the platform
+      // default; 0 is a real value meaning "this property pays no fee", so the
+      // two must not collapse into each other. Clamped to the same 0-3000 range
+      // the charge path enforces, rather than trusting the input.
+      if (body?.stripe_platform_fee_bps !== undefined) {
+        const raw = body.stripe_platform_fee_bps;
+        patch.stripe_platform_fee_bps = raw === null || raw === ""
+          ? null
+          : Math.max(0, Math.min(3000, Math.round(Number(raw)) || 0));
+      }
 
       // Paid branding tier. Lives in the branding jsonb (no schema change), and
       // is platform-admin only on purpose — a property must not be able to

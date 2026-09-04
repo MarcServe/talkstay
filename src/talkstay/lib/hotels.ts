@@ -876,13 +876,42 @@ export interface CatalogItem {
 
 const CATALOG_SELECT = "id, department_key, name, price, currency, is_active, sort_order, outlet_room_id";
 
-export async function listCatalogItems(hotelId: string, departmentKey?: string): Promise<CatalogItem[]> {
+/** Comparison key for menu items. A menu photographed twice, or a second page
+ *  overlapping the first, yields the same dish typed slightly differently:
+ *  "Club Sandwich.", "club  sandwich", "Crème brûlée" vs "Creme brulee". Match
+ *  on the shape of the words, not the exact characters. Used for both
+ *  within-scan dedupe and matching against what's already on the menu — the
+ *  two must agree, or an item slips through one and is caught by the other. */
+export function menuItemKey(name: string): string {
+  return String(name ?? "")
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")  // strip accents
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")                       // punctuation → space
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+/** Items offered at `outletRoomId`: that outlet's own list plus the
+ *  department-wide ones. Pass `outletOnly` to edit one outlet's list alone. */
+export async function listCatalogItems(
+  hotelId: string,
+  departmentKey?: string,
+  opts?: { outletRoomId?: string | null; outletOnly?: boolean },
+): Promise<CatalogItem[]> {
   let q = supabase
     .from("ts_catalog_items")
     .select(CATALOG_SELECT)
     .eq("hotel_id", hotelId)
     .eq("is_active", true);
   if (departmentKey) q = q.eq("department_key", departmentKey);
+  if (opts?.outletOnly) {
+    q = opts.outletRoomId
+      ? q.eq("outlet_room_id", opts.outletRoomId)
+      : q.is("outlet_room_id", null);
+  } else if (opts?.outletRoomId) {
+    q = q.or(`outlet_room_id.is.null,outlet_room_id.eq.${opts.outletRoomId}`);
+  }
   const { data, error } = await q.order("sort_order").order("name");
   // The picker is a convenience — a missing table (migration not applied yet)
   // must never stop someone logging an order by hand.

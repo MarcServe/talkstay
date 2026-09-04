@@ -1,5 +1,17 @@
 import { supabase } from "@/integrations/supabase/client";
 
+/** Uploads a campaign hero image to the shared "logos" bucket and returns its
+ *  public URL. Same bucket and path shape department menu scans already use —
+ *  it already has a public read policy, so nothing new to configure. */
+export async function uploadCampaignImage(hotelId: string, file: File): Promise<string> {
+  const ext = (file.name.split(".").pop() || "jpg").toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
+  const path = `talkstay/${hotelId}/campaign-${Date.now()}.${ext}`;
+  const { error } = await supabase.storage.from("logos").upload(path, file, { upsert: true });
+  if (error) throw new Error(error.message);
+  const { data } = supabase.storage.from("logos").getPublicUrl(path);
+  return data.publicUrl;
+}
+
 async function invokeComms(body: Record<string, unknown>) {
   const { data, error } = await supabase.functions.invoke("talkstay-guest-comms", { body });
   if (error) {
@@ -32,6 +44,7 @@ export type GuestCampaign = {
   body_text: string;
   cta_label: string | null;
   cta_url: string | null;
+  image_url: string | null;
   recipient_count: number;
   sent_count: number;
   created_at: string;
@@ -50,6 +63,16 @@ export async function listGuestContacts(hotelId: string): Promise<{
   };
 }
 
+export type CampaignRecipient = { email: string; status: "sent" | "skipped" | "failed" };
+
+/** Who a past campaign actually went to, and how each one fared. */
+export async function listCampaignRecipients(
+  hotelId: string, campaignId: string,
+): Promise<CampaignRecipient[]> {
+  const data = await invokeComms({ action: "campaign_recipients", hotelId, campaignId });
+  return (data.recipients ?? []) as CampaignRecipient[];
+}
+
 export async function listGuestCampaigns(hotelId: string): Promise<GuestCampaign[]> {
   const data = await invokeComms({ action: "list_campaigns", hotelId });
   return (data.campaigns ?? []) as GuestCampaign[];
@@ -61,6 +84,7 @@ export async function sendGuestCampaign(args: {
   bodyText: string;
   ctaLabel?: string;
   ctaUrl?: string;
+  imageUrl?: string;
   emails?: string[];
 }): Promise<{ sent: number; attempted: number; campaignId: string }> {
   const data = await invokeComms({
@@ -70,6 +94,7 @@ export async function sendGuestCampaign(args: {
     bodyText: args.bodyText,
     ctaLabel: args.ctaLabel || null,
     ctaUrl: args.ctaUrl || null,
+    imageUrl: args.imageUrl || null,
     emails: args.emails,
   });
   return {

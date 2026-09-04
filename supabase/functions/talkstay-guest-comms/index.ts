@@ -213,10 +213,26 @@ serve(async (req) => {
       });
     }
 
+    if (action === "campaign_recipients") {
+      const campaignId = String(body.campaignId ?? "").trim();
+      if (!campaignId) return json({ error: "campaignId required" }, 400);
+      // hotel_id is matched as well as campaign_id: campaignId arrives from the
+      // client, and scoping by the authorised hotel keeps one property from
+      // reading another's recipient list by guessing an id.
+      const { data, error } = await admin
+        .from("ts_guest_campaign_sends")
+        .select("email, status")
+        .eq("campaign_id", campaignId)
+        .eq("hotel_id", hotelId)
+        .order("email");
+      if (error) return json({ error: error.message }, 500);
+      return json({ recipients: data ?? [] });
+    }
+
     if (action === "list_campaigns") {
       const { data } = await admin
         .from("ts_guest_campaigns")
-        .select("id, subject, body_text, cta_label, cta_url, recipient_count, sent_count, created_at")
+        .select("id, subject, body_text, cta_label, cta_url, image_url, recipient_count, sent_count, created_at")
         .eq("hotel_id", hotelId)
         .order("created_at", { ascending: false })
         .limit(50);
@@ -250,6 +266,11 @@ serve(async (req) => {
       const bodyText = String(body.bodyText ?? body.body ?? "").trim().slice(0, 4000);
       const ctaLabel = String(body.ctaLabel ?? "").trim().slice(0, 60) || null;
       const ctaUrl = normalizeHttpUrl(body.ctaUrl);
+      // Trust boundary matches ctaUrl: normalized to a real http(s) URL, never
+      // raw HTML — the client only ever supplies this from a completed Storage
+      // upload, but a forged request could send anything, so it's validated
+      // exactly like every other guest-facing URL in this function.
+      const imageUrl = normalizeHttpUrl(body.imageUrl);
       if (!subject || !bodyText) return json({ error: "Subject and message are required" }, 400);
       if ((ctaLabel && !ctaUrl) || (!ctaLabel && ctaUrl)) {
         return json({ error: "Provide both a button label and URL, or neither" }, 400);
@@ -283,6 +304,7 @@ serve(async (req) => {
         body_text: bodyText,
         cta_label: ctaLabel,
         cta_url: ctaUrl,
+        image_url: imageUrl,
         recipient_count: recipients.length,
         sent_count: 0,
         created_by: uid,
@@ -303,13 +325,32 @@ serve(async (req) => {
           .map((p) => `<p style="margin:0 0 12px;">${escapeHtml(p).replace(/\n/g, "<br/>")}</p>`)
           .join("");
 
+        // renderEmail's own header already shows the property's logo — this is
+        // a second, larger image for the OFFER itself (the spa, the new dish),
+        // so it sits inside bodyHtml rather than becoming a renderEmail option.
+        //
+        // Bounded by BOTH dimensions, and never cropped. width:100% + height:auto
+        // looked right for a landscape photo and catastrophic for a square one —
+        // a logo rendered 464x464 and pushed the actual message and the button
+        // below the fold. Capping height instead lets the client scale to fit
+        // whichever dimension binds first: a square lands at 220x220, a 16:9
+        // photo at ~391x220, both centred. object-fit would crop to fill, which
+        // is fine for a photo and ruins a logo — and we can't know which was
+        // uploaded, so the box gets constrained rather than the image cut.
+        const imageHtml = imageUrl
+          ? `<img src="${escapeHtml(imageUrl)}" alt="" style="display:block;width:auto;max-width:100%;max-height:220px;height:auto;border-radius:10px;margin:0 auto 16px;" />`
+          : "";
+
         const html = renderEmail({
           hotelName,
           logoUrl: branding.logo_url as string | null | undefined,
           accentColor: branding.primary_color as string | null | undefined,
           whiteLabel: isWhiteLabel(branding),
+          // Campaigns only — every other email in the product stays left.
+          align: "center",
           heading: subject,
           bodyHtml: `
+            ${imageHtml}
             <p style="margin:0 0 12px;">${hello}</p>
             ${paragraphs}
           `,

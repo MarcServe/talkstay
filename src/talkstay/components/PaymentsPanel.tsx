@@ -2,14 +2,20 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { CreditCard, ExternalLink, Loader2, CheckCircle2, Unplug } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import type { Hotel } from "@/talkstay/lib/hotels";
 import {
   disconnectStripe,
   fetchStripeStatus,
   openStripeDashboard,
+  fetchPaymentsSummary,
+  setCardPayments,
   startStripeConnect,
+  type PaymentsSummary,
   type StripeConnectStatus,
 } from "@/talkstay/lib/stripeConnect";
+import { formatMoney } from "@/talkstay/lib/statusStyles";
+import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
 
 /**
  * One-click Stripe Connect for the property — no API keys for the venue.
@@ -19,6 +25,8 @@ export default function PaymentsPanel({ hotel }: { hotel: Hotel }) {
   const [status, setStatus] = useState<StripeConnectStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [summary, setSummary] = useState<PaymentsSummary | null>(null);
+  const [sinceDays, setSinceDays] = useState(30);
 
   const refresh = async () => {
     setLoading(true);
@@ -30,12 +38,20 @@ export default function PaymentsPanel({ hotel }: { hotel: Hotel }) {
     } finally {
       setLoading(false);
     }
+    // Separate from status on purpose: the ledger is worth showing even when
+    // Stripe isn't connected, because "collected another way" is still money
+    // this property took, and the outstanding figure still matters.
+    try {
+      setSummary(await fetchPaymentsSummary(hotel.id, sinceDays));
+    } catch {
+      setSummary(null);
+    }
   };
 
   useEffect(() => {
     void refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hotel.id]);
+  }, [hotel.id, sinceDays]);
 
   const connect = async () => {
     setBusy(true);
@@ -76,7 +92,23 @@ export default function PaymentsPanel({ hotel }: { hotel: Hotel }) {
     }
   };
 
-  const ready = !!status?.chargesEnabled;
+  // Live for guests only when Stripe can charge AND the property wants it.
+  const stripeReady = !!status?.chargesEnabled;
+  const cardOn = status?.cardPaymentsEnabled !== false;
+  const ready = stripeReady && cardOn;
+
+  const toggleCardPayments = async (next: boolean) => {
+    setBusy(true);
+    try {
+      await setCardPayments(hotel.id, next);
+      setStatus((prev) => (prev ? { ...prev, cardPaymentsEnabled: next } : prev));
+      toast.success(next ? "Card payments on" : "Card payments off — guests won't see the card option");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Couldn't change that");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <div className="mx-auto max-w-xl space-y-4">
@@ -106,6 +138,8 @@ export default function PaymentsPanel({ hotel }: { hotel: Hotel }) {
                     <CheckCircle2 className="h-4 w-4 text-emerald-600" />
                     Card payments live
                   </>
+                ) : stripeReady && !cardOn ? (
+                  <>Card payments switched off</>
                 ) : status?.connected ? (
                   <>Almost there — finish Stripe setup</>
                 ) : (
@@ -115,13 +149,32 @@ export default function PaymentsPanel({ hotel }: { hotel: Hotel }) {
               <p className="mt-1 text-xs text-muted-foreground">
                 {ready
                   ? "Checkout works on guest My requests / folio for unpaid priced items."
-                  : status?.connected
-                    ? "Return from Stripe and refresh if this still says incomplete."
-                    : "Takes a few minutes in Stripe’s secure onboarding."}
+                  : stripeReady && !cardOn
+                    ? "Stripe is connected and ready — you've chosen not to offer card payment to guests."
+                    : status?.connected
+                      ? "Return from Stripe and refresh if this still says incomplete."
+                      : "Takes a few minutes in Stripe’s secure onboarding."}
               </p>
               {status?.accountId && (
                 <p className="mt-1 font-mono text-[10px] text-muted-foreground">{status.accountId}</p>
               )}
+            </div>
+
+            <div className="flex items-start justify-between gap-4 rounded-xl border px-4 py-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium">Offer card payment to guests</p>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                  {!status?.connected
+                    ? "Connect Stripe first — there's nothing to switch on until a payout account exists."
+                    : "Off means guests never see a card option — requests still get priced and tracked, you just collect them your own way (front desk, your POS, cash). Nothing is disconnected, so you can switch it back on any time."}
+                </p>
+              </div>
+              <Switch
+                checked={cardOn && !!status?.connected}
+                disabled={busy || loading || !status?.connected}
+                onCheckedChange={(v) => void toggleCardPayments(v)}
+                aria-label="Offer card payment to guests"
+              />
             </div>
 
             <div className="rounded-xl border bg-muted/20 px-4 py-3">
@@ -163,14 +216,91 @@ export default function PaymentsPanel({ hotel }: { hotel: Hotel }) {
         )}
       </div>
 
-      <p className="text-xs text-muted-foreground">
-        Platform ops: set <code className="text-[11px]">STRIPE_SECRET_KEY</code>, optional{" "}
-        <code className="text-[11px]">TALKSTAY_PLATFORM_FEE_BPS</code> (default 250 = 2.5%), deploy{" "}
-        <code className="text-[11px]">talkstay-stripe</code> +{" "}
-        <code className="text-[11px]">talkstay-stripe-webhook</code>, and point a Stripe Connect
-        webhook at the webhook function (events: <code className="text-[11px]">checkout.session.completed</code>,{" "}
-        <code className="text-[11px]">account.updated</code>).
-      </p>
+      {/* Ledger: card takings next to what operations says was chargeable, so
+          "what did we actually collect" is answerable without exporting
+          anything or opening Stripe. */}
+      <div className="rounded-2xl border bg-card p-5 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold tracking-tight">Collected</h3>
+          <div className="flex gap-1">
+            {[7, 30, 90].map((d) => (
+              <Button
+                key={d} type="button" size="sm"
+                variant={sinceDays === d ? "default" : "ghost"}
+                className={`h-7 px-2.5 text-xs ${sinceDays === d ? "bg-violet-600 hover:bg-violet-700" : ""}`}
+                onClick={() => setSinceDays(d)}
+              >
+                {d}d
+              </Button>
+            ))}
+          </div>
+        </div>
+
+        {!summary ? (
+          <p className="mt-4 text-xs text-muted-foreground">No payment data yet.</p>
+        ) : (
+          <>
+            <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {[
+                { label: "By card", value: summary.totals.cardCollected, hint: `${summary.totals.cardCount} payment${summary.totals.cardCount === 1 ? "" : "s"}` },
+                { label: "Other means", value: summary.totals.otherCollected, hint: "desk, POS, cash" },
+                { label: "Total paid", value: summary.totals.totalPaid, hint: `of ${summary.totals.chargeableCount} chargeable` },
+                { label: "Outstanding", value: summary.totals.outstanding, hint: "still unpaid" },
+              ].map((t) => (
+                <div key={t.label} className="rounded-xl border bg-muted/20 px-3 py-2">
+                  <p className="text-[11px] text-muted-foreground">{t.label}</p>
+                  <p className="mt-0.5 text-sm font-semibold tabular-nums">
+                    {formatMoney(t.value, summary.currency)}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground">{t.hint}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* The reconciliation itself: card + other should equal total paid.
+                Stated rather than assumed, because they diverge if a request is
+                marked paid by staff after a card payment already covered it. */}
+            {Math.abs((summary.totals.cardCollected + summary.totals.otherCollected) - summary.totals.totalPaid) > 0.01 && (
+              <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+                Card and other means don’t add up to total paid — a charge may have been marked
+                paid manually after a card payment already covered it.
+              </p>
+            )}
+
+            {summary.payments.length === 0 ? (
+              <p className="mt-4 text-xs text-muted-foreground">
+                No card payments in the last {summary.sinceDays} days.
+              </p>
+            ) : (
+              <div className="mt-4 divide-y overflow-hidden rounded-xl border">
+                {summary.payments.map((p) => (
+                  <div key={p.id} className="flex items-center justify-between gap-3 px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-xs font-medium">
+                        {p.roomLabel ? formatRoomLabel(p.roomLabel) : "Unknown area"}
+                        <span className="ml-1.5 font-normal text-muted-foreground">
+                          · {p.itemCount} item{p.itemCount === 1 ? "" : "s"}
+                        </span>
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">
+                        {new Date(p.completedAt ?? p.createdAt).toLocaleString()}
+                        {p.fee != null && ` · fee ${formatMoney(p.fee, p.currency)}`}
+                      </p>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p className="text-xs font-semibold tabular-nums">{formatMoney(p.amount, p.currency)}</p>
+                      <p className={`text-[10px] ${p.status === "complete" ? "text-emerald-700" : "text-muted-foreground"}`}>
+                        {p.status === "complete" ? "paid" : p.status}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
     </div>
   );
 }
