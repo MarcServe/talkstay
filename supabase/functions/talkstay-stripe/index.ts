@@ -273,11 +273,24 @@ serve(async (req) => {
     if (action === "status") {
       let charges = !!hotel.stripe_charges_enabled;
       let details = !!hotel.stripe_details_submitted;
+      let payouts = false;
+      // What Stripe is actually still waiting for. Without this the panel can
+      // only say "almost there", which tells a property nothing about why they
+      // still can't take a card — the difference between "we're reviewing you"
+      // and "you never added a bank account" is the whole answer.
+      let due: string[] = [];
+      let pastDue: string[] = [];
+      let disabledReason: string | null = null;
       if (hotel.stripe_account_id) {
         try {
           const acct = await stripe.accounts.retrieve(hotel.stripe_account_id);
           charges = !!acct.charges_enabled;
           details = !!acct.details_submitted;
+          payouts = !!acct.payouts_enabled;
+          const req = (acct as { requirements?: Record<string, unknown> }).requirements ?? {};
+          due = ((req.currently_due as string[]) ?? []).slice(0, 12);
+          pastDue = ((req.past_due as string[]) ?? []).slice(0, 12);
+          disabledReason = (req.disabled_reason as string) ?? null;
           await admin.from("ts_hotels").update({
             stripe_charges_enabled: charges,
             stripe_details_submitted: details,
@@ -307,6 +320,10 @@ serve(async (req) => {
         platformFeeBps: feeBps,
         platformFeePercent: feeBps / 100,
         cardPaymentsEnabled,
+        payoutsEnabled: payouts,
+        requirementsDue: due,
+        requirementsPastDue: pastDue,
+        disabledReason,
       });
     }
 

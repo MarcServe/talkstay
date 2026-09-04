@@ -8,6 +8,7 @@ import {
   disconnectStripe,
   fetchStripeStatus,
   openStripeDashboard,
+  describeRequirement,
   fetchPaymentsSummary,
   setCardPayments,
   startStripeConnect,
@@ -157,6 +158,39 @@ export default function PaymentsPanel({ hotel }: { hotel: Hotel }) {
               </p>
               {status?.accountId && (
                 <p className="mt-1 font-mono text-[10px] text-muted-foreground">{status.accountId}</p>
+              )}
+
+              {/* Named, not counted: "3 items outstanding" still leaves someone
+                  clicking into Stripe to find out which three. */}
+              {status?.connected && !stripeReady && (status.requirementsDue.length > 0 || status.requirementsPastDue.length > 0) && (
+                <div className="mt-3 rounded-lg border bg-background p-3">
+                  <p className="text-xs font-medium">Stripe still needs:</p>
+                  <ul className="mt-1.5 space-y-1">
+                    {[...new Set([...status.requirementsPastDue, ...status.requirementsDue])].map((key) => (
+                      <li key={key} className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                        <span className={status.requirementsPastDue.includes(key) ? "text-amber-600" : "text-muted-foreground"}>•</span>
+                        <span>
+                          {describeRequirement(key)}
+                          {status.requirementsPastDue.includes(key) && (
+                            <span className="ml-1 font-medium text-amber-700">— overdue</span>
+                          )}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-2 text-[11px] text-muted-foreground">
+                    Continue Stripe setup below takes you straight to these.
+                  </p>
+                </div>
+              )}
+
+              {/* Charges and payouts are separate permissions — a property can
+                  be taking cards while their money is still held. */}
+              {status?.connected && stripeReady && !status.payoutsEnabled && (
+                <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+                  Cards work, but Stripe isn't paying out yet — usually a missing bank account
+                  or verification. Money is held safely in the meantime.
+                </p>
               )}
             </div>
 
