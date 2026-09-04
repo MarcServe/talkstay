@@ -45,7 +45,9 @@ export default function AdminHotelDetail() {
   const [pulse, setPulse] = useState(true);
   const [whiteLabel, setWhiteLabel] = useState(false);
   const [cardPayments, setCardPayments] = useState(true);
-  const [feeBps, setFeeBps] = useState<string>("");
+  // Percentage string; blank means "inherit the platform default". Converted to
+  // basis points on save — bps stays the stored unit, percent is the shown one.
+  const [feePct, setFeePct] = useState<string>("");
   const [fromEmail, setFromEmail] = useState("");
   const [requireCode, setRequireCode] = useState(false);
   const [maxDevices, setMaxDevices] = useState(8);
@@ -81,11 +83,10 @@ export default function AdminHotelDetail() {
       // row, or the migration not yet applied) must never read as "off".
       setCardPayments((h as { card_payments_enabled?: boolean }).card_payments_enabled !== false);
       // Blank means "use the platform default", not zero.
-      setFeeBps(
-        (h as { stripe_platform_fee_bps?: number | null }).stripe_platform_fee_bps == null
-          ? ""
-          : String((h as { stripe_platform_fee_bps?: number | null }).stripe_platform_fee_bps),
-      );
+      {
+        const bps = (h as { stripe_platform_fee_bps?: number | null }).stripe_platform_fee_bps;
+        setFeePct(bps == null ? "" : String(bps / 100));
+      }
       setFromEmail(String((h.branding as { from_email?: string } | null)?.from_email ?? ""));
       setRequireCode(!!h.require_checkin_code);
       setMaxDevices(Number(h.max_devices_per_room) || 8);
@@ -163,9 +164,9 @@ export default function AdminHotelDetail() {
         referral_code: referral || null,
         contact_email: contactEmail || null,
         card_payments_enabled: cardPayments,
-        // Empty clears the override so the property falls back to
-        // TALKSTAY_PLATFORM_FEE_BPS rather than being pinned to 0%.
-        stripe_platform_fee_bps: feeBps.trim() === "" ? null : Number(feeBps),
+        // Empty clears the override so the property falls back to the platform
+        // default rather than being pinned to 0%.
+        stripe_platform_fee_bps: feePct.trim() === "" ? null : Math.round(Number(feePct) * 100),
       });
       setData((d) => d ? { ...d, hotel: res.hotel } : d);
       toast.success("Hotel settings saved");
@@ -417,20 +418,28 @@ export default function AdminHotelDetail() {
 
           <Toggle label="Offer card payment to guests" checked={cardPayments} onChange={setCardPayments} />
 
-          <Field label="Application fee override (basis points)">
-            <Input
-              inputMode="numeric"
-              value={feeBps}
-              onChange={(e) => setFeeBps(e.target.value.replace(/[^0-9]/g, ""))}
-              placeholder="blank = platform default (250 = 2.5%)"
-            />
+          <Field label="Application fee override">
+            <div className="relative">
+              <Input
+                inputMode="decimal"
+                value={feePct}
+                onChange={(e) => {
+                  const cleaned = e.target.value.replace(/[^0-9.]/g, "").replace(/(\..*)\./g, "$1");
+                  const [whole, frac] = cleaned.split(".");
+                  setFeePct(frac === undefined ? whole : `${whole}.${frac.slice(0, 2)}`);
+                }}
+                placeholder="blank = platform default"
+                className="pr-8 md:pr-8"
+              />
+              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">%</span>
+            </div>
           </Field>
           <p className="text-[11px] leading-relaxed text-muted-foreground">
-            250 = 2.5%. Blank falls back to the platform-wide default rather than
-            charging nothing — set 0 deliberately if a property genuinely pays no fee.
-            Capped at 3000 (30%) when the charge is created.
-            {feeBps.trim() !== "" && Number(feeBps) >= 0 && (
-              <> Currently <strong>{(Number(feeBps) / 100).toFixed(2)}%</strong> per guest card payment.</>
+            Blank falls back to the platform-wide default rather than charging nothing —
+            enter 0 deliberately if this property genuinely pays no fee. Capped at 30%
+            when the charge is created.
+            {feePct.trim() !== "" && Number(feePct) >= 0 && (
+              <> A £20 order yields <strong>£{((Number(feePct) / 100) * 20).toFixed(2)}</strong>.</>
             )}
           </p>
         </section>
