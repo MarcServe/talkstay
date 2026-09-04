@@ -65,6 +65,34 @@ function stripeClient() {
   });
 }
 
+/**
+ * The fee to apply, in basis points, most specific first:
+ *   1. this property's own override (0 is a real value — no fee)
+ *   2. the platform default set in Admin → Settings
+ *   3. TALKSTAY_PLATFORM_FEE_BPS
+ *   4. 250 (2.5%)
+ *
+ * Clamped to 0-3000 wherever it came from, since every one of those sources is
+ * editable by a human.
+ */
+async function resolveFeeBps(admin: any, hotelBps: unknown): Promise<number> {
+  const clamp = (n: number) => Math.max(0, Math.min(3000, Math.round(n)));
+  if (typeof hotelBps === "number" && Number.isFinite(hotelBps)) return clamp(hotelBps);
+
+  try {
+    const { data } = await admin
+      .from("ts_platform_settings")
+      .select("value")
+      .eq("key", "payments")
+      .maybeSingle();
+    const v = (data?.value as { application_fee_bps?: unknown } | null)?.application_fee_bps;
+    if (typeof v === "number" && Number.isFinite(v)) return clamp(v);
+  } catch { /* fall through to env */ }
+
+  const envBps = Number(Deno.env.get("TALKSTAY_PLATFORM_FEE_BPS") ?? "250");
+  return clamp(Number.isFinite(envBps) ? envBps : 250);
+}
+
 function appBaseUrl() {
   return (Deno.env.get("PUBLIC_APP_URL") || "https://talkstay.talkweb.io").replace(/\/$/, "");
 }
@@ -173,12 +201,7 @@ serve(async (req) => {
       const requestIds = rows.map((r: { id: string }) => r.id);
       const guestPath = `/h/${hotel.slug}/r/${roomId}?t=${encodeURIComponent(token)}`;
 
-      // TalkStay platform fee (basis points). Default 2.5% if unset.
-      const envBps = Number(Deno.env.get("TALKSTAY_PLATFORM_FEE_BPS") ?? "250");
-      const hotelBps = hotel.stripe_platform_fee_bps;
-      const feeBps = Math.max(0, Math.min(3000,
-        typeof hotelBps === "number" && Number.isFinite(hotelBps) ? hotelBps : (Number.isFinite(envBps) ? envBps : 250),
-      ));
+      const feeBps = await resolveFeeBps(admin, hotel.stripe_platform_fee_bps);
       const applicationFeeAmount = feeBps > 0 ? Math.max(1, Math.round(amountCents * feeBps / 10000)) : 0;
 
       const paymentIntentData: Record<string, unknown> = {
@@ -297,11 +320,7 @@ serve(async (req) => {
           }).eq("id", hotelId);
         } catch { /* keep cached flags */ }
       }
-      const envBps = Number(Deno.env.get("TALKSTAY_PLATFORM_FEE_BPS") ?? "250");
-      const hotelBps = hotel.stripe_platform_fee_bps;
-      const feeBps = typeof hotelBps === "number" && Number.isFinite(hotelBps)
-        ? hotelBps
-        : (Number.isFinite(envBps) ? envBps : 250);
+      const feeBps = await resolveFeeBps(admin, hotel.stripe_platform_fee_bps);
       let cardPaymentsEnabled = true;
       {
         const { data: optRow, error: optErr } = await admin
