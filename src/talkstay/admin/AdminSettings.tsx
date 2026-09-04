@@ -94,6 +94,8 @@ export default function AdminSettings() {
   const [newEmail, setNewEmail] = useState("");
   const [newPct, setNewPct] = useState(String(DEFAULT_PARTNER_COMMISSION_PCT));
   const [saving, setSaving] = useState<string | null>(null);
+  // Basis points, as a string so the field can be emptied while typing.
+  const [feeBps, setFeeBps] = useState("250");
   const [missingTable, setMissingTable] = useState(false);
 
   const load = async () => {
@@ -107,6 +109,8 @@ export default function AdminSettings() {
       setFeatures({ ...FEATURES_DEFAULT, ...(s.features as object) });
       setSupport({ ...SUPPORT_DEFAULT, ...(s.support as object) });
       setPartners(applyPartnersSettings(s.partners));
+      const pay = (s.payments ?? {}) as { application_fee_bps?: number };
+      setFeeBps(pay.application_fee_bps == null ? "250" : String(pay.application_fee_bps));
     } catch (e: any) {
       toast.error(e.message);
     } finally {
@@ -404,6 +408,52 @@ export default function AdminSettings() {
       </section>
 
       {/* Defaults */}
+      <section className="space-y-4 rounded-2xl border bg-card p-5 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-base font-semibold">Guest card application fee</h2>
+            <p className="text-sm text-muted-foreground">
+              What TalkStay takes from each guest card payment, platform-wide. This is a
+              real Stripe Connect application fee on the charge, not a display — Stripe
+              deducts it and settles the rest to the property.
+            </p>
+          </div>
+          <Button
+            size="sm"
+            disabled={saving === "payments"}
+            onClick={() => void save("payments", {
+              application_fee_bps: Math.max(0, Math.min(3000, Number(feeBps) || 0)),
+            })}
+          >
+            {saving === "payments" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Save className="mr-1.5 h-3.5 w-3.5" />}
+            Save fee
+          </Button>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Default fee (basis points)">
+            <Input
+              inputMode="numeric"
+              value={feeBps}
+              onChange={(e) => setFeeBps(e.target.value.replace(/[^0-9]/g, ""))}
+              placeholder="250"
+            />
+          </Field>
+          <div className="flex items-end">
+            <p className="text-xs text-muted-foreground">
+              {feeBps.trim() === "" ? "Set a value — blank is not a fee." : (
+                <>Currently <strong>{(Number(feeBps) / 100).toFixed(2)}%</strong> per guest card payment.
+                {" "}A £20 order yields <strong>£{((Number(feeBps) / 10000) * 20).toFixed(2)}</strong> to TalkStay.</>
+              )}
+            </p>
+          </div>
+        </div>
+        <p className="text-[11px] leading-relaxed text-muted-foreground">
+          A property with its own override on its detail page ignores this. Capped at 3000
+          (30%) when the charge is created. Changing this affects future payments only —
+          fees already taken are settled and are not recalculated.
+        </p>
+      </section>
+
       <section className="space-y-4 rounded-2xl border bg-card p-5 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
