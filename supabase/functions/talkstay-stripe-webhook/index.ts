@@ -34,8 +34,17 @@ serve(async (req) => {
   // network call, so this key only matters if a future addition here calls
   // out to the Stripe API — kept consistent with talkstay-stripe regardless.
   const STRIPE_KEY = Deno.env.get("TALKSTAY_STRIPE_SECRET_KEY") || Deno.env.get("STRIPE_SECRET_KEY");
-  const WH_SECRET = Deno.env.get("STRIPE_CONNECT_WEBHOOK_SECRET");
-  if (!STRIPE_KEY || !WH_SECRET) {
+  // Two secrets, tried in turn, so live and test webhooks can both point here.
+  // Stripe issues a DIFFERENT signing secret per endpoint, and test mode is a
+  // separate endpoint — with one slot you have to swap the value to test and
+  // swap it back to go live, which means production webhooks are broken for
+  // the length of every test. Accepting either costs nothing: a payload still
+  // has to carry a valid signature for one of them.
+  const WH_SECRETS = [
+    Deno.env.get("STRIPE_CONNECT_WEBHOOK_SECRET"),
+    Deno.env.get("STRIPE_CONNECT_WEBHOOK_SECRET_TEST"),
+  ].filter((v): v is string => !!v);
+  if (!STRIPE_KEY || !WH_SECRETS.length) {
     console.error("Missing STRIPE_SECRET_KEY or STRIPE_CONNECT_WEBHOOK_SECRET");
     return json({ error: "Webhook not configured" }, 500);
   }
@@ -49,11 +58,18 @@ serve(async (req) => {
   if (!signature) return json({ error: "No signature" }, 400);
 
   const rawBody = await req.text();
-  let event: Stripe.Event;
-  try {
-    event = stripe.webhooks.constructEvent(rawBody, signature, WH_SECRET);
-  } catch (err) {
-    console.error("Webhook signature failed", err);
+  let event: Stripe.Event | null = null;
+  let lastErr: unknown = null;
+  for (const secret of WH_SECRETS) {
+    try {
+      event = stripe.webhooks.constructEvent(rawBody, signature, secret);
+      break;
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  if (!event) {
+    console.error("Webhook signature failed against all configured secrets", lastErr);
     return json({ error: "Invalid signature" }, 400);
   }
 
