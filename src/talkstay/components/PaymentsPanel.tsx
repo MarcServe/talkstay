@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { CreditCard, ExternalLink, Loader2, CheckCircle2, Unplug } from "lucide-react";
+import { CreditCard, ExternalLink, Loader2, CheckCircle2, Unplug, ChevronDown } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import type { Hotel } from "@/talkstay/lib/hotels";
 import {
@@ -28,6 +28,9 @@ export default function PaymentsPanel({ hotel }: { hotel: Hotel }) {
   const [busy, setBusy] = useState(false);
   const [summary, setSummary] = useState<PaymentsSummary | null>(null);
   const [sinceDays, setSinceDays] = useState(30);
+  /** Collapsed by default — the count is the signal, the twelve lines are the
+   *  detail, and this page is read far more often than onboarding is finished. */
+  const [reqOpen, setReqOpen] = useState(false);
   /** Which total the list underneath is breaking down. Defaults to card, which
    *  is what this panel showed before the tiles became selectable. */
   const [drill, setDrill] = useState<"card" | "other" | "paid" | "outstanding">("card");
@@ -305,29 +308,57 @@ export default function PaymentsPanel({ hotel }: { hotel: Hotel }) {
                 <p className="mt-1 font-mono text-[10px] text-muted-foreground">{status.accountId}</p>
               )}
 
-              {/* Named, not counted: "3 items outstanding" still leaves someone
-                  clicking into Stripe to find out which three. */}
-              {status?.connected && !stripeReady && (status.requirementsDue.length > 0 || status.requirementsPastDue.length > 0) && (
-                <div className="mt-3 rounded-lg border bg-background p-3">
-                  <p className="text-xs font-medium">Stripe still needs:</p>
-                  <ul className="mt-1.5 space-y-1">
-                    {[...new Set([...status.requirementsPastDue, ...status.requirementsDue])].map((key) => (
-                      <li key={key} className="flex items-start gap-1.5 text-xs text-muted-foreground">
-                        <span className={status.requirementsPastDue.includes(key) ? "text-amber-600" : "text-muted-foreground"}>•</span>
-                        <span>
-                          {describeRequirement(key)}
-                          {status.requirementsPastDue.includes(key) && (
-                            <span className="ml-1 font-medium text-amber-700">— overdue</span>
-                          )}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                  <p className="mt-2 text-[11px] text-muted-foreground">
-                    Continue Stripe setup below takes you straight to these.
-                  </p>
-                </div>
-              )}
+              {/* Collapsed to a count, expandable to the named items. Naming them
+                  still matters — "12 outstanding" alone sends someone into Stripe
+                  to find out which twelve — but twelve lines shouldn't be the
+                  default state of a page opened to check takings. */}
+              {status?.connected && !stripeReady && (status.requirementsDue.length > 0 || status.requirementsPastDue.length > 0) && (() => {
+                const keys = [...new Set([...status.requirementsPastDue, ...status.requirementsDue])];
+                const overdue = keys.filter((k) => status.requirementsPastDue.includes(k));
+                // When every item is overdue, saying so twelve times is noise —
+                // it belongs once, in the summary.
+                const allOverdue = overdue.length === keys.length;
+                return (
+                  <div className="mt-3 rounded-lg border bg-background">
+                    <button
+                      type="button"
+                      onClick={() => setReqOpen((o) => !o)}
+                      aria-expanded={reqOpen}
+                      className="flex w-full items-center justify-between gap-2 p-3 text-left"
+                    >
+                      <span className="text-xs font-medium">
+                        Stripe still needs {keys.length} {keys.length === 1 ? "detail" : "details"}
+                        {allOverdue
+                          ? <span className="ml-1 font-medium text-amber-700">— all overdue</span>
+                          : overdue.length > 0
+                            ? <span className="ml-1 font-medium text-amber-700">— {overdue.length} overdue</span>
+                            : null}
+                      </span>
+                      <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform ${reqOpen ? "rotate-180" : ""}`} />
+                    </button>
+                    {reqOpen && (
+                      <div className="border-t px-3 pb-3 pt-2">
+                        <ul className="space-y-1">
+                          {keys.map((key) => (
+                            <li key={key} className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                              <span className={status.requirementsPastDue.includes(key) ? "text-amber-600" : "text-muted-foreground"}>•</span>
+                              <span>
+                                {describeRequirement(key)}
+                                {!allOverdue && status.requirementsPastDue.includes(key) && (
+                                  <span className="ml-1 font-medium text-amber-700">— overdue</span>
+                                )}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                        <p className="mt-2 text-[11px] text-muted-foreground">
+                          Continue Stripe setup below takes you straight to these.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Charges and payouts are separate permissions — a property can
                   be taking cards while their money is still held. */}
