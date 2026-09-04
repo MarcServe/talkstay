@@ -382,10 +382,11 @@ serve(async (req) => {
         // The operations side of the ledger: every chargeable request, however
         // it was eventually settled.
         admin.from("ts_service_requests")
-          .select("id, price, currency, payment_status, created_at")
+          .select("id, summary, price, currency, payment_status, created_at, room_id")
           .eq("hotel_id", hotelId)
           .eq("is_chargeable", true)
           .gte("created_at", since)
+          .order("created_at", { ascending: false })
           .limit(2000),
         admin.from("ts_rooms").select("id, room_number, is_public").eq("hotel_id", hotelId),
       ]);
@@ -425,6 +426,22 @@ serve(async (req) => {
           cardCount: paidCheckouts.length,
           chargeableCount: chargeRows.length,
         },
+        // The rows behind each tile. Without these a total is just a number the
+        // property has to take on faith — and the one that matters most here is
+        // outstanding, where "which fourteen?" is the actual question.
+        items: chargeRows.slice(0, 300).map((r: any) => {
+          const room = roomById.get(r.room_id);
+          return {
+            id: r.id,
+            summary: String(r.summary ?? "Charge").slice(0, 140),
+            price: money(r.price),
+            currency: r.currency ?? currency,
+            paid: r.payment_status === "paid",
+            settledByCard: cardSettledIds.has(r.id),
+            createdAt: r.created_at,
+            roomLabel: room ? String(room.room_number) : null,
+          };
+        }),
         payments: (checkouts ?? []).map((c: any) => {
           const room = roomById.get(c.room_id);
           return {

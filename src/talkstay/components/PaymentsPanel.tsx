@@ -28,6 +28,9 @@ export default function PaymentsPanel({ hotel }: { hotel: Hotel }) {
   const [busy, setBusy] = useState(false);
   const [summary, setSummary] = useState<PaymentsSummary | null>(null);
   const [sinceDays, setSinceDays] = useState(30);
+  /** Which total the list underneath is breaking down. Defaults to card, which
+   *  is what this panel showed before the tiles became selectable. */
+  const [drill, setDrill] = useState<"card" | "other" | "paid" | "outstanding">("card");
 
   const refresh = async () => {
     setLoading(true);
@@ -113,6 +116,148 @@ export default function PaymentsPanel({ hotel }: { hotel: Hotel }) {
 
   return (
     <div className="mx-auto max-w-xl space-y-4">
+      {/* Ledger: card takings next to what operations says was chargeable, so
+          "what did we actually collect" is answerable without exporting
+          anything or opening Stripe. */}
+      <div className="rounded-2xl border bg-card p-5 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold tracking-tight">Collected</h3>
+          <div className="flex gap-1">
+            {[7, 30, 90].map((d) => (
+              <Button
+                key={d} type="button" size="sm"
+                variant={sinceDays === d ? "default" : "ghost"}
+                className={`h-7 px-2.5 text-xs ${sinceDays === d ? "bg-violet-600 hover:bg-violet-700" : ""}`}
+                onClick={() => setSinceDays(d)}
+              >
+                {d}d
+              </Button>
+            ))}
+          </div>
+        </div>
+
+        {!summary ? (
+          <p className="mt-4 text-xs text-muted-foreground">No payment data yet.</p>
+        ) : (
+          <>
+            <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {([
+                { key: "card" as const, label: "By card", value: summary.totals.cardCollected, hint: `${summary.totals.cardCount} payment${summary.totals.cardCount === 1 ? "" : "s"}` },
+                { key: "other" as const, label: "Other means", value: summary.totals.otherCollected, hint: "desk, POS, cash" },
+                { key: "paid" as const, label: "Total paid", value: summary.totals.totalPaid, hint: `of ${summary.totals.chargeableCount} chargeable` },
+                { key: "outstanding" as const, label: "Outstanding", value: summary.totals.outstanding, hint: "still unpaid" },
+              ]).map((t) => (
+                <button
+                  key={t.key}
+                  type="button"
+                  onClick={() => setDrill(t.key)}
+                  aria-pressed={drill === t.key}
+                  className={`rounded-xl border px-3 py-2 text-left transition ${
+                    drill === t.key
+                      ? "border-violet-400 bg-violet-50 ring-1 ring-violet-300"
+                      : "bg-muted/20 hover:border-violet-300 hover:bg-violet-50/40"
+                  }`}
+                >
+                  <p className="text-[11px] text-muted-foreground">{t.label}</p>
+                  <p className="mt-0.5 text-sm font-semibold tabular-nums">
+                    {formatMoney(t.value, summary.currency)}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground">{t.hint}</p>
+                </button>
+              ))}
+            </div>
+
+            {/* The reconciliation itself: card + other should equal total paid.
+                Stated rather than assumed, because they diverge if a request is
+                marked paid by staff after a card payment already covered it. */}
+            {Math.abs((summary.totals.cardCollected + summary.totals.otherCollected) - summary.totals.totalPaid) > 0.01 && (
+              <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+                Card and other means don’t add up to total paid — a charge may have been marked
+                paid manually after a card payment already covered it.
+              </p>
+            )}
+
+            {(() => {
+              // Card stays a list of Stripe checkouts — one payment can settle
+              // several charges, so collapsing it into charge rows would double
+              // count against the total above it.
+              if (drill === "card") {
+                return summary.payments.length === 0 ? (
+                  <p className="mt-4 text-xs text-muted-foreground">
+                    No card payments in the last {summary.sinceDays} days.
+                  </p>
+                ) : (
+                  <div className="mt-4 divide-y overflow-hidden rounded-xl border">
+                    {summary.payments.map((p) => (
+                      <div key={p.id} className="flex items-center justify-between gap-3 px-3 py-2">
+                        <div className="min-w-0">
+                          <p className="truncate text-xs font-medium">
+                            {p.roomLabel ? formatRoomLabel(p.roomLabel) : "Unknown area"}
+                            <span className="ml-1.5 font-normal text-muted-foreground">
+                              · {p.itemCount} item{p.itemCount === 1 ? "" : "s"}
+                            </span>
+                          </p>
+                          <p className="text-[10px] text-muted-foreground">
+                            {new Date(p.completedAt ?? p.createdAt).toLocaleString()}
+                            {p.fee != null && ` · fee ${formatMoney(p.fee, p.currency)}`}
+                          </p>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <p className="text-xs font-semibold tabular-nums">{formatMoney(p.amount, p.currency)}</p>
+                          <p className={`text-[10px] ${p.status === "complete" ? "text-emerald-700" : "text-muted-foreground"}`}>
+                            {p.status === "complete" ? "paid" : p.status}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              }
+
+              const rows = (summary.items ?? []).filter((i) =>
+                drill === "outstanding" ? !i.paid
+                  : drill === "paid" ? i.paid
+                  : i.paid && !i.settledByCard);
+              const empty = {
+                other: "Nothing was collected outside Stripe in this period.",
+                paid: "Nothing has been paid in this period.",
+                outstanding: "Nothing outstanding — every charge is settled.",
+              }[drill];
+
+              return rows.length === 0 ? (
+                <p className="mt-4 text-xs text-muted-foreground">{empty}</p>
+              ) : (
+                <>
+                  <div className="mt-4 divide-y overflow-hidden rounded-xl border">
+                    {rows.map((i) => (
+                      <div key={i.id} className="flex items-center justify-between gap-3 px-3 py-2">
+                        <div className="min-w-0">
+                          <p className="truncate text-xs font-medium">{i.summary}</p>
+                          <p className="text-[10px] text-muted-foreground">
+                            {i.roomLabel ? formatRoomLabel(i.roomLabel) : "Unknown area"}
+                            {" · "}{new Date(i.createdAt).toLocaleDateString()}
+                            {i.paid && i.settledByCard && " · card"}
+                          </p>
+                        </div>
+                        <p className={`shrink-0 text-xs font-semibold tabular-nums ${i.paid ? "" : "text-amber-700"}`}>
+                          {formatMoney(i.price, i.currency)}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                  {/* The cap is on the server; saying so beats a list that
+                      quietly stops short of the total above it. */}
+                  {rows.length >= 300 && (
+                    <p className="mt-2 text-[11px] text-muted-foreground">
+                      Showing the 300 most recent — the totals above cover the full period.
+                    </p>
+                  )}
+                </>
+              );
+            })()}
+          </>
+        )}
+      </div>
       <div className="rounded-2xl border bg-card p-5 shadow-sm">
         <div className="flex items-start gap-3">
           <CreditCard className="mt-0.5 h-5 w-5 shrink-0 text-violet-600" />
@@ -247,91 +392,6 @@ export default function PaymentsPanel({ hotel }: { hotel: Hotel }) {
               )}
             </div>
           </div>
-        )}
-      </div>
-
-      {/* Ledger: card takings next to what operations says was chargeable, so
-          "what did we actually collect" is answerable without exporting
-          anything or opening Stripe. */}
-      <div className="rounded-2xl border bg-card p-5 shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-sm font-semibold tracking-tight">Collected</h3>
-          <div className="flex gap-1">
-            {[7, 30, 90].map((d) => (
-              <Button
-                key={d} type="button" size="sm"
-                variant={sinceDays === d ? "default" : "ghost"}
-                className={`h-7 px-2.5 text-xs ${sinceDays === d ? "bg-violet-600 hover:bg-violet-700" : ""}`}
-                onClick={() => setSinceDays(d)}
-              >
-                {d}d
-              </Button>
-            ))}
-          </div>
-        </div>
-
-        {!summary ? (
-          <p className="mt-4 text-xs text-muted-foreground">No payment data yet.</p>
-        ) : (
-          <>
-            <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {[
-                { label: "By card", value: summary.totals.cardCollected, hint: `${summary.totals.cardCount} payment${summary.totals.cardCount === 1 ? "" : "s"}` },
-                { label: "Other means", value: summary.totals.otherCollected, hint: "desk, POS, cash" },
-                { label: "Total paid", value: summary.totals.totalPaid, hint: `of ${summary.totals.chargeableCount} chargeable` },
-                { label: "Outstanding", value: summary.totals.outstanding, hint: "still unpaid" },
-              ].map((t) => (
-                <div key={t.label} className="rounded-xl border bg-muted/20 px-3 py-2">
-                  <p className="text-[11px] text-muted-foreground">{t.label}</p>
-                  <p className="mt-0.5 text-sm font-semibold tabular-nums">
-                    {formatMoney(t.value, summary.currency)}
-                  </p>
-                  <p className="text-[10px] text-muted-foreground">{t.hint}</p>
-                </div>
-              ))}
-            </div>
-
-            {/* The reconciliation itself: card + other should equal total paid.
-                Stated rather than assumed, because they diverge if a request is
-                marked paid by staff after a card payment already covered it. */}
-            {Math.abs((summary.totals.cardCollected + summary.totals.otherCollected) - summary.totals.totalPaid) > 0.01 && (
-              <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
-                Card and other means don’t add up to total paid — a charge may have been marked
-                paid manually after a card payment already covered it.
-              </p>
-            )}
-
-            {summary.payments.length === 0 ? (
-              <p className="mt-4 text-xs text-muted-foreground">
-                No card payments in the last {summary.sinceDays} days.
-              </p>
-            ) : (
-              <div className="mt-4 divide-y overflow-hidden rounded-xl border">
-                {summary.payments.map((p) => (
-                  <div key={p.id} className="flex items-center justify-between gap-3 px-3 py-2">
-                    <div className="min-w-0">
-                      <p className="truncate text-xs font-medium">
-                        {p.roomLabel ? formatRoomLabel(p.roomLabel) : "Unknown area"}
-                        <span className="ml-1.5 font-normal text-muted-foreground">
-                          · {p.itemCount} item{p.itemCount === 1 ? "" : "s"}
-                        </span>
-                      </p>
-                      <p className="text-[10px] text-muted-foreground">
-                        {new Date(p.completedAt ?? p.createdAt).toLocaleString()}
-                        {p.fee != null && ` · fee ${formatMoney(p.fee, p.currency)}`}
-                      </p>
-                    </div>
-                    <div className="shrink-0 text-right">
-                      <p className="text-xs font-semibold tabular-nums">{formatMoney(p.amount, p.currency)}</p>
-                      <p className={`text-[10px] ${p.status === "complete" ? "text-emerald-700" : "text-muted-foreground"}`}>
-                        {p.status === "complete" ? "paid" : p.status}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </>
         )}
       </div>
 
