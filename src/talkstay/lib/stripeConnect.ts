@@ -29,7 +29,43 @@ export type StripeConnectStatus = {
   platformFeePercent: number;
   /** The property's own switch — card pay needs this AND chargesEnabled. */
   cardPaymentsEnabled: boolean;
+  /** Stripe can pay money out to their bank (separate from taking charges). */
+  payoutsEnabled: boolean;
+  /** Raw Stripe requirement keys still outstanding. */
+  requirementsDue: string[];
+  /** Outstanding AND past their deadline — these actively block the account. */
+  requirementsPastDue: string[];
+  /** Stripe's reason the account is restricted, when it gives one. */
+  disabledReason: string | null;
 };
+
+/** Stripe's requirement keys are API paths, not sentences. Translate the ones
+ *  that actually come up in Express onboarding; anything unmapped falls back to
+ *  a readable version of the key rather than being hidden, because a
+ *  requirement nobody can see is a requirement nobody completes. */
+export function describeRequirement(key: string): string {
+  const exact: Record<string, string> = {
+    "external_account": "Add the bank account payouts should go to",
+    "business_profile.url": "Add a business website or profile URL",
+    "business_profile.mcc": "Choose the business category",
+    "business_profile.product_description": "Describe what the business sells",
+    "individual.verification.document": "Upload photo ID for the account holder",
+    "individual.verification.additional_document": "Upload a second proof of identity",
+    "individual.id_number": "Provide the account holder's ID number",
+    "individual.dob.day": "Add the account holder's date of birth",
+    "individual.address.line1": "Add the account holder's address",
+    "company.tax_id": "Add the company tax or registration number",
+    "company.verification.document": "Upload a company registration document",
+    "company.directors_provided": "Confirm the company's directors",
+    "company.owners_provided": "Confirm the company's beneficial owners",
+    "tos_acceptance.date": "Accept Stripe's terms of service",
+    "settings.dashboard.display_name": "Set the name shown on customer statements",
+  };
+  if (exact[key]) return exact[key];
+  // person_xxx.verification.document → "Verification document for a person"
+  if (/^person_/.test(key)) return `Identity details for an owner or director (${key.split(".").slice(1).join(" ") || "details"})`;
+  return key.replace(/[._]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
 
 export type PaymentRow = {
   id: string; amount: number; currency: string;
@@ -76,6 +112,10 @@ export async function fetchStripeStatus(hotelId: string): Promise<StripeConnectS
     // Absent (older deployed function, or migration not applied) means on —
     // the switch is an opt-OUT, so a missing value must never read as "off".
     cardPaymentsEnabled: data.cardPaymentsEnabled !== false,
+    payoutsEnabled: !!data.payoutsEnabled,
+    requirementsDue: (data.requirementsDue as string[]) ?? [],
+    requirementsPastDue: (data.requirementsPastDue as string[]) ?? [],
+    disabledReason: (data.disabledReason as string) ?? null,
   };
 }
 
