@@ -94,8 +94,11 @@ export default function AdminSettings() {
   const [newEmail, setNewEmail] = useState("");
   const [newPct, setNewPct] = useState(String(DEFAULT_PARTNER_COMMISSION_PCT));
   const [saving, setSaving] = useState<string | null>(null);
-  // Basis points, as a string so the field can be emptied while typing.
-  const [feeBps, setFeeBps] = useState("250");
+  // Held as a percentage string because that's what the field shows and what a
+  // human reasons in. Basis points remain the stored and transmitted unit —
+  // an integer, so a money path never carries a float — and the conversion
+  // happens at the two edges: here on load, and on save.
+  const [feePct, setFeePct] = useState("2.5");
   const [missingTable, setMissingTable] = useState(false);
 
   const load = async () => {
@@ -110,7 +113,7 @@ export default function AdminSettings() {
       setSupport({ ...SUPPORT_DEFAULT, ...(s.support as object) });
       setPartners(applyPartnersSettings(s.partners));
       const pay = (s.payments ?? {}) as { application_fee_bps?: number };
-      setFeeBps(pay.application_fee_bps == null ? "250" : String(pay.application_fee_bps));
+      setFeePct(String((pay.application_fee_bps ?? 250) / 100));
     } catch (e: any) {
       toast.error(e.message);
     } finally {
@@ -422,7 +425,7 @@ export default function AdminSettings() {
             size="sm"
             disabled={saving === "payments"}
             onClick={() => void save("payments", {
-              application_fee_bps: Math.max(0, Math.min(3000, Number(feeBps) || 0)),
+              application_fee_bps: Math.max(0, Math.min(3000, Math.round((Number(feePct) || 0) * 100))),
             })}
           >
             {saving === "payments" ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Save className="mr-1.5 h-3.5 w-3.5" />}
@@ -430,27 +433,38 @@ export default function AdminSettings() {
           </Button>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Default fee (basis points)">
-            <Input
-              inputMode="numeric"
-              value={feeBps}
-              onChange={(e) => setFeeBps(e.target.value.replace(/[^0-9]/g, ""))}
-              placeholder="250"
-            />
+          <Field label="Default fee">
+            <div className="relative">
+              <Input
+                inputMode="decimal"
+                value={feePct}
+                // Digits and a single decimal point. Two decimals is the limit
+                // that survives the round-trip: 2.5% is 250bps, 2.55% is 255,
+                // and anything finer has nowhere to go.
+                onChange={(e) => {
+                  const cleaned = e.target.value.replace(/[^0-9.]/g, "").replace(/(\..*)\./g, "$1");
+                  const [whole, frac] = cleaned.split(".");
+                  setFeePct(frac === undefined ? whole : `${whole}.${frac.slice(0, 2)}`);
+                }}
+                placeholder="2.5"
+                className="pr-8 md:pr-8"
+              />
+              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">%</span>
+            </div>
           </Field>
           <div className="flex items-end">
             <p className="text-xs text-muted-foreground">
-              {feeBps.trim() === "" ? "Set a value — blank is not a fee." : (
-                <>Currently <strong>{(Number(feeBps) / 100).toFixed(2)}%</strong> per guest card payment.
-                {" "}A £20 order yields <strong>£{((Number(feeBps) / 10000) * 20).toFixed(2)}</strong> to TalkStay.</>
+              {feePct.trim() === "" || Number.isNaN(Number(feePct)) ? "Set a value — blank is not a fee." : (
+                <>A £20 order yields <strong>£{((Number(feePct) / 100) * 20).toFixed(2)}</strong> to TalkStay;
+                {" "}a £200 bill yields <strong>£{((Number(feePct) / 100) * 200).toFixed(2)}</strong>.</>
               )}
             </p>
           </div>
         </div>
         <p className="text-[11px] leading-relaxed text-muted-foreground">
-          A property with its own override on its detail page ignores this. Capped at 3000
-          (30%) when the charge is created. Changing this affects future payments only —
-          fees already taken are settled and are not recalculated.
+          A property with its own override on its detail page ignores this. Capped at 30%
+          when the charge is created. Changing this affects future payments only — fees
+          already taken are settled and are not recalculated.
         </p>
       </section>
 
