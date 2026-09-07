@@ -469,17 +469,23 @@ export default function HotelApp() {
   const tabParam = searchParams.get("tab");
   const hotelTypeHint = hotel?.branding?.property?.type;
   const navKeys = navForProperty(isRestaurantProperty(hotelTypeHint ?? null));
-  const initialNav: NavKey =
-    tabParam === "account" || navKeys.some((n) => n.key === tabParam)
-      ? (tabParam as NavKey)
-      : "operations";
+  /** The URL is the source of truth for which tab is open, so browser Back and
+   *  Forward move between tabs instead of leaving the app. Includes
+   *  communications, which is reachable from Account but no longer in NAV. */
+  const tabFromParam = (t: string | null): NavKey | null =>
+    t && (t === "account" || t === "communications" || navKeys.some((n) => n.key === t))
+      ? (t as NavKey)
+      : null;
+  const initialNav: NavKey = tabFromParam(tabParam) ?? "operations";
   const [active, setActive] = useState<NavKey>(initialNav);
   const [navOpen, setNavOpen] = useState(false);
   const [focusRequestId, setFocusRequestId] = useState<string | null>(null);
 
+  // Back/Forward change the URL, not our state — mirror the URL back into it,
+  // including the no-param case, which is the app's first history entry.
   useEffect(() => {
-    if (tabParam === "account") setActive("account");
-    if (tabParam === "payments") setActive("payments");
+    setActive(tabFromParam(tabParam) ?? "operations");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabParam]);
 
   // Stripe Connect return / refresh from Express onboarding.
@@ -505,6 +511,7 @@ export default function HotelApp() {
       const next = new URLSearchParams(searchParams);
       next.delete("stripe");
       next.delete("hotel");
+      next.set("tab", "payments");
       setSearchParams(next, { replace: true });
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -519,6 +526,7 @@ export default function HotelApp() {
     setActive("operations");
     const next = new URLSearchParams(searchParams);
     next.delete("request");
+    next.set("tab", "operations");
     setSearchParams(next, { replace: true });
   }, [requestParam]);  // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -651,11 +659,11 @@ export default function HotelApp() {
   const go = (k: NavKey) => {
     setActive(k);
     setNavOpen(false);
-    if (k === "account") {
-      setSearchParams({ tab: "account" }, { replace: true });
-    } else if (searchParams.get("tab")) {
-      setSearchParams({}, { replace: true });
-    }
+    const next = new URLSearchParams(searchParams);
+    next.set("tab", k);
+    // PUSH, not replace: every tab becomes its own history entry, so Back
+    // returns to the tab you came from rather than skipping the whole app.
+    setSearchParams(next, { replace: false });
   };
 
   const selectProperty = (p: AccessibleProperty) => {
