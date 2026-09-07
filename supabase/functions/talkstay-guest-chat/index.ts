@@ -1429,19 +1429,31 @@ serve(async (req) => {
       const venueDept = ctx.venueDepartment && active.includes(ctx.venueDepartment)
         ? ctx.venueDepartment
         : null;
-      // Never duty_manager by default — "explain this dish" must not page a
-      // manager, and it would train them to ignore the lane that exists for
+      // The property's own answer to "who goes when a guest just asks for
+      // someone?" — set in Departments. Read off branding, which loadContext
+      // already fetched, so choosing it costs no extra query.
+      const configured = String(
+        (ctx.branding as { callout_department?: unknown } | null)?.callout_department ?? "",
+      ).trim();
+      const configuredDept = configured && active.includes(configured) ? configured : null;
+
+      // Order: the area's own team, then the property's chosen team, then front
+      // desk. Never duty_manager by default — "explain this dish" must not page
+      // a manager, and it would train them to ignore the lane that exists for
       // real problems. Escalation by non-response covers that instead: priority
       // stays "high" so ts_auto_escalate() can promote it if nobody comes.
       const dept = venueDept
+        ?? configuredDept
         ?? (active.includes("front_desk") ? "front_desk" : (active[0] ?? "front_desk"));
       // A venue linked to a department the property later switched off would
       // otherwise vanish into a queue nobody watches. Say so on the ticket.
       const routeNote = ctx.venueDepartment && !venueDept
         ? ` · venue team "${ctx.venueDepartment}" is inactive, sent to ${dept}`
-        : (!venueDept && !active.includes("front_desk") && active.length
-          ? ` · no front desk active, sent to ${dept}`
-          : "");
+        : (configured && !configuredDept
+          ? ` · chosen team "${configured}" is inactive, sent to ${dept}`
+          : (!venueDept && !configuredDept && !active.includes("front_desk") && active.length
+            ? ` · no front desk active, sent to ${dept}`
+            : ""));
 
       // Where to walk to. guestStayLabel's shape, inlined because edge functions
       // can't import from src/: "Michael · Pool · Sunbed 4".
@@ -1517,12 +1529,12 @@ serve(async (req) => {
         is_complaint: false, is_chargeable: false,
         source: "staff_callout",
         guest_language: ctx.language, session_id: sessionId,
-        classification_method: venueDept ? "venue" : "fallback",
+        classification_method: venueDept ? "venue" : (configuredDept ? "configured" : "fallback"),
         // Only a PUBLIC venue with no department link is a routing guess worth
         // flagging — it surfaces "Check routing" in Operations and nudges the
         // property to link that QR. A private room going to the front desk is
         // the correct destination, not a guess, so it stays unflagged.
-        needs_triage: ctx.isPublic && !venueDept,
+        needs_triage: ctx.isPublic && !venueDept && !configuredDept,
       }).select("id").single();
       if (reqErr || !reqRow) return json({ error: reqErr?.message ?? "could not create" }, 500);
 
