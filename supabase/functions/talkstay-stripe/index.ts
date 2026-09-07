@@ -471,6 +471,9 @@ serve(async (req) => {
             createdAt: c.created_at,
             completedAt: c.completed_at,
             itemCount: (c.request_ids ?? []).length,
+            // Carried so a card payment covering exactly one charge can link
+            // straight to it; several charges have no single destination.
+            requestIds: (c.request_ids ?? []) as string[],
             fee: c.application_fee_amount == null ? null : money(c.application_fee_amount),
             roomLabel: room ? String(room.room_number) : null,
             isPublicArea: !!room?.is_public,
