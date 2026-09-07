@@ -1202,6 +1202,72 @@ export function addDemoGuestRequest(
   return { state: next, requestId: id };
 }
 
+/** Guest asked for a person, not a thing. Department is passed explicitly and
+ *  NOT run through resolveDemoDepartment() — that keyword-matches the summary,
+ *  and "asked for a team member" contains no routing words, so it would land
+ *  somewhere arbitrary. The demo room is private, so front desk is correct. */
+export function addDemoStaffCallout(
+  state: DemoState,
+  input?: { note?: string },
+): { state: DemoState; requestId: string } {
+  const id = `demo-callout-${Date.now()}`;
+  const note = (input?.note ?? "").trim().slice(0, 200);
+  const summary = `Guest asked for a team member at ${GUEST_DEMO_ROOM.room_number}${note ? ` — ${note}` : ""}`;
+  const req: OpsRequest = {
+    id,
+    room_id: GUEST_DEMO_ROOM.id,
+    department_key: "front_desk",
+    summary,
+    summary_staff: `Please go to Room ${GUEST_DEMO_ROOM.room_number}${note ? ` — ${note}` : ""}`,
+    status: "new",
+    // high, not urgent: mirrors production, where urgent would exclude the row
+    // from the auto-escalation sweep.
+    priority: "high",
+    is_complaint: false,
+    needs_triage: false,
+    guest_language: "en",
+    is_chargeable: false,
+    price: null,
+    currency: "GBP",
+    payment_status: null,
+    created_at: new Date().toISOString(),
+    source: "staff_callout",
+    ts_rooms: { room_number: GUEST_DEMO_ROOM.room_number },
+  };
+  const detail = seedDetail(req);
+  const next: DemoState = {
+    ...state,
+    requests: [req, ...state.requests],
+    details: { ...state.details, [id]: detail },
+    insights: {
+      ...state.insights,
+      requests: [
+        {
+          id: req.id,
+          room_id: req.room_id,
+          department_key: req.department_key,
+          summary: req.summary,
+          status: req.status,
+          is_complaint: false,
+          is_chargeable: false,
+          price: null,
+          payment_status: null,
+          classification_method: "demo_callout",
+          session_id: `demo-session-${id}`,
+          created_at: req.created_at,
+          updated_at: req.created_at,
+          ts_rooms: req.ts_rooms,
+        },
+        ...state.insights.requests,
+      ],
+    },
+    // Without this bump DemoContext refuses the update and it never reaches
+    // /demo/operations in the other tab.
+    version: state.version + 1,
+  };
+  return { state: next, requestId: id };
+}
+
 const OPEN_STATUSES = new Set(["new", "accepted", "in_progress", "on_the_way", "reopened", "escalated"]);
 
 /** Open tickets for a room — used by Log order duplicate checks in demo. */

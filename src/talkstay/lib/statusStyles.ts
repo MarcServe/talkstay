@@ -19,6 +19,7 @@ export type RequestStatus =
   | "guest_updated"
   | "guest_reminded"
   | "payment_requested"
+  | "staff_requested"
   | "guest_cancelled";
 
 type StatusTone = {
@@ -140,6 +141,15 @@ export const REQUEST_STATUS: Record<RequestStatus, StatusTone> = {
     card: "border-rose-200/50 bg-rose-100/35 border-l-[3px] border-l-rose-500",
     dot: "bg-rose-500",
     accent: "bg-rose-500",
+  },
+  staff_requested: {
+    // Amber like the other "guest is waiting on you" events, distinct from the
+    // rose used for complaints — someone standing there isn't a complaint yet.
+    label: "Guest asked for someone",
+    badge: "border border-amber-300/70 bg-amber-100/70 text-amber-950 backdrop-blur-sm",
+    card: "border-amber-300/50 bg-amber-100/40 border-l-[3px] border-l-amber-600",
+    dot: "bg-amber-600",
+    accent: "bg-amber-600",
   },
   payment_requested: {
     label: "Guest wants to pay now",
