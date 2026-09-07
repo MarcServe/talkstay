@@ -630,6 +630,25 @@ export async function updatePropertyProfile(
   return branding;
 }
 
+/** Which team answers when a guest just asks for someone (no venue link).
+ *
+ *  Stored in branding rather than its own column: loadContext already fetches
+ *  branding, so the guest path reads this with no extra query and no migration.
+ *  Merged, never overwritten — branding also holds the logo, colours and poster
+ *  config, and a careless write here would wipe them. */
+export async function setCalloutDepartment(
+  hotelId: string,
+  current: Record<string, unknown> | null | undefined,
+  departmentKey: string | null,
+): Promise<Record<string, unknown>> {
+  const branding = { ...(current ?? {}) } as Record<string, unknown>;
+  if (departmentKey) branding.callout_department = departmentKey;
+  else delete branding.callout_department;
+  const { error } = await supabase.from("ts_hotels").update({ branding }).eq("id", hotelId);
+  if (error) throw error;
+  return branding;
+}
+
 /**
  * Create a hotel + its linked assistant (for voice/KB reuse) + seed the 8
  * departments. All under the owner's session (RLS: user_id = auth.uid()).

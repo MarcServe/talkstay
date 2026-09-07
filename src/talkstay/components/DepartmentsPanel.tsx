@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { Loader2, Plus, Trash2, X, MapPin } from "lucide-react";
-import { listRooms, type Hotel, type Room } from "@/talkstay/lib/hotels";
+import { listRooms, setCalloutDepartment, type Hotel, type Room } from "@/talkstay/lib/hotels";
 import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
 
 interface StaffRow { id: string; user_id: string; name: string | null; email: string; department_key: string | null; room_id?: string | null; }
@@ -33,6 +33,8 @@ export default function DepartmentsPanel({ hotel }: { hotel: Hotel }) {
   const [newDept, setNewDept] = useState("");
   const [adding, setAdding] = useState(false);
   const [escPhone, setEscPhone] = useState("");
+  /** Which team answers a guest who just asks for someone. "" = Front Desk. */
+  const [calloutDept, setCalloutDept] = useState("");
   // Public QR areas double as the outlets staff can be assigned to.
   const [publicAreas, setPublicAreas] = useState<Room[]>([]);
   const [areaFor, setAreaFor] = useState<Record<string, string>>({});
@@ -51,6 +53,7 @@ export default function DepartmentsPanel({ hotel }: { hotel: Hotel }) {
     setDepts((data as Dept[]) ?? []);
     setRoster(((staffRes.data as any)?.staff as StaffRow[]) ?? []);
     setEscPhone((hotelRes.data as any)?.escalation_phone ?? "");
+    setCalloutDept(String((hotel.branding as { callout_department?: string } | null)?.callout_department ?? ""));
     // Two lists from one fetch, and they are not the same set:
     // `venues` are outlets wired to a department (menus and pricing hang off
     // these); `publicAreas` is every public QR area, which is what a staff
@@ -167,6 +170,28 @@ export default function DepartmentsPanel({ hotel }: { hotel: Hotel }) {
             <Plus className="mr-1 h-4 w-4" /> Add
           </Button>
         </form>
+        {/* Where a bare "please send someone" goes. A venue QR linked to a team
+            still wins — this is the answer for rooms, and for venues nobody
+            linked. */}
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">Room callouts go to:</span>
+          <Select
+            value={calloutDept || "front_desk"}
+            onValueChange={(v) => {
+              setCalloutDept(v);
+              setCalloutDepartment(hotel.id, hotel.branding as Record<string, unknown>, v)
+                .then(() => toast.success("Saved"))
+                .catch((e) => toast.error(e instanceof Error ? e.message : "Couldn't save"));
+            }}
+          >
+            <SelectTrigger className="h-8 w-52 text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {depts.filter((d) => d.is_active).map((d) => (
+                <SelectItem key={d.key} value={d.key}>{d.display_name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground">Escalation call:</span>
           <Input
