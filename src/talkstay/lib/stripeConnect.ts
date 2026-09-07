@@ -71,7 +71,7 @@ export type PaymentRow = {
   id: string; amount: number; currency: string;
   status: "open" | "complete" | "expired";
   createdAt: string; completedAt: string | null;
-  itemCount: number; fee: number | null;
+  itemCount: number; fee: number | null; requestIds: string[];
   roomLabel: string | null; isPublicArea: boolean;
 };
 

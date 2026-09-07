@@ -421,7 +421,7 @@ function Panel({ active, hotel, onHotel, departmentKey, focusRequestId, onOpenRe
       <InsightsPanel hotel={hotel} portfolioHotels={portfolioHotels} />
     );
     case "rooms": return <RoomsPanel hotel={hotel} onHotel={onHotel} />;
-    case "payments": return <PaymentsPanel hotel={hotel} />;
+    case "payments": return <PaymentsPanel hotel={hotel} onOpenRequest={onOpenRequest} />;
     case "branding": return (
       <BrandingPanel
         hotel={hotel}

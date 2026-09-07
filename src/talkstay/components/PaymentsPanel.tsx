@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { CreditCard, ExternalLink, Loader2, CheckCircle2, Unplug, ChevronDown } from "lucide-react";
+import { CreditCard, ExternalLink, Loader2, CheckCircle2, Unplug, ChevronDown, ChevronRight } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import type { Hotel } from "@/talkstay/lib/hotels";
 import {
@@ -22,7 +22,11 @@ import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
  * One-click Stripe Connect for the property — no API keys for the venue.
  * Once charges_enabled, guest Pay by card works for unpaid menu/orders.
  */
-export default function PaymentsPanel({ hotel }: { hotel: Hotel }) {
+export default function PaymentsPanel({ hotel, onOpenRequest }: {
+  hotel: Hotel;
+  /** Opens a charge in Operations with its detail sheet already showing. */
+  onOpenRequest?: (requestId: string) => void;
+}) {
   const [status, setStatus] = useState<StripeConnectStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -191,8 +195,24 @@ export default function PaymentsPanel({ hotel }: { hotel: Hotel }) {
                   </p>
                 ) : (
                   <div className="mt-4 divide-y overflow-hidden rounded-xl border">
-                    {summary.payments.map((p) => (
-                      <div key={p.id} className="flex items-center justify-between gap-3 px-3 py-2">
+                    {summary.payments.map((p) => {
+                      // A checkout can settle several charges at once; with more
+                      // than one there is no single request to open, so those
+                      // rows stay inert rather than picking one arbitrarily.
+                      const single = p.requestIds?.length === 1 ? p.requestIds[0] : null;
+                      const canOpen = !!(onOpenRequest && single);
+                      const Row = canOpen ? "button" : "div";
+                      return (
+                      <Row
+                        key={p.id}
+                        {...(canOpen
+                          ? { type: "button" as const, onClick: () => onOpenRequest!(single!),
+                              title: "Open this charge in Operations" }
+                          : {})}
+                        className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left ${
+                          canOpen ? "transition hover:bg-violet-50/60" : ""
+                        }`}
+                      >
                         <div className="min-w-0">
                           <p className="truncate text-xs font-medium">
                             {p.roomLabel ? formatRoomLabel(p.roomLabel) : "Unknown area"}
@@ -205,14 +225,18 @@ export default function PaymentsPanel({ hotel }: { hotel: Hotel }) {
                             {p.fee != null && ` · fee ${formatMoney(p.fee, p.currency)}`}
                           </p>
                         </div>
-                        <div className="shrink-0 text-right">
-                          <p className="text-xs font-semibold tabular-nums">{formatMoney(p.amount, p.currency)}</p>
-                          <p className={`text-[10px] ${p.status === "complete" ? "text-emerald-700" : "text-muted-foreground"}`}>
-                            {p.status === "complete" ? "paid" : p.status}
-                          </p>
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          <div className="text-right">
+                            <p className="text-xs font-semibold tabular-nums">{formatMoney(p.amount, p.currency)}</p>
+                            <p className={`text-[10px] ${p.status === "complete" ? "text-emerald-700" : "text-muted-foreground"}`}>
+                              {p.status === "complete" ? "paid" : p.status}
+                            </p>
+                          </div>
+                          {canOpen && <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
                         </div>
-                      </div>
-                    ))}
+                      </Row>
+                      );
+                    })}
                   </div>
                 );
               }
@@ -232,21 +256,36 @@ export default function PaymentsPanel({ hotel }: { hotel: Hotel }) {
               ) : (
                 <>
                   <div className="mt-4 divide-y overflow-hidden rounded-xl border">
-                    {rows.map((i) => (
-                      <div key={i.id} className="flex items-center justify-between gap-3 px-3 py-2">
-                        <div className="min-w-0">
-                          <p className="truncate text-xs font-medium">{i.summary}</p>
-                          <p className="text-[10px] text-muted-foreground">
-                            {i.roomLabel ? formatRoomLabel(i.roomLabel) : "Unknown area"}
-                            {" · "}{new Date(i.createdAt).toLocaleDateString()}
-                            {i.paid && i.settledByCard && " · card"}
-                          </p>
-                        </div>
-                        <p className={`shrink-0 text-xs font-semibold tabular-nums ${i.paid ? "" : "text-amber-700"}`}>
-                          {formatMoney(i.price, i.currency)}
-                        </p>
-                      </div>
-                    ))}
+                    {rows.map((i) => {
+                      const Row = onOpenRequest ? "button" : "div";
+                      return (
+                        <Row
+                          key={i.id}
+                          {...(onOpenRequest
+                            ? { type: "button" as const, onClick: () => onOpenRequest(i.id),
+                                title: "Open this charge in Operations" }
+                            : {})}
+                          className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left ${
+                            onOpenRequest ? "transition hover:bg-violet-50/60" : ""
+                          }`}
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate text-xs font-medium">{i.summary}</p>
+                            <p className="text-[10px] text-muted-foreground">
+                              {i.roomLabel ? formatRoomLabel(i.roomLabel) : "Unknown area"}
+                              {" · "}{new Date(i.createdAt).toLocaleDateString()}
+                              {i.paid && i.settledByCard && " · card"}
+                            </p>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-1.5">
+                            <p className={`text-xs font-semibold tabular-nums ${i.paid ? "" : "text-amber-700"}`}>
+                              {formatMoney(i.price, i.currency)}
+                            </p>
+                            {onOpenRequest && <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
+                          </div>
+                        </Row>
+                      );
+                    })}
                   </div>
                   {/* The cap is on the server; saying so beats a list that
                       quietly stops short of the total above it. */}
