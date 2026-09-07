@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { Loader2, Plus, Trash2, X, MapPin } from "lucide-react";
-import { listRooms, setCalloutDepartment, type Hotel, type Room } from "@/talkstay/lib/hotels";
+import { listRooms, setCalloutDepartment, setOwnerUrgentCopy, type Hotel, type Room } from "@/talkstay/lib/hotels";
 import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
 
 interface StaffRow { id: string; user_id: string; name: string | null; email: string; department_key: string | null; room_id?: string | null; }
@@ -35,6 +35,7 @@ export default function DepartmentsPanel({ hotel }: { hotel: Hotel }) {
   const [escPhone, setEscPhone] = useState("");
   /** Which team answers a guest who just asks for someone. "" = Front Desk. */
   const [calloutDept, setCalloutDept] = useState("");
+  const [ownerCopy, setOwnerCopy] = useState(true);
   // Public QR areas double as the outlets staff can be assigned to.
   const [publicAreas, setPublicAreas] = useState<Room[]>([]);
   const [areaFor, setAreaFor] = useState<Record<string, string>>({});
@@ -54,6 +55,7 @@ export default function DepartmentsPanel({ hotel }: { hotel: Hotel }) {
     setRoster(((staffRes.data as any)?.staff as StaffRow[]) ?? []);
     setEscPhone((hotelRes.data as any)?.escalation_phone ?? "");
     setCalloutDept(String((hotel.branding as { callout_department?: string } | null)?.callout_department ?? ""));
+    setOwnerCopy((hotel.branding as { owner_urgent_copy?: boolean } | null)?.owner_urgent_copy !== false);
     // Two lists from one fetch, and they are not the same set:
     // `venues` are outlets wired to a department (menus and pricing hang off
     // these); `publicAreas` is every public QR area, which is what a staff
@@ -191,6 +193,24 @@ export default function DepartmentsPanel({ hotel }: { hotel: Hotel }) {
               ))}
             </SelectContent>
           </Select>
+        </div>
+        <div className="flex items-center gap-2">
+          <Switch
+            checked={ownerCopy}
+            onCheckedChange={(v) => {
+              setOwnerCopy(v);
+              setOwnerUrgentCopy(hotel.id, hotel.branding as Record<string, unknown>, v)
+                .then(() => toast.success(v ? "You'll be copied on urgent alerts" : "You'll no longer be copied"))
+                .catch((e) => toast.error(e instanceof Error ? e.message : "Couldn't save"));
+            }}
+            aria-label="Copy me on urgent alerts"
+          />
+          <span className="text-xs text-muted-foreground">
+            Copy me on urgent alerts
+            <span className="ml-1 text-[11px] opacity-70">
+              (you're always told if nobody else would be)
+            </span>
+          </span>
         </div>
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground">Escalation call:</span>
