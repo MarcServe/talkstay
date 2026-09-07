@@ -161,9 +161,18 @@ serve(async (req) => {
     );
     for (const email of staffEmails) if (email) recipients.add(email);
 
-    // Fallback to owner if nobody else; always copy owner on complaints/urgent.
+    // The owner is the safety net when nobody else would be told — that stays
+    // unconditional. A property with no staff on a department must never have
+    // alerts vanish silently, so this line has no switch by design.
     if (recipients.size === 0 && ownerEmail) recipients.add(ownerEmail);
-    if (urgent && ownerEmail) recipients.add(ownerEmail);
+
+    // The copy-on-urgent is a preference, not a safety net: once a real team is
+    // staffed, a busy venue can page the owner all day for things the team is
+    // already handling. Default on, so nothing changes for anyone who hasn't
+    // asked; off only when the property deliberately turns it off.
+    const ownerCopyOn = (hotel?.branding as { owner_urgent_copy?: unknown } | null)
+      ?.owner_urgent_copy !== false;
+    if (urgent && ownerCopyOn && ownerEmail) recipients.add(ownerEmail);
 
     const results: Record<string, boolean> = {};
     await Promise.all([...recipients].map(async (to) => {

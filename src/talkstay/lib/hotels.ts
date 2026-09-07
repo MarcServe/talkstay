@@ -630,6 +630,24 @@ export async function updatePropertyProfile(
   return branding;
 }
 
+/** Copy the owner on urgent alerts. Default true.
+ *
+ *  Only affects the "also copy the owner because this is urgent" rule — the
+ *  owner still receives anything that would otherwise reach nobody, which is a
+ *  safety net rather than a preference and deliberately has no switch. */
+export async function setOwnerUrgentCopy(
+  hotelId: string,
+  current: Record<string, unknown> | null | undefined,
+  enabled: boolean,
+): Promise<Record<string, unknown>> {
+  const branding = { ...(current ?? {}) } as Record<string, unknown>;
+  if (enabled) delete branding.owner_urgent_copy;
+  else branding.owner_urgent_copy = false;
+  const { error } = await supabase.from("ts_hotels").update({ branding }).eq("id", hotelId);
+  if (error) throw error;
+  return branding;
+}
+
 /** Which team answers when a guest just asks for someone (no venue link).
  *
  *  Stored in branding rather than its own column: loadContext already fetches
