@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import {
-  ArrowLeft, Bell, Check, ClipboardList, Loader2, LogOut, Meh, MessageCircle,
+  ArrowLeft, Bell, BellRing, Check, ClipboardList, Loader2, LogOut, Meh, MessageCircle,
   Mic, MicOff, Pencil, Send, Smile, Frown, Star, X,
 } from "lucide-react";
 import { RealtimeChat } from "@/utils/RealtimeChat";
@@ -1011,6 +1011,21 @@ function DemoGuestInner() {
             <Send className="h-4 w-4" />
           </Button>
         </form>
+        {/* Same affordance as the live guest app — a person, not an order.
+            Purely local: handleMarketingDemo() rejects any action but
+            context/message, so this must never call the real endpoint. */}
+        <button
+          type="button"
+          onClick={() => {
+            const reqId = demo.addStaffCallout();
+            append({ role: "request", content: "Someone from the team is on the way.", reqId });
+          }}
+          className="flex w-full items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs text-muted-foreground transition hover:bg-muted/60 hover:text-foreground"
+        >
+          <BellRing className="h-3.5 w-3.5" />
+          Ask someone to come to your room
+        </button>
+
         <p className="text-center text-[10px] text-muted-foreground">
           <Link to="/demo/operations" className="underline underline-offset-2 hover:text-foreground">
             Open staff Operations demo

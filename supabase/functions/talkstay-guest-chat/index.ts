@@ -39,6 +39,9 @@ interface RoomCtx {
   pulseEnabled: boolean;
   /** Public QR (lobby/bar/spa…) — walk-in / non-resident location. */
   isPublic: boolean;
+  /** Department this Public QR venue belongs to, set when the venue was created
+   *  in Rooms & QR. Null for private rooms and for venues left unlinked. */
+  venueDepartment: string | null;
   /** Start of the CURRENT stay — the folio boundary, so a new browser session
    *  still sees this stay's bill and never a previous guest's. */
   checkedInAt: string | null;
@@ -169,7 +172,7 @@ async function resolveRoom(
   let room: any = null;
   {
     const withPublic = await admin.from("ts_rooms")
-      .select("id, room_number, occupancy_status, is_public, checked_in_at")
+      .select("id, room_number, occupancy_status, is_public, checked_in_at, department_key")
       .eq("id", roomId).maybeSingle();
     if (withPublic.error) {
       const base = await admin.from("ts_rooms")
@@ -222,6 +225,9 @@ async function resolveRoom(
     pulseEnabled: (hotel as any).pulse_enabled !== false,
     isPublic,
     checkedInAt: (room as any).checked_in_at ?? null,
+    // Undefined on the reduced-select fallback path above, which is fine —
+    // callers treat "no venue department" as "fall back to front desk".
+    venueDepartment: (room as any).department_key ?? null,
   };
 }
 
@@ -1402,6 +1408,133 @@ serve(async (req) => {
         owedTotal: priced.length ? total : null,
         currency,
       });
+    }
+
+    // ---- request_staff: guest asks for a person, not a thing ----
+    //
+    // The one gap the assistant couldn't cover. A guest at the pool bar who
+    // wants to ask about a dish, query a charge, or raise something awkward had
+    // no way to summon anyone — a room guest can at least ring reception.
+    // Deliberately not routed through the LLM: this is a fixed intent, and
+    // making someone wait on a model round-trip to be heard is the wrong shape.
+    if (action === "request_staff") {
+      if (!sessionId) return json({ error: "sessionId required" }, 400);
+      const note = String(body.note ?? "").trim().slice(0, 200);
+
+      // Route to whoever actually covers this spot, most specific first. The
+      // "still active" check matters: a venue can be linked to a department the
+      // property later switched off, and writing a dead key files the request
+      // into a queue nobody watches.
+      const active = ctx.departments;
+      const venueDept = ctx.venueDepartment && active.includes(ctx.venueDepartment)
+        ? ctx.venueDepartment
+        : null;
+      // Never duty_manager by default — "explain this dish" must not page a
+      // manager, and it would train them to ignore the lane that exists for
+      // real problems. Escalation by non-response covers that instead: priority
+      // stays "high" so ts_auto_escalate() can promote it if nobody comes.
+      const dept = venueDept
+        ?? (active.includes("front_desk") ? "front_desk" : (active[0] ?? "front_desk"));
+      // A venue linked to a department the property later switched off would
+      // otherwise vanish into a queue nobody watches. Say so on the ticket.
+      const routeNote = ctx.venueDepartment && !venueDept
+        ? ` · venue team "${ctx.venueDepartment}" is inactive, sent to ${dept}`
+        : (!venueDept && !active.includes("front_desk") && active.length
+          ? ` · no front desk active, sent to ${dept}`
+          : "");
+
+      // Where to walk to. guestStayLabel's shape, inlined because edge functions
+      // can't import from src/: "Michael · Pool · Sunbed 4".
+      const { data: sess } = await admin.from("ts_guest_sessions")
+        .select("guest_locator, guest_first_name")
+        .eq("hotel_id", ctx.hotelId).eq("session_id", sessionId).maybeSingle();
+      const spot = String((sess as any)?.guest_locator ?? "").trim();
+      const firstName = String((sess as any)?.guest_first_name ?? "").trim();
+      const place = formatRoomLabel(ctx.roomNumber);
+      const whereParts = [firstName ? firstName.charAt(0).toUpperCase() + firstName.slice(1) : "", place, spot]
+        .filter(Boolean);
+      const where = whereParts.join(" · ");
+
+      // A public QR is scanned by anyone walking past, and unlike "pay now" —
+      // which is self-limiting because you must owe money — this is a one-tap
+      // way to summon staff. Cap it per session per day, mirroring the pulse
+      // cap, so a bored passer-by can't run the team ragged.
+      const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const { count: calloutsToday } = await admin
+        .from("ts_service_requests").select("id", { count: "exact", head: true })
+        .eq("hotel_id", ctx.hotelId).eq("session_id", sessionId)
+        .eq("intent", "staff_callout").gte("created_at", dayAgo);
+      if ((calloutsToday ?? 0) >= 6) return json({ error: "too_many" }, 429);
+
+      // Already asked recently? Don't dispatch a second person — treat the tap
+      // as "I'm still waiting" and nudge the ticket that's already open.
+      // 3 minutes, not the 5 used for payment: a guest still waiting after five
+      // minutes is exactly the person who should be able to chase.
+      const sinceIso = new Date(Date.now() - 3 * 60 * 1000).toISOString();
+      const { data: openCallouts } = await admin.from("ts_service_requests")
+        .select("id, created_at")
+        .eq("hotel_id", ctx.hotelId).eq("session_id", sessionId)
+        .eq("intent", "staff_callout")
+        .in("status", ["new", "accepted", "in_progress", "on_the_way", "reopened", "escalated"])
+        .order("created_at", { ascending: false }).limit(1);
+      const openCallout = (openCallouts ?? [])[0] as { id: string; created_at: string } | undefined;
+
+      if (openCallout) {
+        // A genuine double-tap inside a minute is not an error and must not
+        // dispatch anyone twice — answer OK and stay quiet. Returning a failure
+        // here is how guests learn to tap five times.
+        const ageMs = Date.now() - new Date(openCallout.created_at).getTime();
+        if (ageMs < 60_000 && !note) {
+          return json({ ok: true, requestId: openCallout.id, repeated: true, alreadyOpen: true, department: dept });
+        }
+        const { data: recent } = await admin.from("ts_request_events")
+          .select("id").eq("request_id", openCallout.id)
+          .eq("status", "staff_requested").eq("actor_type", "guest")
+          .gte("created_at", sinceIso).limit(1);
+        if (recent?.length) return json({ error: "too_soon", retryAfterMin: 3 }, 429);
+
+        await admin.from("ts_request_events").insert({
+          request_id: openCallout.id, status: "staff_requested", actor_type: "guest",
+          note: (note || "Guest asked again for someone to come over").slice(0, 280),
+        }).then(() => {}, () => {});
+        await admin.from("ts_service_requests")
+          .update({ priority: "urgent" }).eq("id", openCallout.id).then(() => {}, () => {});
+        admin.functions.invoke("talkstay-notify", {
+          body: { requestId: openCallout.id, event: "staff_requested", note },
+        }).catch(() => {});
+        return json({ ok: true, requestId: openCallout.id, repeated: true, department: dept });
+      }
+
+      const summary = `Guest asked for a team member at ${place}`
+        + (spot ? ` · ${spot}` : "")
+        + (note ? ` — ${note}` : "");
+      const { data: reqRow, error: reqErr } = await admin.from("ts_service_requests").insert({
+        hotel_id: ctx.hotelId, room_id: ctx.roomId, department_key: dept,
+        intent: "staff_callout",
+        summary: summary.slice(0, 500),
+        summary_staff: `Please go to ${where}${note ? ` — ${note}` : ""}${routeNote}`.slice(0, 500),
+        status: "new", priority: "high",
+        is_complaint: false, is_chargeable: false,
+        source: "staff_callout",
+        guest_language: ctx.language, session_id: sessionId,
+        classification_method: venueDept ? "venue" : "fallback",
+        // Only a PUBLIC venue with no department link is a routing guess worth
+        // flagging — it surfaces "Check routing" in Operations and nudges the
+        // property to link that QR. A private room going to the front desk is
+        // the correct destination, not a guess, so it stays unflagged.
+        needs_triage: ctx.isPublic && !venueDept,
+      }).select("id").single();
+      if (reqErr || !reqRow) return json({ error: reqErr?.message ?? "could not create" }, 500);
+
+      await admin.from("ts_request_events").insert({
+        request_id: reqRow.id, status: "staff_requested", actor_type: "guest",
+        note: note || null,
+      }).then(() => {}, () => {});
+      admin.functions.invoke("talkstay-notify", {
+        body: { requestId: reqRow.id, event: "staff_requested", note },
+      }).catch(() => {});
+
+      return json({ ok: true, requestId: reqRow.id, repeated: false, department: dept, summary });
     }
 
     // ---- staff_messages: human replies from staff for this session's requests ----

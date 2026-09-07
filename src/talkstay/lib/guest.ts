@@ -315,6 +315,25 @@ export async function requestPaymentNow(args: {
   return data as { ok: true; unpaidCount: number; owedTotal: number | null; currency: string };
 }
 
+/** Ask a team member to come to the guest — a person, not an order.
+ *
+ *  Tapping twice does NOT dispatch twice: the server nudges the callout that is
+ *  already open, and refuses entirely within five minutes (`too_soon`). */
+export async function requestStaff(args: {
+  hotelSlug: string; roomId: string; token: string; sessionId: string;
+  /** Optional one-liner. Never required — the tap alone is the request. */
+  note?: string;
+}) {
+  const { data, error } = await fn({ action: "request_staff", ...args });
+  if (error) throw await realError(error);
+  if ((data as any)?.error) throw new Error((data as any).error);
+  return data as {
+    ok: true; requestId: string; repeated: boolean; department: string;
+    /** True when a double-tap was absorbed — nobody was dispatched twice. */
+    alreadyOpen?: boolean; summary?: string;
+  };
+}
+
 /** Store where this guest device wants email updates for their stay. */
 export async function saveGuestContact(args: {
   hotelSlug: string; roomId: string; token: string; sessionId: string;

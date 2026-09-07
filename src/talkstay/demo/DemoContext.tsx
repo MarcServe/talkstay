@@ -12,6 +12,7 @@ import {
   ackDemoPulse,
   addDemoGuestPulse,
   addDemoGuestRequest,
+  addDemoStaffCallout,
   addDemoKnowledge,
   addDemoRoom,
   addDemoStaff,
@@ -100,6 +101,7 @@ export type DemoApi = {
   ) => void;
   /** Guest demo → ops queue. Returns the new request id. */
   addGuestRequest: (input: { summary: string; department?: string }) => string;
+  addStaffCallout: (input?: { note?: string }) => string;
   /** Staff phone/walk-in log with duplicate guard. */
   logStaffOrder: (input: {
     roomId: string;
@@ -300,6 +302,15 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     });
     return id;
   }, []);
+  const addStaffCallout = useCallback((input?: { note?: string }) => {
+    let id = "";
+    setState((s) => {
+      const out = addDemoStaffCallout(s, input);
+      id = out.requestId;
+      return out.state;
+    });
+    return id;
+  }, []);
   const listOpenForRoom = useCallback((roomId: string) => listDemoOpenForRoom(state, roomId), [state]);
   const logStaffOrder = useCallback((input: {
     roomId: string;
@@ -388,6 +399,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     removeKnowledge,
     updateKnowledge,
     addGuestRequest,
+    addStaffCallout,
     logStaffOrder,
     listOpenForRoom,
     guestConfirm,
@@ -405,7 +417,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     state, advance, setBilling, escalate, addNote, assignHandler, forwardRequest, reply, ackPulse, updateBranding,
     addRoom, removeRoom, toggleRoomOccupancy, setRoomPublic, setRequireCheckinCode, regenerateCheckinCode,
     addStaff, removeStaff, assignStaffDepartment, toggleDepartment, patchDepartment,
-    addKnowledge, removeKnowledge, updateKnowledge, addGuestRequest, logStaffOrder, listOpenForRoom,
+    addKnowledge, removeKnowledge, updateKnowledge, addGuestRequest, addStaffCallout, logStaffOrder, listOpenForRoom,
     guestConfirm, guestReopen, guestCancel, guestNudge, guestRequestPayment, guestSetPaymentTiming,
     guestUpdate, guestRate, guestPulse,
     reset,

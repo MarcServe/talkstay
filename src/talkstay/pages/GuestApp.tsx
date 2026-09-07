@@ -516,6 +516,38 @@ function GuestAppInner({ hotelSlug, roomId, token }: { hotelSlug: string; roomId
     if (auto) append({ role: "notice", content: "Voice paused after a quiet moment — tap the mic to carry on." });
   };
 
+  const [calloutBusy, setCalloutBusy] = useState(false);
+
+  /** Ask a team member to come over. One tap sends — no form, no reason picker.
+   *  The optional note is offered afterwards, on the confirmation chip. */
+  const callStaffOver = async (note?: string) => {
+    setCalloutBusy(true);
+    try {
+      const { requestStaff } = await import("@/talkstay/lib/guest");
+      const res = await requestStaff({ hotelSlug, roomId, token, sessionId: sid, note });
+      append({
+        role: "request",
+        content: res.alreadyOpen
+          ? "Already asked — someone's on the way."
+          : "Someone from the team is on the way.",
+      });
+      // Same moment the menu uses: if we don't know how to reach them (or where
+      // they're sitting), this is when it actually matters.
+      if (!getNotifyChoice(sid)) setNotifyOpen(true);
+    } catch (e: any) {
+      const msg = String(e?.message ?? e?.code ?? "");
+      toast.error(
+        msg.includes("too_soon")
+          ? "You've just asked — someone's coming."
+          : msg.includes("too_many")
+            ? "That's been asked a few times already. Please speak to the team directly."
+            : "Couldn't reach the team. Please try again.",
+      );
+    } finally {
+      setCalloutBusy(false);
+    }
+  };
+
   const toggleVoice = () => (voiceState === "idle" ? startVoice() : stopVoice());
 
   // Pulse check eligibility — never interrupt someone mid-request or mid-type.
@@ -899,6 +931,22 @@ function GuestAppInner({ hotelSlug, roomId, token }: { hotelSlug: string; roomId
             <Send className="h-4 w-4" />
           </Button>
         </form>
+
+        {/* Ask for a PERSON, not a thing — the one need the assistant can't
+            meet. Deliberately here rather than the header (already three
+            buttons wide at max-w-md) or the voice strip (competes with the
+            mic), and as its own row so it never steals transcript height. */}
+        <button
+          type="button"
+          onClick={() => void callStaffOver()}
+          disabled={calloutBusy}
+          className="mt-1.5 flex w-full items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs text-muted-foreground transition hover:bg-muted/60 hover:text-foreground disabled:opacity-60"
+        >
+          {calloutBusy
+            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            : <BellRing className="h-3.5 w-3.5" />}
+          {ctx.isPublic ? "Ask someone to come over" : "Ask someone to come to your room"}
+        </button>
       </div>
 
       {notifyOpen && (

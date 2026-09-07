@@ -91,12 +91,15 @@ export default function RequestDetailSheet({
 
   const guestSignal = useMemo(() => {
     const e = [...events].reverse().find((ev) =>
-      ["guest_updated", "guest_reminded", "guest_cancelled", "updated", "payment_requested"].includes(ev.status)
+      ["guest_updated", "guest_reminded", "guest_cancelled", "updated", "payment_requested", "staff_requested"].includes(ev.status)
       || (ev.status === "escalated" && ev.actor_type === "guest")
     );
     if (!e) return null;
     const kind =
-      e.status === "payment_requested" || (e.note ?? "").toLowerCase().includes("pay now") || (e.note ?? "").toLowerCase().includes("collect payment")
+      // Someone is physically waiting — the most time-critical signal here.
+      e.status === "staff_requested"
+        ? "callout"
+        : e.status === "payment_requested" || (e.note ?? "").toLowerCase().includes("pay now") || (e.note ?? "").toLowerCase().includes("collect payment")
         ? "payment"
         : e.status === "guest_updated" || e.status === "updated" || (e.note ?? "").toLowerCase().includes("updated")
           ? "update"
@@ -460,7 +463,7 @@ export default function RequestDetailSheet({
                     ? "border-amber-300 bg-amber-50 text-amber-950"
                     : guestSignal.kind === "cancel"
                       ? "border-slate-300 bg-slate-50 text-slate-800"
-                      : guestSignal.kind === "payment"
+                      : guestSignal.kind === "payment" || guestSignal.kind === "callout"
                         ? "border-amber-400 bg-amber-50 text-amber-950"
                         : "border-rose-200 bg-rose-50 text-rose-900"
                 }`}
@@ -473,7 +476,9 @@ export default function RequestDetailSheet({
                       ? "✕ Guest cancelled this order"
                       : guestSignal.kind === "payment"
                         ? "💷 Guest wants to pay now — collect in the room"
-                        : "⚠ Guest followed up"}
+                        : guestSignal.kind === "callout"
+                          ? "🙋 Guest asked for someone to come to them"
+                          : "⚠ Guest followed up"}
                 {guestSignal.note ? ` — "${guestSignal.note}"` : ""}
               </div>
             )}
