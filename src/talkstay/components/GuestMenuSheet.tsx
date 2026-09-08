@@ -69,6 +69,13 @@ export default function GuestMenuSheet({
   );
   const cartCurrency = cartLines[0]?.item.currency ?? "GBP";
   const cartCount = cartLines.reduce((n, l) => n + l.qty, 0);
+  /** Distinct teams in the cart. One bartender carrying one tray needs no
+   *  instruction, so the "bring it together" option only appears above one. */
+  const cartDepts = useMemo(
+    () => [...new Set(cartLines.map(({ item }) => item.departmentKey))],
+    [cartLines],
+  );
+  const [together, setTogether] = useState(true);
 
   const setQty = (id: string, qty: number) => {
     setCart((prev) => {
@@ -89,6 +96,7 @@ export default function GuestMenuSheet({
         token,
         sessionId,
         items: cartLines.map(({ item, qty }) => ({ id: item.id, qty })),
+        together: cartDepts.length > 1 ? together : undefined,
       });
       toast.success(res.reply);
       onOrdered(res.requests.map((r) => r.summary));
@@ -232,6 +240,25 @@ export default function GuestMenuSheet({
                 {cartTotal > 0 ? formatMoney(cartTotal, cartCurrency) : "—"}
               </span>
             </div>
+            {/* Only when two teams are involved — the kitchen and the bar can't
+                see each other's tickets, so this is the only way the guest can
+                say "please don't bring the drinks ten minutes early". */}
+            {cartDepts.length > 1 && (
+              <label className="mb-2 flex cursor-pointer items-start gap-2 rounded-lg border bg-muted/30 px-3 py-2">
+                <input
+                  type="checkbox"
+                  checked={together}
+                  onChange={(e) => setTogether(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 shrink-0 rounded border"
+                />
+                <span className="text-xs leading-snug">
+                  <span className="font-medium">Bring it all together</span>
+                  <span className="block text-muted-foreground">
+                    Your food and drinks arrive at the same time, rather than whichever is ready first.
+                  </span>
+                </span>
+              </label>
+            )}
             <Button
               type="button"
               className="h-11 w-full text-white"

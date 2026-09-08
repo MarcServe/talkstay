@@ -126,9 +126,10 @@ function InAppViewer({ target, brand, onClose }: { target: ViewerTarget; brand: 
 }
 
 function GuestInfoCard({
-  card, brand, onOpen,
+  card, brand, onOpen, onOpenMenu,
 }: {
   card: GuestCard; brand: string; onOpen: (t: ViewerTarget) => void;
+  onOpenMenu?: () => void;
 }) {
   const hasBody = (card.sections?.length ?? 0) > 0 || (card.links?.length ?? 0) > 0 || (card.images?.length ?? 0) > 0;
   if (!hasBody && !card.title) return null;
@@ -181,6 +182,19 @@ function GuestInfoCard({
               </button>
             ))}
           </div>
+        )}
+        {card.action === "open_menu" && onOpenMenu && (
+          /* A menu shown in chat should be one tap from ordering — otherwise
+             the guest has to go find the header button and start again. */
+          <Button
+            type="button"
+            size="sm"
+            className="w-full"
+            style={{ backgroundColor: brand }}
+            onClick={onOpenMenu}
+          >
+            <UtensilsCrossed className="mr-1.5 h-3.5 w-3.5" /> Open menu to order
+          </Button>
         )}
         {!!card.links?.length && (
           <div className="flex flex-wrap gap-2 pt-0.5">
@@ -770,21 +784,29 @@ function GuestAppInner({ hotelSlug, roomId, token }: { hotelSlug: string; roomId
         )}
         <div className="min-w-0 flex-1 text-left">
           <h1 className="truncate text-sm font-bold leading-tight">{ctx.hotelName}</h1>
-          <p className="truncate text-xs text-muted-foreground">
-            {formatRoomLabel(ctx.roomNumber)}
-            {restaurantMode ? " · Table" : ctx.isPublic ? " · Venue" : " · Voice Stay"}
+          {/* The room number is the one thing on this screen a guest may need to
+              read out — to staff, or to check they scanned their own door. The
+              property name may truncate; the room number sits outside the
+              truncating span so it never does. */}
+          <p className="flex items-baseline gap-1 text-xs text-muted-foreground">
+            <span className="shrink-0 font-medium text-foreground">
+              {formatRoomLabel(ctx.roomNumber)}
+            </span>
+            <span className="truncate">
+              {restaurantMode ? "· Table" : ctx.isPublic ? "· Venue" : "· Voice Stay"}
+            </span>
           </p>
         </div>
         <Button variant="outline" size="sm" className="h-8 shrink-0 px-2.5 text-xs" onClick={() => setMenuOpen(true)}>
-          <UtensilsCrossed className="mr-1 h-3.5 w-3.5" /> Menu
+          <UtensilsCrossed className="h-3.5 w-3.5 sm:mr-1" /> <span className="hidden sm:inline">Menu</span>
         </Button>
         <Button variant="outline" size="sm" className="h-8 shrink-0 px-2.5 text-xs" onClick={() => setRequestsOpen(true)}>
-          <ClipboardList className="mr-1 h-3.5 w-3.5" /> {restaurantMode ? "Orders" : "Requests"}
+          <ClipboardList className="h-3.5 w-3.5 sm:mr-1" /> <span className="hidden sm:inline">{restaurantMode ? "Orders" : "Requests"}</span>
         </Button>
         {showStayCheckout && (
           <Button variant="outline" size="sm" className="h-8 shrink-0 px-2.5 text-xs" asChild>
             <Link to={`${guestStayPath(hotelSlug, roomId, "checkout")}?token=${encodeURIComponent(token)}`}>
-              <LogOut className="mr-1 h-3.5 w-3.5" /> Checkout
+              <LogOut className="h-3.5 w-3.5 sm:mr-1" /> <span className="hidden sm:inline">Checkout</span>
             </Link>
           </Button>
         )}
@@ -882,7 +904,10 @@ function GuestAppInner({ hotelSlug, roomId, token }: { hotelSlug: string; roomId
               >
                 {m.content}
                 {m.role === "assistant" && m.cards?.map((card, ci) => (
-                  <GuestInfoCard key={ci} card={card} brand={brand} onOpen={setViewer} />
+                  <GuestInfoCard
+                    key={ci} card={card} brand={brand}
+                    onOpen={setViewer} onOpenMenu={() => setMenuOpen(true)}
+                  />
                 ))}
               </div>
             </div>
