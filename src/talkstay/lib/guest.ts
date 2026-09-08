@@ -38,6 +38,9 @@ export interface GuestCard {
   sections?: { title: string; items: string[] }[];
   links?: { label: string; url: string }[];
   images?: { url: string; alt?: string }[];
+  /** Set when the card is actionable. "open_menu" = the assistant showed the
+   *  orderable menu, so the card offers the same sheet the Menu button opens. */
+  action?: "open_menu";
 }
 
 export interface ChatMsg { role: "user" | "assistant"; content: string; cards?: GuestCard[]; }
@@ -188,6 +191,9 @@ export async function fetchGuestMenu(args: {
 export async function orderGuestMenuItems(args: {
   hotelSlug: string; roomId: string; token: string; sessionId: string;
   items: { id: string; qty: number }[];
+  /** Ask the teams to coordinate so food and drinks arrive at the same time.
+   *  Only meaningful when the order spans more than one department. */
+  together?: boolean;
 }): Promise<{
   ok: true;
   reply: string;

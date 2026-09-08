@@ -168,19 +168,34 @@ export default function LogOrderDialog({
     return () => { cancelled = true; };
   }, [hotel.id, activeDept, roomId, demo]);
 
-  // This outlet's price beats the department-wide one for the same item, so the
-  // bar only ever sees one "House Red" — the price that applies where the order
-  // is being taken. Showing both was a genuine hazard: two identical chips at
-  // different prices and no way to tell which is which.
+  // The most specific row for where this order is being taken wins, so the bar
+  // only ever sees one "House Red" — the price that applies here. Showing both
+  // was a genuine hazard: two identical chips at different prices and no way to
+  // tell which is which. Same precedence the guest's own menu uses, so staff
+  // and guest are never quoting each other different figures.
   const menu = useMemo(() => {
-    const byKey = new Map<string, CatalogItem>();
+    const where = roomId ? rooms.find((r) => r.id === roomId) : undefined;
+    // Until they've picked a location there is no scope to judge against, so
+    // show the whole department rather than silently hiding half of it.
+    const kind = !roomId ? null : where?.is_public ? "public" : "rooms";
+    const rank = (i: CatalogItem): number => {
+      const avail = i.availability ?? "everywhere";
+      if (i.outlet_room_id) return !roomId ? 1 : i.outlet_room_id === roomId ? 3 : 0;
+      if (!kind) return 1;
+      if (avail === kind) return 2;
+      if (avail === "everywhere") return 1;
+      return 0;
+    };
+    const byKey = new Map<string, { item: CatalogItem; rank: number }>();
     for (const i of items) {
+      const score = rank(i);
+      if (!score) continue;
       const k = menuItemKey(i.name);
       const held = byKey.get(k);
-      if (!held || (i.outlet_room_id && !held.outlet_room_id)) byKey.set(k, i);
+      if (!held || score > held.rank) byKey.set(k, { item: i, rank: score });
     }
-    return [...byKey.values()];
-  }, [items]);
+    return [...byKey.values()].map((v) => v.item);
+  }, [items, rooms, roomId]);
 
   const visibleMenu = useMemo(() => {
     const q = itemQuery.trim().toLowerCase();

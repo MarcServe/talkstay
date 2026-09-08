@@ -85,6 +85,12 @@ function routingGuideFor(meta: { key: string; display_name: string }[]): string 
   return `${BUILTIN_ROUTING_GUIDE}. CUSTOM TEAMS (use these keys when the ask matches): ${extras}`;
 }
 
+/** A department's guest-facing name, falling back to a readable key. */
+function deptNameOf(meta: { key: string; display_name: string }[], key: string): string {
+  return meta.find((d) => d.key === key)?.display_name
+    ?? key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 function deptListForPrompt(meta: { key: string; display_name: string }[], keys: string[]): string {
   if (meta.length) {
     return meta.map((d) => `${d.key} (“${d.display_name}”)`).join(", ");
@@ -279,7 +285,80 @@ type GuestCard = {
   sections?: { title: string; items: string[] }[];
   links?: { label: string; url: string }[];
   images?: { url: string; alt?: string }[];
+  /** Marks a card the guest can act on. "open_menu" renders the button that
+   *  opens the same Menu sheet the header button opens — so a menu shown in
+   *  chat is one tap from ordering, not a dead end the guest has to re-find. */
+  action?: "open_menu";
 };
+
+/** THE menu: the orderable catalog, resolved for exactly one guest.
+ *
+ *  This is the single loader behind the Menu button, the prices the assistant
+ *  may quote, AND the menu it shows in chat. They used to be different sources
+ *  — the button read this table while chat answered from uploaded documents —
+ *  so a property that changed a price here had a guest quoted the old one.
+ *
+ *  Two rules, and both exist because a menu is not one list:
+ *
+ *  SCOPE. An item says where it may be ordered: 'rooms', 'public', or
+ *  'everywhere'. Without this every department-wide item reached every guest,
+ *  so an in-room guest was offered the poolside cocktail list.
+ *
+ *  PRECEDENCE. For one item name, the most specific row wins and the others
+ *  disappear: this outlet's own row, then one scoped to this guest's kind, then
+ *  the everywhere row. They used to be returned all together, so a bar with its
+ *  own Aperol price showed Aperol twice at two prices. */
+async function loadGuestCatalog(admin: any, hotelId: string, roomId: string, isPublic: boolean): Promise<{
+  id: string; name: string; price: number | null; currency: string;
+  departmentKey: string; outletRoomId: string | null; availability: string;
+}[]> {
+  const base = () => admin
+    .from("ts_catalog_items")
+    .eq("hotel_id", hotelId)
+    .eq("is_active", true)
+    .order("sort_order")
+    .order("name");
+
+  let res = await base().select("id, department_key, name, price, currency, outlet_room_id, sort_order, availability");
+  if (res.error) {
+    // The availability column may not be migrated yet. Retry on the columns
+    // that have always existed rather than trusting the error text to name the
+    // culprit — an empty menu is a far worse outcome than an unscoped one, and
+    // every row then reads as 'everywhere', exactly the previous behaviour.
+    res = await base().select("id, department_key, name, price, currency, outlet_room_id, sort_order");
+    if (res.error) return [];
+  }
+  const rows = (res.data ?? []) as any[];
+
+  const kind = isPublic ? "public" : "rooms";
+  // Rank: higher wins for the same item name. 0 is "does not apply here".
+  const rank = (r: any): number => {
+    const avail = r.availability ?? "everywhere";
+    if (r.outlet_room_id) return r.outlet_room_id === roomId ? 3 : 0; // another venue's list
+    if (avail === kind) return 2;
+    if (avail === "everywhere") return 1;
+    return 0; // scoped to the other kind of guest
+  };
+
+  const best = new Map<string, { r: any; rank: number }>();
+  for (const r of rows) {
+    const score = rank(r);
+    if (!score) continue;
+    const key = `${r.department_key}::${String(r.name).trim().toLowerCase()}`;
+    const held = best.get(key);
+    if (!held || score > held.rank) best.set(key, { r, rank: score });
+  }
+
+  return [...best.values()].map(({ r }) => ({
+    id: r.id,
+    name: r.name,
+    price: r.price,
+    currency: r.currency || "GBP",
+    departmentKey: r.department_key,
+    outletRoomId: r.outlet_room_id ?? null,
+    availability: r.availability ?? "everywhere",
+  }));
+}
 
 function parseCardMeta(content: string): any | null {
   const m = String(content ?? "").match(/\[\[ts-card\]\]([\s\S]*?)\[\[\/ts-card\]\]/i);
@@ -946,26 +1025,7 @@ serve(async (req) => {
 
     // ---- list_menu: guest-facing digital menu from ts_catalog_items ----
     if (action === "list_menu") {
-      // Prefer this venue's outlet items + shared (null outlet). Fall back to all active.
-      let q = admin
-        .from("ts_catalog_items")
-        .select("id, department_key, name, price, currency, outlet_room_id, sort_order")
-        .eq("hotel_id", ctx.hotelId)
-        .eq("is_active", true)
-        .order("sort_order")
-        .order("name");
-      const { data, error } = await q;
-      if (error) {
-        // Table / column may be missing on older DBs.
-        return json({ items: [], departments: [], outlets: [] });
-      }
-      const all = (data ?? []) as {
-        id: string; department_key: string; name: string; price: number | null;
-        currency: string; outlet_room_id: string | null;
-      }[];
-      // Prefer items for this Public QR outlet + shared; if none, show whole property menu.
-      const forOutlet = all.filter((i) => !i.outlet_room_id || i.outlet_room_id === ctx.roomId);
-      const items = forOutlet.length ? forOutlet : all;
+      const items = await loadGuestCatalog(admin, ctx.hotelId, ctx.roomId, !!ctx.isPublic);
 
       const { data: depts } = await admin
         .from("ts_departments")
@@ -982,15 +1042,10 @@ serve(async (req) => {
 
       return json({
         items: items.map((i) => ({
-          id: i.id,
-          name: i.name,
-          price: i.price,
-          currency: i.currency || "GBP",
-          departmentKey: i.department_key,
-          departmentName: deptMap.get(i.department_key) || i.department_key,
-          outletRoomId: i.outlet_room_id,
+          ...i,
+          departmentName: deptMap.get(i.departmentKey) || i.departmentKey,
         })),
-        departments: [...new Set(items.map((i) => i.department_key))].map((k) => ({
+        departments: [...new Set(items.map((i) => i.departmentKey))].map((k) => ({
           key: k,
           name: deptMap.get(k) || k,
         })),
@@ -1018,21 +1073,47 @@ serve(async (req) => {
         .eq("is_active", true);
       const byId = new Map((catalog ?? []).map((c: any) => [c.id, c]));
 
-      const created: any[] = [];
+      // One ticket per DEPARTMENT, not per item. Two drinks tapped together are
+      // one trip for one bartender; splitting them made the bar accept, carry
+      // and complete the same journey twice, and gave the guest two lines on
+      // their folio for a single round. Items still can't merge across teams —
+      // the kitchen and the bar fulfil separately — so the grouping key is the
+      // department.
+      const groups = new Map<string, { names: string[]; total: number; priced: boolean; currency: string }>();
       for (const raw of rawItems.slice(0, 30)) {
         const id = String(raw.id || raw.catalogItemId || "").trim();
         const qty = Math.max(1, Math.min(20, Number(raw.qty) || 1));
         const row = byId.get(id);
         if (!row) continue;
-        const summary = qty > 1 ? `${qty}× ${row.name}` : row.name;
-        const price = typeof row.price === "number" ? Number(row.price) * qty : null;
+        const line = qty > 1 ? `${qty}× ${row.name}` : row.name;
+        const g = groups.get(row.department_key)
+          ?? { names: [], total: 0, priced: false, currency: "GBP" };
+        g.names.push(line);
+        if (typeof row.price === "number") {
+          g.total += Number(row.price) * qty;
+          g.priced = true;
+          g.currency = row.currency || g.currency;
+        }
+        groups.set(row.department_key, g);
+      }
+
+      // Only meaningful across teams: one bartender bringing one tray needs no
+      // instruction. Two teams do.
+      const together = body.together === true && groups.size > 1;
+      const otherTeams = (dept: string) =>
+        [...groups.keys()].filter((d) => d !== dept).join(" and ").replace(/_/g, " ");
+
+      const created: any[] = [];
+      for (const [department_key, g] of groups) {
+        const summary = g.names.join(", ");
         const insert: Record<string, unknown> = {
           hotel_id: ctx.hotelId,
           room_id: ctx.roomId,
           session_id: sessionId,
-          department_key: row.department_key,
+          department_key,
           summary,
-          summary_staff: `Menu order · ${summary}`,
+          summary_staff: `Menu order · ${summary}`
+            + (together ? ` · guest asked for this to arrive together with their ${otherTeams(department_key)} order` : ""),
           status: "new",
           priority: "normal",
           is_complaint: false,
@@ -1041,9 +1122,9 @@ serve(async (req) => {
           source: "guest_menu",
           guest_language: ctx.language,
         };
-        if (price != null) {
-          insert.price = price;
-          insert.currency = row.currency || "GBP";
+        if (g.priced) {
+          insert.price = Number(g.total.toFixed(2));
+          insert.currency = g.currency;
         }
         const { data: req, error } = await admin
           .from("ts_service_requests")
@@ -2069,29 +2150,17 @@ serve(async (req) => {
     // Knowledge, which is how it priced before.
     let priceList = "";
     try {
-      const { data: catalog } = await admin
-        .from("ts_catalog_items")
-        .select("department_key, name, price, currency, outlet_room_id")
-        .eq("hotel_id", ctx.hotelId)
-        .eq("is_active", true)
-        .or(`outlet_room_id.is.null,outlet_room_id.eq.${ctx.roomId}`)
-        .not("price", "is", null)
-        .order("department_key")
-        .order("name")
-        .limit(200);
-      const rows = (catalog ?? []) as any[];
+      const rows = (await loadGuestCatalog(admin, ctx.hotelId, ctx.roomId, !!ctx.isPublic))
+        .filter((r) => typeof r.price === "number")
+        .slice(0, 200);
       if (rows.length) {
-        // Outlet-specific wins over department-wide for the same item.
-        const byKey = new Map<string, any>();
-        for (const r of rows) {
-          const k = `${r.department_key}::${String(r.name).toLowerCase()}`;
-          if (!byKey.has(k) || r.outlet_room_id) byKey.set(k, r);
-        }
+        // Scope and outlet precedence are already resolved by loadGuestCatalog —
+        // these are the items this guest can actually order, at their price.
         const cur = rows.find((r) => r.currency)?.currency ?? "GBP";
         const byDept = new Map<string, string[]>();
-        for (const r of byKey.values()) {
+        for (const r of rows) {
           const line = `${r.name} — ${Number(r.price).toFixed(2)}`;
-          byDept.set(r.department_key, [...(byDept.get(r.department_key) ?? []), line]);
+          byDept.set(r.departmentKey, [...(byDept.get(r.departmentKey) ?? []), line]);
         }
         priceList = `\n\nPRICE LIST for ${deliverTo} (${cur}) — the ONLY prices you may quote:\n`
           + [...byDept.entries()]
@@ -2114,7 +2183,9 @@ ${guestSpot
 LANGUAGE: Reply in the same language the guest writes in (their hotel default is ${ctx.language}). The "summary" you pass to tools MUST be in English for staff.
 
 WHAT TO DO:
-- General questions about the hotel (breakfast, wifi, checkout, facilities, local tips): call answer_from_knowledge FIRST. When it returns structured cards, reply with ONE short plain sentence only (the UI shows the organised card). Never paste menus as markdown lists. If knowledge is empty, say you'll check with the team — never invent facts.
+- ANYTHING about what food or drink is available, what's on the menu, what the bar has, or what something costs: call show_menu. That is the live orderable menu — the same one behind the guest's Menu button, at the prices they'll actually be charged. Never answer a "what's on the menu" question from knowledge documents: those are scans and PDFs that go stale, and quoting one gives the guest a price the property no longer charges. If show_menu comes back empty, say you'll check with the team.
+- General questions about the hotel (breakfast times, wifi, checkout, facilities, allergens, local tips): call answer_from_knowledge FIRST. When it returns structured cards, reply with ONE short plain sentence only (the UI shows the organised card). Never paste menus as markdown lists. If knowledge is empty, say you'll check with the team — never invent facts.
+- If a knowledge document and the menu disagree on a price or on whether something is available, the MENU wins, every time. Quote the menu and say nothing about the discrepancy.
 - A request for something (towels, food, drinks, laundry, a repair, taxi, late checkout, etc.): call create_service_request with the correct department. Confirm back conversationally with a rough ETA. Do NOT ask the guest to "track" anything.
 - Complaints, safety issues, anything upsetting or urgent: do NOT try to resolve it yourself. Call create_service_request with department "duty_manager", priority "urgent", is_complaint true, and reassure them a manager will contact them shortly.
 - If they want to re-open a cancelled request or "same again" / repeat something from RECENT CLOSED REQUESTS: call create_service_request with the SAME department and a matching English summary (you may copy the closed summary). Confirm warmly that it's back with the team. Tell them they can also tap Ask again in My requests.
@@ -2141,7 +2212,7 @@ Mark is_chargeable true for room service food, drinks, laundry, minibar, late ch
 PRICING — a guest should see what an order costs at the moment they order it, not discover it at checkout.
 When the PRICE LIST below is present, take prices ONLY from it: multiply the unit price by the quantity and pass
 that on create_service_request. It is already scoped to where this guest is, so it is the right price for them.
-If an item is not on that list, call answer_from_knowledge to check the menu. Never invent, guess or average a
+If an item is not on that list, call show_menu to check the live menu. Never invent, guess or average a
 price — if you can't find one, leave price unset and don't mention a figure; staff will add it.${priceList}
 When you do set a price, state the total back to the guest in your reply (e.g. "that's £20 for the two").
 Keep replies to 1–3 short sentences.
@@ -2151,6 +2222,23 @@ open: a brief warm check-in ("Anything else?"), or a natural, relevant next thou
 what you just said. Vary your phrasing so it doesn't sound like a scripted closing line every time.`;
 
     const tools = [
+      {
+        type: "function",
+        function: {
+          name: "show_menu",
+          description:
+            "Show the property's live orderable menu — the SAME list the guest's Menu button shows, with the prices they will actually be charged. Use this for any question about what food or drink is available, what is on the menu, what a dish or drink costs, or what the bar has. Do NOT use answer_from_knowledge for those.",
+          parameters: {
+            type: "object",
+            properties: {
+              department: {
+                type: "string",
+                description: "Optional department key to narrow to (e.g. bar, kitchen, room_service). Omit to show everything.",
+              },
+            },
+          },
+        },
+      },
       {
         type: "function",
         function: {
@@ -2356,7 +2444,48 @@ what you just said. Vary your phrasing so it doesn't sound like a scripted closi
           let args: any = {};
           try { args = JSON.parse(tc.function.arguments || "{}"); } catch { /* ignore */ }
 
-          if (tc.function.name === "answer_from_knowledge") {
+          if (tc.function.name === "show_menu") {
+            if (guestIntent === "other") guestIntent = "question";
+            const menu = await loadGuestCatalog(admin, ctx.hotelId, ctx.roomId, !!ctx.isPublic);
+            const want = String(args.department || "").trim().toLowerCase();
+            const shown = want ? menu.filter((i) => i.departmentKey === want) : menu;
+            if (shown.length) {
+              const cur = shown.find((i) => i.currency)?.currency ?? "GBP";
+              const sym = cur === "GBP" ? "£" : cur === "EUR" ? "€" : cur === "USD" ? "$" : `${cur} `;
+              const byDept = new Map<string, string[]>();
+              for (const i of shown.slice(0, 120)) {
+                const line = typeof i.price === "number"
+                  ? `${i.name} — ${sym}${Number(i.price).toFixed(2)}`
+                  : i.name;
+                byDept.set(i.departmentKey, [...(byDept.get(i.departmentKey) ?? []), line]);
+              }
+              // One card, a section per team — the same grouping the Menu sheet
+              // uses, so chat and button read as one menu rather than two.
+              pendingCards = [{
+                title: "Menu",
+                action: "open_menu",
+                sections: [...byDept.entries()].map(([key, items]) => ({
+                  title: deptNameOf(ctx.departmentMeta, key),
+                  items: items.slice(0, 40),
+                })),
+              }];
+              messages.push({
+                role: "tool",
+                tool_call_id: tc.id,
+                content: JSON.stringify({
+                  ok: true,
+                  item_count: shown.length,
+                  instruction: "The guest UI is showing the menu card with an Open menu button. Reply with ONE short plain sentence inviting them to tap it or just tell you what they'd like. Do NOT list the items and do NOT quote prices in your reply.",
+                }),
+              });
+            } else {
+              messages.push({
+                role: "tool",
+                tool_call_id: tc.id,
+                content: "The orderable menu is empty for this guest. Say you'll check with the team what's available — do not invent items or prices.",
+              });
+            }
+          } else if (tc.function.name === "answer_from_knowledge") {
             if (guestIntent === "other") guestIntent = "question";
             const kb = await searchKnowledge(admin, ctx.hotelId, ctx.roomId, ctx.assistantId, String(args.query || message), OPENAI_API_KEY, llmTrack);
             if (kb.text) {
