@@ -291,36 +291,72 @@ type GuestCard = {
   action?: "open_menu";
 };
 
-/** THE menu: the orderable catalog, scoped to where this guest is.
+/** THE menu: the orderable catalog, resolved for exactly one guest.
  *
  *  This is the single loader behind the Menu button, the prices the assistant
- *  is allowed to quote, AND the menu it shows in chat. They used to be
- *  different sources — the button read this table while chat answered from
- *  uploaded documents in Knowledge — so a property that changed a price here
- *  had a guest quoted the old one in conversation. One loader, one answer. */
-async function loadGuestCatalog(admin: any, hotelId: string, roomId: string): Promise<{
+ *  may quote, AND the menu it shows in chat. They used to be different sources
+ *  — the button read this table while chat answered from uploaded documents —
+ *  so a property that changed a price here had a guest quoted the old one.
+ *
+ *  Two rules, and both exist because a menu is not one list:
+ *
+ *  SCOPE. An item says where it may be ordered: 'rooms', 'public', or
+ *  'everywhere'. Without this every department-wide item reached every guest,
+ *  so an in-room guest was offered the poolside cocktail list.
+ *
+ *  PRECEDENCE. For one item name, the most specific row wins and the others
+ *  disappear: this outlet's own row, then one scoped to this guest's kind, then
+ *  the everywhere row. They used to be returned all together, so a bar with its
+ *  own Aperol price showed Aperol twice at two prices. */
+async function loadGuestCatalog(admin: any, hotelId: string, roomId: string, isPublic: boolean): Promise<{
   id: string; name: string; price: number | null; currency: string;
-  departmentKey: string; outletRoomId: string | null;
+  departmentKey: string; outletRoomId: string | null; availability: string;
 }[]> {
-  const { data, error } = await admin
+  const base = () => admin
     .from("ts_catalog_items")
-    .select("id, department_key, name, price, currency, outlet_room_id, sort_order")
     .eq("hotel_id", hotelId)
     .eq("is_active", true)
     .order("sort_order")
     .order("name");
-  if (error) return []; // Table may not exist on older DBs — never block the guest.
-  const all = (data ?? []) as any[];
-  // This outlet's own items plus the shared ones; if this outlet has nothing of
-  // its own, the whole property menu is better than an empty sheet.
-  const forOutlet = all.filter((i) => !i.outlet_room_id || i.outlet_room_id === roomId);
-  return (forOutlet.length ? forOutlet : all).map((i) => ({
-    id: i.id,
-    name: i.name,
-    price: i.price,
-    currency: i.currency || "GBP",
-    departmentKey: i.department_key,
-    outletRoomId: i.outlet_room_id,
+
+  let res = await base().select("id, department_key, name, price, currency, outlet_room_id, sort_order, availability");
+  if (res.error) {
+    // The availability column may not be migrated yet. Retry on the columns
+    // that have always existed rather than trusting the error text to name the
+    // culprit — an empty menu is a far worse outcome than an unscoped one, and
+    // every row then reads as 'everywhere', exactly the previous behaviour.
+    res = await base().select("id, department_key, name, price, currency, outlet_room_id, sort_order");
+    if (res.error) return [];
+  }
+  const rows = (res.data ?? []) as any[];
+
+  const kind = isPublic ? "public" : "rooms";
+  // Rank: higher wins for the same item name. 0 is "does not apply here".
+  const rank = (r: any): number => {
+    const avail = r.availability ?? "everywhere";
+    if (r.outlet_room_id) return r.outlet_room_id === roomId ? 3 : 0; // another venue's list
+    if (avail === kind) return 2;
+    if (avail === "everywhere") return 1;
+    return 0; // scoped to the other kind of guest
+  };
+
+  const best = new Map<string, { r: any; rank: number }>();
+  for (const r of rows) {
+    const score = rank(r);
+    if (!score) continue;
+    const key = `${r.department_key}::${String(r.name).trim().toLowerCase()}`;
+    const held = best.get(key);
+    if (!held || score > held.rank) best.set(key, { r, rank: score });
+  }
+
+  return [...best.values()].map(({ r }) => ({
+    id: r.id,
+    name: r.name,
+    price: r.price,
+    currency: r.currency || "GBP",
+    departmentKey: r.department_key,
+    outletRoomId: r.outlet_room_id ?? null,
+    availability: r.availability ?? "everywhere",
   }));
 }
 
@@ -989,7 +1025,7 @@ serve(async (req) => {
 
     // ---- list_menu: guest-facing digital menu from ts_catalog_items ----
     if (action === "list_menu") {
-      const items = await loadGuestCatalog(admin, ctx.hotelId, ctx.roomId);
+      const items = await loadGuestCatalog(admin, ctx.hotelId, ctx.roomId, !!ctx.isPublic);
 
       const { data: depts } = await admin
         .from("ts_departments")
@@ -2114,19 +2150,15 @@ serve(async (req) => {
     // Knowledge, which is how it priced before.
     let priceList = "";
     try {
-      const rows = (await loadGuestCatalog(admin, ctx.hotelId, ctx.roomId))
+      const rows = (await loadGuestCatalog(admin, ctx.hotelId, ctx.roomId, !!ctx.isPublic))
         .filter((r) => typeof r.price === "number")
         .slice(0, 200);
       if (rows.length) {
-        // Outlet-specific wins over department-wide for the same item.
-        const byKey = new Map<string, typeof rows[number]>();
-        for (const r of rows) {
-          const k = `${r.departmentKey}::${String(r.name).toLowerCase()}`;
-          if (!byKey.has(k) || r.outletRoomId) byKey.set(k, r);
-        }
+        // Scope and outlet precedence are already resolved by loadGuestCatalog —
+        // these are the items this guest can actually order, at their price.
         const cur = rows.find((r) => r.currency)?.currency ?? "GBP";
         const byDept = new Map<string, string[]>();
-        for (const r of byKey.values()) {
+        for (const r of rows) {
           const line = `${r.name} — ${Number(r.price).toFixed(2)}`;
           byDept.set(r.departmentKey, [...(byDept.get(r.departmentKey) ?? []), line]);
         }
@@ -2414,7 +2446,7 @@ what you just said. Vary your phrasing so it doesn't sound like a scripted closi
 
           if (tc.function.name === "show_menu") {
             if (guestIntent === "other") guestIntent = "question";
-            const menu = await loadGuestCatalog(admin, ctx.hotelId, ctx.roomId);
+            const menu = await loadGuestCatalog(admin, ctx.hotelId, ctx.roomId, !!ctx.isPublic);
             const want = String(args.department || "").trim().toLowerCase();
             const shown = want ? menu.filter((i) => i.departmentKey === want) : menu;
             if (shown.length) {

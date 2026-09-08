@@ -909,9 +909,21 @@ export interface CatalogItem {
   sort_order: number;
   /** Venue/outlet this item belongs to; null = shared across the department. */
   outlet_room_id?: string | null;
+  /** Where guests may order it: everywhere | rooms | public. Orthogonal to the
+   *  outlet — "public" means every public area under this department, while an
+   *  outlet names one of them. Undefined on databases not yet migrated. */
+  availability?: CatalogAvailability;
 }
 
-const CATALOG_SELECT = "id, department_key, name, price, currency, is_active, sort_order, outlet_room_id";
+export type CatalogAvailability = "everywhere" | "rooms" | "public";
+
+export const AVAILABILITY_LABELS: Record<CatalogAvailability, string> = {
+  everywhere: "Rooms and public areas",
+  rooms: "Guest rooms only",
+  public: "Public areas only",
+};
+
+const CATALOG_SELECT = "id, department_key, name, price, currency, is_active, sort_order, outlet_room_id, availability";
 
 /** Comparison key for menu items. A menu photographed twice, or a second page
  *  overlapping the first, yields the same dish typed slightly differently:
@@ -953,7 +965,9 @@ export async function listCatalogItems(
   // The picker is a convenience — a missing table (migration not applied yet)
   // must never stop someone logging an order by hand.
   if (error) {
-    if (/outlet_room_id/i.test(error.message)) {
+    // A column this build knows about may not be migrated yet — fall back to
+    // the columns that have always existed rather than showing no menu at all.
+    if (/outlet_room_id|availability/i.test(error.message)) {
       let q2 = supabase
         .from("ts_catalog_items")
         .select("id, department_key, name, price, currency, is_active, sort_order")
@@ -976,6 +990,8 @@ export async function addCatalogItem(input: {
   price: number | null;
   /** Optional Public QR venue this menu part belongs to. */
   outletRoomId?: string | null;
+  /** Defaults to everywhere — narrowing is always a deliberate choice. */
+  availability?: CatalogAvailability;
 }): Promise<CatalogItem> {
   const row: Record<string, unknown> = {
     hotel_id: input.hotelId,
@@ -984,6 +1000,9 @@ export async function addCatalogItem(input: {
     price: input.price,
   };
   if (input.outletRoomId) row.outlet_room_id = input.outletRoomId;
+  if (input.availability && input.availability !== "everywhere") {
+    row.availability = input.availability;
+  }
 
   const { data, error } = await supabase
     .from("ts_catalog_items")
@@ -991,7 +1010,7 @@ export async function addCatalogItem(input: {
     .select(CATALOG_SELECT)
     .single();
   if (error) {
-    if (/outlet_room_id/i.test(error.message) && input.outletRoomId) {
+    if (/outlet_room_id|availability/i.test(error.message)) {
       const fallback = await supabase
         .from("ts_catalog_items")
         .insert({
@@ -1016,7 +1035,7 @@ export async function addCatalogItem(input: {
   return data as CatalogItem;
 }
 
-export async function updateCatalogItem(id: string, patch: Partial<Pick<CatalogItem, "name" | "price" | "is_active" | "sort_order">>) {
+export async function updateCatalogItem(id: string, patch: Partial<Pick<CatalogItem, "name" | "price" | "is_active" | "sort_order" | "availability">>) {
   const { error } = await supabase.from("ts_catalog_items").update(patch).eq("id", id);
   if (error) throw new Error(error.message);
 }

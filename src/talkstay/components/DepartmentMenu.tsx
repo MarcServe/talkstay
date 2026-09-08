@@ -9,7 +9,8 @@ import { formatMoney } from "@/talkstay/lib/statusStyles";
 import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
 import {
   listCatalogItems, addCatalogItem, updateCatalogItem, deleteCatalogItem, menuItemKey,
-  listRooms, type CatalogItem, type Room,
+  listRooms, AVAILABILITY_LABELS,
+  type CatalogItem, type CatalogAvailability, type Room,
 } from "@/talkstay/lib/hotels";
 
 type OutletFilter = "all" | "shared" | string; // string = room id
@@ -32,8 +33,11 @@ export default function DepartmentMenu({
   const [outlets, setOutlets] = useState<Room[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [outletFilter, setOutletFilter] = useState<OutletFilter>("all");
-  /** Where new / scanned items land — shared or a specific venue. */
-  const [targetOutlet, setTargetOutlet] = useState<string>("shared");
+  /** Where new / scanned items land. One question, one answer: either a scope
+   *  (rooms, public areas, or both) or one named venue. Splitting these into
+   *  two controls invited the mistake this replaces — items added "shared"
+   *  meaning "shared across the bar" but landing on in-room menus too. */
+  const [targetOutlet, setTargetOutlet] = useState<string>("everywhere");
   // Read inside async scan handlers, which outlive the render that started them.
   const itemsRef = useRef<CatalogItem[]>([]);
   itemsRef.current = items;
@@ -91,7 +95,13 @@ export default function DepartmentMenu({
     return items.filter((i) => i.outlet_room_id === outletFilter || !i.outlet_room_id);
   }, [items, outletFilter]);
 
-  const resolvedOutletId = targetOutlet === "shared" ? null : targetOutlet;
+  const SCOPES: CatalogAvailability[] = ["everywhere", "rooms", "public"];
+  const targetIsScope = (SCOPES as string[]).includes(targetOutlet);
+  const resolvedOutletId = targetIsScope ? null : targetOutlet;
+  /** An item pinned to a venue is by definition in a public area, so the scope
+   *  question only applies to the shared list. */
+  const resolvedAvailability: CatalogAvailability =
+    targetIsScope ? (targetOutlet as CatalogAvailability) : "everywhere";
 
   const add = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -110,6 +120,7 @@ export default function DepartmentMenu({
         name: clean,
         price: p,
         outletRoomId: resolvedOutletId,
+        availability: resolvedAvailability,
       });
       setItems((prev) => [...prev, row].sort((a, b) => a.name.localeCompare(b.name)));
       setName(""); setPrice("");
@@ -222,6 +233,7 @@ export default function DepartmentMenu({
           name: f.name,
           price: f.price,
           outletRoomId: resolvedOutletId,
+          availability: resolvedAvailability,
         });
         setItems((prev) => [...prev, row].sort((a, b) => a.name.localeCompare(b.name)));
         added++;
@@ -260,6 +272,23 @@ export default function DepartmentMenu({
       await updateCatalogItem(item.id, { price: p });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Couldn't save the price");
+    }
+  };
+
+  const saveAvailability = async (item: CatalogItem, next: CatalogAvailability) => {
+    if ((item.availability ?? "everywhere") === next) return;
+    const before = item.availability ?? "everywhere";
+    setItems((prev) => prev.map((i) => i.id === item.id ? { ...i, availability: next } : i));
+    try {
+      await updateCatalogItem(item.id, { availability: next });
+    } catch (err) {
+      // Roll back — a menu that looks changed but isn't is worse than an error.
+      setItems((prev) => prev.map((i) => i.id === item.id ? { ...i, availability: before } : i));
+      toast.error(
+        err instanceof Error && /availability/i.test(err.message)
+          ? "Run the latest database migration to set where items are offered."
+          : "Couldn't change where that's offered",
+      );
     }
   };
 
@@ -324,26 +353,35 @@ export default function DepartmentMenu({
                 ))}
               </div>
 
-              <div className="rounded-lg border border-dashed bg-background px-2.5 py-2">
-                <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                  Upload / add items to
-                </label>
-                <select
-                  value={targetOutlet}
-                  onChange={(e) => setTargetOutlet(e.target.value)}
-                  className="h-9 w-full rounded-md border bg-background px-2 text-sm"
-                >
-                  <option value="shared">Shared (whole {departmentName})</option>
-                  {outlets.map((o) => (
-                    <option key={o.id} value={o.id}>{formatRoomLabel(o.room_number)}</option>
-                  ))}
-                </select>
-                <p className="mt-1 text-[10px] text-muted-foreground">
-                  Pick Outdoor Restaurant here before scanning that menu — Main stays separate.
-                </p>
-              </div>
             </div>
           )}
+
+          <div className="rounded-lg border border-dashed bg-background px-2.5 py-2">
+            <label className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+              Upload / add items to
+            </label>
+            <select
+              value={targetOutlet}
+              onChange={(e) => setTargetOutlet(e.target.value)}
+              className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+            >
+              <option value="everywhere">{AVAILABILITY_LABELS.everywhere} (whole {departmentName})</option>
+              <option value="rooms">{AVAILABILITY_LABELS.rooms}</option>
+              <option value="public">{AVAILABILITY_LABELS.public}</option>
+              {outlets.map((o) => (
+                <option key={o.id} value={o.id}>Only {formatRoomLabel(o.room_number)}</option>
+              ))}
+            </select>
+            <p className="mt-1 text-[10px] text-muted-foreground">
+              {targetOutlet === "rooms"
+                ? "In-room guests only — these stay off the bar and poolside menus."
+                : targetOutlet === "public"
+                  ? "Public areas only — in-room guests won't be offered these."
+                  : targetIsScope
+                    ? "Offered to every guest, in rooms and public areas alike."
+                    : "Only this venue sees these, at these prices. Same drink can cost something else elsewhere."}
+            </p>
+          </div>
 
           {outlets.length === 0 && (
             <p className="rounded-lg border border-dashed bg-background px-2.5 py-2 text-[11px] text-muted-foreground">
@@ -365,10 +403,24 @@ export default function DepartmentMenu({
                 <div key={i.id} className="flex items-center gap-2 px-2.5 py-1.5">
                   <div className="min-w-0 flex-1">
                     <span className="block truncate text-sm">{i.name}</span>
-                    {outlets.length > 0 && (
+                    {i.outlet_room_id ? (
                       <span className="block truncate text-[10px] text-muted-foreground">
-                        {outletName(i.outlet_room_id)}
+                        Only {outletName(i.outlet_room_id)}
                       </span>
+                    ) : (
+                      /* Editable in place: this is how a property fixes items
+                         already on the wrong menu, without deleting and
+                         retyping them one at a time. */
+                      <select
+                        value={i.availability ?? "everywhere"}
+                        onChange={(e) => void saveAvailability(i, e.target.value as CatalogAvailability)}
+                        className="-ml-1 max-w-full truncate rounded border-0 bg-transparent px-1 py-0 text-[10px] text-muted-foreground hover:bg-muted focus:bg-background"
+                        aria-label={`Where guests can order ${i.name}`}
+                      >
+                        <option value="everywhere">{AVAILABILITY_LABELS.everywhere}</option>
+                        <option value="rooms">{AVAILABILITY_LABELS.rooms}</option>
+                        <option value="public">{AVAILABILITY_LABELS.public}</option>
+                      </select>
                     )}
                   </div>
                   <Input
