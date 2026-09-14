@@ -161,8 +161,8 @@ export default function PaymentsPanel({ hotel, onOpenRequest }: {
                   aria-pressed={drill === t.key}
                   className={`rounded-xl border px-3 py-2 text-left transition ${
                     drill === t.key
-                      ? "border-violet-400 bg-violet-50 ring-1 ring-violet-300"
-                      : "bg-muted/20 hover:border-violet-300 hover:bg-violet-50/40"
+                      ? "border-violet-400 dark:border-violet-400/30 bg-violet-50 dark:bg-violet-400/15 ring-1 ring-violet-300 dark:ring-violet-400/40"
+                      : "bg-muted/20 hover:border-violet-300 hover:bg-violet-50/40 dark:hover:bg-violet-400/25"
                   }`}
                 >
                   <p className="text-[11px] text-muted-foreground">{t.label}</p>
@@ -178,7 +178,7 @@ export default function PaymentsPanel({ hotel, onOpenRequest }: {
                 Stated rather than assumed, because they diverge if a request is
                 marked paid by staff after a card payment already covered it. */}
             {Math.abs((summary.totals.cardCollected + summary.totals.otherCollected) - summary.totals.totalPaid) > 0.01 && (
-              <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+              <p className="mt-3 rounded-lg border border-amber-200 dark:border-amber-400/30 bg-amber-50 dark:bg-amber-400/15 px-3 py-2 text-[11px] text-amber-900 dark:text-amber-200">
                 Card and other means don’t add up to total paid — a charge may have been marked
                 paid manually after a card payment already covered it.
               </p>
@@ -210,7 +210,7 @@ export default function PaymentsPanel({ hotel, onOpenRequest }: {
                               title: "Open this charge in Operations" }
                           : {})}
                         className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left ${
-                          canOpen ? "transition hover:bg-violet-50/60" : ""
+                          canOpen ? "transition hover:bg-violet-50/60 dark:hover:bg-violet-400/25" : ""
                         }`}
                       >
                         <div className="min-w-0">
@@ -228,7 +228,7 @@ export default function PaymentsPanel({ hotel, onOpenRequest }: {
                         <div className="flex shrink-0 items-center gap-1.5">
                           <div className="text-right">
                             <p className="text-xs font-semibold tabular-nums">{formatMoney(p.amount, p.currency)}</p>
-                            <p className={`text-[10px] ${p.status === "complete" ? "text-emerald-700" : "text-muted-foreground"}`}>
+                            <p className={`text-[10px] ${p.status === "complete" ? "text-emerald-700 dark:text-emerald-200" : "text-muted-foreground"}`}>
                               {p.status === "complete" ? "paid" : p.status}
                             </p>
                           </div>
@@ -266,7 +266,7 @@ export default function PaymentsPanel({ hotel, onOpenRequest }: {
                                 title: "Open this charge in Operations" }
                             : {})}
                           className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left ${
-                            onOpenRequest ? "transition hover:bg-violet-50/60" : ""
+                            onOpenRequest ? "transition hover:bg-violet-50/60 dark:hover:bg-violet-400/25" : ""
                           }`}
                         >
                           <div className="min-w-0">
@@ -278,7 +278,7 @@ export default function PaymentsPanel({ hotel, onOpenRequest }: {
                             </p>
                           </div>
                           <div className="flex shrink-0 items-center gap-1.5">
-                            <p className={`text-xs font-semibold tabular-nums ${i.paid ? "" : "text-amber-700"}`}>
+                            <p className={`text-xs font-semibold tabular-nums ${i.paid ? "" : "text-amber-700 dark:text-amber-200"}`}>
                               {formatMoney(i.price, i.currency)}
                             </p>
                             {onOpenRequest && <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
@@ -302,7 +302,7 @@ export default function PaymentsPanel({ hotel, onOpenRequest }: {
       </div>
       <div className="rounded-2xl border bg-card p-5 shadow-sm">
         <div className="flex items-start gap-3">
-          <CreditCard className="mt-0.5 h-5 w-5 shrink-0 text-violet-600" />
+          <CreditCard className="mt-0.5 h-5 w-5 shrink-0 text-violet-600 dark:text-violet-300" />
           <div className="min-w-0 flex-1">
             <h2 className="text-lg font-semibold tracking-tight">Payments</h2>
             <p className="mt-1 text-sm text-muted-foreground">
@@ -319,11 +319,11 @@ export default function PaymentsPanel({ hotel, onOpenRequest }: {
           </div>
         ) : (
           <div className="mt-6 space-y-4">
-            <div className={`rounded-xl border px-4 py-3 ${ready ? "border-emerald-200 bg-emerald-50/70" : "bg-muted/30"}`}>
+            <div className={`rounded-xl border px-4 py-3 ${ready ? "border-emerald-200 dark:border-emerald-400/30 bg-emerald-50/70 dark:bg-emerald-400/15" : "bg-muted/30"}`}>
               <div className="flex items-center gap-2 text-sm font-medium">
                 {ready ? (
                   <>
-                    <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                    <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-300" />
                     Card payments live
                   </>
                 ) : stripeReady && !cardOn ? (
@@ -368,9 +368,9 @@ export default function PaymentsPanel({ hotel, onOpenRequest }: {
                       <span className="text-xs font-medium">
                         Stripe still needs {keys.length} {keys.length === 1 ? "detail" : "details"}
                         {allOverdue
-                          ? <span className="ml-1 font-medium text-amber-700">— all overdue</span>
+                          ? <span className="ml-1 font-medium text-amber-700 dark:text-amber-200">— all overdue</span>
                           : overdue.length > 0
-                            ? <span className="ml-1 font-medium text-amber-700">— {overdue.length} overdue</span>
+                            ? <span className="ml-1 font-medium text-amber-700 dark:text-amber-200">— {overdue.length} overdue</span>
                             : null}
                       </span>
                       <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform ${reqOpen ? "rotate-180" : ""}`} />
@@ -380,11 +380,11 @@ export default function PaymentsPanel({ hotel, onOpenRequest }: {
                         <ul className="space-y-1">
                           {keys.map((key) => (
                             <li key={key} className="flex items-start gap-1.5 text-xs text-muted-foreground">
-                              <span className={status.requirementsPastDue.includes(key) ? "text-amber-600" : "text-muted-foreground"}>•</span>
+                              <span className={status.requirementsPastDue.includes(key) ? "text-amber-600 dark:text-amber-300" : "text-muted-foreground"}>•</span>
                               <span>
                                 {describeRequirement(key)}
                                 {!allOverdue && status.requirementsPastDue.includes(key) && (
-                                  <span className="ml-1 font-medium text-amber-700">— overdue</span>
+                                  <span className="ml-1 font-medium text-amber-700 dark:text-amber-200">— overdue</span>
                                 )}
                               </span>
                             </li>
@@ -402,7 +402,7 @@ export default function PaymentsPanel({ hotel, onOpenRequest }: {
               {/* Charges and payouts are separate permissions — a property can
                   be taking cards while their money is still held. */}
               {status?.connected && stripeReady && !status.payoutsEnabled && (
-                <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+                <p className="mt-3 rounded-lg border border-amber-200 dark:border-amber-400/30 bg-amber-50 dark:bg-amber-400/15 px-3 py-2 text-[11px] text-amber-900 dark:text-amber-200">
                   Cards work, but Stripe isn't paying out yet — usually a missing bank account
                   or verification. Money is held safely in the meantime.
                 </p>

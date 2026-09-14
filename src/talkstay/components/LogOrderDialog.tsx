@@ -369,10 +369,10 @@ export default function LogOrderDialog({
                   <button
                     type="button"
                     onClick={() => onOpenRequest(r.id)}
-                    className="w-full px-4 py-2.5 text-left transition-colors hover:bg-violet-50/70"
+                    className="w-full px-4 py-2.5 text-left transition-colors hover:bg-violet-50/70 dark:hover:bg-violet-400/25"
                   >
                     {row}
-                    <span className="mt-1 block text-[11px] font-medium text-violet-700">Open on Operations →</span>
+                    <span className="mt-1 block text-[11px] font-medium text-violet-700 dark:text-violet-200">Open on Operations →</span>
                   </button>
                 ) : (
                   <div className="px-4 py-2.5">{row}</div>
@@ -390,7 +390,7 @@ export default function LogOrderDialog({
       {variant === "panel" && (
         <div>
           <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tight">
-            <Phone className="h-5 w-5 text-violet-600" /> Log phone / walk-in
+            <Phone className="h-5 w-5 text-violet-600 dark:text-violet-300" /> Log phone / walk-in
           </h2>
             <p className="mt-1 text-sm text-muted-foreground">
             Use this only when a guest called, walked up, or asked reception — and the request isn’t
@@ -407,7 +407,7 @@ export default function LogOrderDialog({
         <div className="mb-1 flex items-start justify-between gap-3">
           <div>
             <h2 className="flex items-center gap-2 text-lg font-semibold">
-              <Phone className="h-5 w-5 text-violet-600" /> Log phone / walk-in
+              <Phone className="h-5 w-5 text-violet-600 dark:text-violet-300" /> Log phone / walk-in
             </h2>
             <p className="mt-1 text-xs text-muted-foreground">
               For calls and walk-ins that aren’t already on the board. Prefer searching the room on
@@ -434,7 +434,7 @@ export default function LogOrderDialog({
                   <span className="inline-flex items-center gap-2">
                     {formatRoomLabel(r.room_number)}
                     {r.is_public ? (
-                      <span className="rounded border border-sky-300 bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-sky-800">
+                      <span className="rounded border border-sky-300 dark:border-sky-400/30 bg-sky-50 dark:bg-sky-400/15 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-sky-800 dark:text-sky-200">
                         Public
                       </span>
                     ) : null}
@@ -542,13 +542,13 @@ export default function LogOrderDialog({
                   <span
                     key={i.id}
                     className={`inline-flex items-center overflow-hidden rounded-full border text-xs ${
-                      qty > 0 ? "border-violet-400 bg-violet-50" : "bg-background"
+                      qty > 0 ? "border-violet-400 dark:border-violet-400/30 bg-violet-50 dark:bg-violet-400/15" : "bg-background"
                     }`}
                   >
                     <button
                       type="button"
                       onClick={() => bump(i.id, 1)}
-                      className="px-2.5 py-1.5 hover:bg-violet-100/60"
+                      className="px-2.5 py-1.5 hover:bg-violet-100/60 dark:hover:bg-violet-400/25"
                     >
                       {qty > 0 && <strong className="mr-1">{qty}×</strong>}
                       {i.name}
@@ -560,7 +560,7 @@ export default function LogOrderDialog({
                       {/* Only outlet-specific items are tagged — an untagged
                           chip is the department-wide price. */}
                       {i.outlet_room_id && areaName(i.outlet_room_id) && (
-                        <span className="ml-1 rounded-full bg-sky-100 px-1.5 text-[10px] font-medium text-sky-900">
+                        <span className="ml-1 rounded-full bg-sky-100 dark:bg-sky-400/15 px-1.5 text-[10px] font-medium text-sky-900 dark:text-sky-200">
                           {areaName(i.outlet_room_id)}
                         </span>
                       )}
@@ -570,7 +570,7 @@ export default function LogOrderDialog({
                         type="button"
                         aria-label={`Remove one ${i.name}`}
                         onClick={() => bump(i.id, -1)}
-                        className="border-l px-1.5 py-1.5 text-muted-foreground hover:bg-violet-100/60"
+                        className="border-l px-1.5 py-1.5 text-muted-foreground hover:bg-violet-100/60 dark:hover:bg-violet-400/25"
                       >
                         <Minus className="h-3 w-3" />
                       </button>
@@ -615,18 +615,18 @@ export default function LogOrderDialog({
           </Select>
         </div>
 
-        <div className="rounded-xl border border-emerald-200/80 bg-emerald-50/40 p-3 space-y-2">
-          <label className="flex items-center gap-2 text-sm font-medium text-emerald-950">
+        <div className="rounded-xl border border-emerald-200/80 dark:border-emerald-400/30 bg-emerald-50/40 dark:bg-emerald-400/15 p-3 space-y-2">
+          <label className="flex items-center gap-2 text-sm font-medium text-emerald-950 dark:text-emerald-200">
             <input
               type="checkbox"
               checked={chargeable}
               onChange={(e) => setChargeable(e.target.checked)}
-              className="h-4 w-4 rounded border-emerald-300"
+              className="h-4 w-4 rounded border-emerald-300 dark:border-emerald-400/30"
             />
             {logOrderChargeableLabel(selectedIsPublic)}
           </label>
           {chargeable && selectedIsPublic && (
-            <p className="text-[11px] leading-snug text-emerald-900/75">
+            <p className="text-[11px] leading-snug text-emerald-900/75 dark:text-emerald-200">
               Public / walk-in orders: collect pay now, at the counter, or on delivery — not charged to a room bill.
             </p>
           )}
@@ -644,7 +644,7 @@ export default function LogOrderDialog({
                 className="max-w-[10rem] bg-white"
               />
               {pickedTotal > 0 && !priceEdited && (
-                <p className="text-[11px] text-emerald-900/75">
+                <p className="text-[11px] text-emerald-900/75 dark:text-emerald-200">
                   From the {pickedList.length} item{pickedList.length === 1 ? "" : "s"} tapped above — edit to override.
                 </p>
               )}
@@ -653,8 +653,8 @@ export default function LogOrderDialog({
         </div>
 
         {openRows.length > 0 && (
-          <div className="rounded-xl border border-amber-200 bg-amber-50/80 p-3 text-sm text-amber-950">
-            <p className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-amber-800">
+          <div className="rounded-xl border border-amber-200 dark:border-amber-400/30 bg-amber-50/80 dark:bg-amber-400/15 p-3 text-sm text-amber-950 dark:text-amber-200">
+            <p className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-200">
               <AlertTriangle className="h-3.5 w-3.5" /> Already open for this room
             </p>
             <ul className="space-y-1.5">
@@ -667,7 +667,7 @@ export default function LogOrderDialog({
                 const body = (
                   <>
                     {who && (
-                      <div className="text-sm font-semibold text-amber-950">{who}</div>
+                      <div className="text-sm font-semibold text-amber-950 dark:text-amber-200">{who}</div>
                     )}
                     <span className="font-medium">
                       {deptLabel(o.department_key)}
@@ -676,9 +676,9 @@ export default function LogOrderDialog({
                     <span className="capitalize">{o.status.replace(/_/g, " ")}</span>
                     {" · "}
                     {sourceLabel(o.source)} · {minsAgo(o.created_at)}m ago
-                    <div className="mt-0.5 text-amber-900/80">{o.summary_staff || o.summary}</div>
+                    <div className="mt-0.5 text-amber-900/80 dark:text-amber-200">{o.summary_staff || o.summary}</div>
                     {onOpenRequest && (
-                      <div className="mt-1 text-[11px] font-medium text-violet-700">Open ticket →</div>
+                      <div className="mt-1 text-[11px] font-medium text-violet-700 dark:text-violet-200">Open ticket →</div>
                     )}
                   </>
                 );
@@ -691,12 +691,12 @@ export default function LogOrderDialog({
                           onOpenRequest(o.id);
                           onClose?.();
                         }}
-                        className="w-full rounded-lg border border-amber-200/80 bg-white/70 px-2.5 py-1.5 text-left text-xs transition-colors hover:border-violet-300 hover:bg-violet-50/60"
+                        className="w-full rounded-lg border border-amber-200/80 dark:border-amber-400/30 bg-white/70 px-2.5 py-1.5 text-left text-xs transition-colors hover:border-violet-300 hover:bg-violet-50/60 dark:hover:bg-violet-400/25"
                       >
                         {body}
                       </button>
                     ) : (
-                      <div className="rounded-lg border border-amber-200/80 bg-white/70 px-2.5 py-1.5 text-xs">
+                      <div className="rounded-lg border border-amber-200/80 dark:border-amber-400/30 bg-white/70 px-2.5 py-1.5 text-xs">
                         {body}
                       </div>
                     )}
@@ -704,7 +704,7 @@ export default function LogOrderDialog({
                 );
               })}
             </ul>
-            <p className="mt-2 text-[11px] text-amber-800/90">
+            <p className="mt-2 text-[11px] text-amber-800/90 dark:text-amber-200">
               {onOpenRequest
                 ? "Open an existing ticket instead of logging again — unless this is a genuine second order."
                 : "Check Operations for this room before logging — someone may already be handling it."}
@@ -713,9 +713,9 @@ export default function LogOrderDialog({
         )}
 
         {dupBlock && (
-          <div className="rounded-xl border border-rose-200 bg-rose-50/80 p-3 text-sm text-rose-950">
+          <div className="rounded-xl border border-rose-200 dark:border-rose-400/30 bg-rose-50/80 dark:bg-rose-400/15 p-3 text-sm text-rose-950 dark:text-rose-200">
             <p className="font-medium">Same team already has an open order for this room.</p>
-            <p className="mt-1 text-xs text-rose-900/85">
+            <p className="mt-1 text-xs text-rose-900/85 dark:text-rose-200">
               If reception already took this call, don’t log again — open the existing ticket on Operations instead. Only force-log if it’s genuinely a second order.
             </p>
             <div className="mt-3 flex flex-wrap gap-2">

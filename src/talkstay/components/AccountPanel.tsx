@@ -54,9 +54,9 @@ export default function AccountPanel({
         <button
           type="button"
           onClick={onOpenCommunications}
-          className="flex w-full items-center gap-3 rounded-2xl border bg-card p-4 text-left shadow-sm transition hover:border-violet-300 hover:bg-violet-50/40"
+          className="flex w-full items-center gap-3 rounded-2xl border bg-card p-4 text-left shadow-sm transition hover:border-violet-300 hover:bg-violet-50/40 dark:hover:bg-violet-400/25"
         >
-          <Mail className="h-5 w-5 shrink-0 text-violet-600" />
+          <Mail className="h-5 w-5 shrink-0 text-violet-600 dark:text-violet-300" />
           <span className="min-w-0 flex-1">
             <span className="block text-sm font-medium">Guest communications</span>
             <span className="mt-0.5 block text-xs text-muted-foreground">
@@ -118,14 +118,14 @@ export default function AccountPanel({
         </div>
       )}
 
-      <div className="rounded-2xl border border-violet-200/80 bg-violet-50/50 p-5 shadow-sm">
+      <div className="rounded-2xl border border-violet-200/80 dark:border-violet-400/30 bg-violet-50/50 dark:bg-violet-400/15 p-5 shadow-sm">
         <div className="flex items-start gap-3">
-          <LifeBuoy className="mt-0.5 h-5 w-5 shrink-0 text-violet-700" />
+          <LifeBuoy className="mt-0.5 h-5 w-5 shrink-0 text-violet-700 dark:text-violet-200" />
           <div className="min-w-0 flex-1">
-            <h3 className="text-base font-semibold tracking-tight text-violet-950">
+            <h3 className="text-base font-semibold tracking-tight text-violet-950 dark:text-violet-200">
               Direct Support
             </h3>
-            <p className="mt-1 text-sm text-violet-900/80">
+            <p className="mt-1 text-sm text-violet-900/80 dark:text-violet-200">
               {partner
                 ? `Your property is linked to ${partner.name}. This email goes to them with your property details attached.`
                 : "Email TalkStay with your property and account details prefilled so we can help faster."}
@@ -137,13 +137,13 @@ export default function AccountPanel({
                   {supportLabelForHotel(hotel.referral_code)}
                 </a>
               </Button>
-              <Button asChild variant="outline" className="border-violet-200 bg-white/80">
+              <Button asChild variant="outline" className="border-violet-200 dark:border-violet-400/30 bg-white/80">
                 <a href={TEL_SUPPORT}>
                   Call {SUPPORT_PHONE}
                 </a>
               </Button>
             </div>
-            <p className="mt-3 text-[11px] text-violet-900/60">
+            <p className="mt-3 text-[11px] text-violet-900/60 dark:text-violet-200">
               Default inbox: {partner?.email ?? SUPPORT_EMAIL}
             </p>
           </div>

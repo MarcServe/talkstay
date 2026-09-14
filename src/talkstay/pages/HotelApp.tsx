@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
+import { useTheme } from "next-themes";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -10,6 +11,7 @@ import { toast } from "sonner";
 import {
   Loader2, Menu, X, Phone,
   Inbox, BarChart3, QrCode, Building2, BookOpen, Users, Palette, LifeBuoy, CreditCard, Mail,
+  Moon, Sun, Settings, ChevronDown,
 } from "lucide-react";
 import AuthPage, { isPasswordSetupUrl } from "@/talkstay/pages/AuthPage";
 import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
@@ -59,11 +61,23 @@ import {
 const StaffPanel = lazy(() => import("@/talkstay/components/StaffPanel"));
 const CommunicationsPanel = lazy(() => import("@/talkstay/components/CommunicationsPanel"));
 
+/** Sidebar sections, in the order they appear. Nine flat links read as one
+ *  undifferentiated list; splitting them by how often you touch them lets
+ *  someone find the queue without reading the other eight. */
+const NAV_GROUPS = [
+  { key: "shift", label: "Every shift" },
+  { key: "property", label: "Your property" },
+  { key: "business", label: "Business" },
+] as const;
+
+type NavGroup = (typeof NAV_GROUPS)[number]["key"];
+
 type NavDef = {
   key: "operations" | "log_order" | "insights" | "rooms" | "payments" | "branding" | "communications" | "departments" | "knowledge" | "staff";
   label: string;
   icon: typeof Inbox;
   admin: boolean;
+  group: NavGroup;
   desc: string;
 };
 
@@ -75,6 +89,7 @@ function navForProperty(restaurantMode: boolean): readonly NavDef[] {
       label: "Operations",
       icon: Inbox,
       admin: false,
+      group: "shift",
       desc: restaurantMode
         ? "Live queue — search a table or area to open tickets fast. Guest menu orders and chat land here automatically."
         : "Live queue — search a room or public area to open tickets fast. Guest-app requests land here automatically.",
@@ -84,6 +99,7 @@ function navForProperty(restaurantMode: boolean): readonly NavDef[] {
       label: "Log order",
       icon: Phone,
       admin: false,
+      group: "shift",
       desc: restaurantMode
         ? "Only for phone or walk-in orders that aren’t already on the board. Use Tables & QR for dine-in table codes."
         : "Only for phone, walk-in or front-desk calls that aren’t already on the board. Use Public QR areas for lobby, bar, restaurant, and walk-ups.",
@@ -93,6 +109,7 @@ function navForProperty(restaurantMode: boolean): readonly NavDef[] {
       label: "Insights",
       icon: BarChart3,
       admin: true,
+      group: "business",
       desc: "Analytics and business intelligence for this property — or across your portfolio when you own more than one.",
     },
     {
@@ -100,6 +117,7 @@ function navForProperty(restaurantMode: boolean): readonly NavDef[] {
       label: restaurantMode ? "Tables & QR" : "Rooms & QR",
       icon: QrCode,
       admin: true,
+      group: "property",
       desc: restaurantMode
         ? "Table and area QRs for dine-in. Link each to a department, upload the menu under Departments, then print QRs here."
         : "Rooms for guest stays, plus Venues & tables for lobby, bar, pool, and restaurant QRs. Scan menus in Knowledge or Departments, then print table QRs here.",
@@ -109,6 +127,7 @@ function navForProperty(restaurantMode: boolean): readonly NavDef[] {
       label: "Payments",
       icon: CreditCard,
       admin: true,
+      group: "business",
       desc: "Connect Stripe once — guests pay unpaid orders by card; TalkStay takes a small application fee and marks them Paid when Stripe confirms.",
     },
     {
@@ -116,6 +135,7 @@ function navForProperty(restaurantMode: boolean): readonly NavDef[] {
       label: "Branding",
       icon: Palette,
       admin: true,
+      group: "business",
       desc: "Logo, colour, property profile (type/address/scale), and the printable poster.",
     },
     {
@@ -123,6 +143,7 @@ function navForProperty(restaurantMode: boolean): readonly NavDef[] {
       label: "Departments",
       icon: Building2,
       admin: true,
+      group: "property",
       desc: restaurantMode
         ? "Kitchen, bar, host — routing rules, menus, and per-team notifications."
         : "Teams, routing rules and per-department notifications.",
@@ -132,6 +153,7 @@ function navForProperty(restaurantMode: boolean): readonly NavDef[] {
       label: restaurantMode ? "Info" : "Knowledge-base",
       icon: BookOpen,
       admin: true,
+      group: "property",
       desc: restaurantMode
         ? "Hours, allergens, house rules — what the guest assistant can answer."
         : "What the assistant knows — website, documents and property info.",
@@ -141,9 +163,32 @@ function navForProperty(restaurantMode: boolean): readonly NavDef[] {
       label: "Staff",
       icon: Users,
       admin: true,
+      group: "property",
       desc: "Invite your team and manage their roles and access.",
     },
   ] as const;
+}
+
+/** Sidebar chrome is dark in both themes, so this matches the links around it
+ *  rather than the page palette. */
+function ThemeToggle() {
+  const { resolvedTheme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+  // resolvedTheme is undefined until the client reads storage; rendering the
+  // wrong icon first and swapping it is worse than rendering nothing.
+  useEffect(() => setMounted(true), []);
+  const dark = resolvedTheme === "dark";
+  return (
+    <button
+      type="button"
+      onClick={() => setTheme(dark ? "light" : "dark")}
+      className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-white/60 transition-colors hover:bg-white/5 hover:text-white"
+      aria-label={dark ? "Switch to light theme" : "Switch to dark theme"}
+    >
+      {mounted && dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+      {mounted && dark ? "Light mode" : "Dark mode"}
+    </button>
+  );
 }
 
 type NavKey = NavDef["key"] | "account";
@@ -306,12 +351,12 @@ function CreateHotel({
           </div>
 
           {partner || referralCode ? (
-            <div className="space-y-1.5 rounded-xl border border-violet-200 bg-violet-50/60 p-4">
+            <div className="space-y-1.5 rounded-xl border border-violet-200 dark:border-violet-400/30 bg-violet-50/60 dark:bg-violet-400/15 p-4">
               <Label htmlFor="hotel-ref">Partner referral</Label>
               {partner ? (
-                <p className="text-sm font-medium text-violet-950">
-                  Linked to <span className="text-violet-800">{partner.name}</span>
-                  <span className="ml-1.5 font-mono text-xs font-normal text-violet-700/80">({referralCode})</span>
+                <p className="text-sm font-medium text-violet-950 dark:text-violet-200">
+                  Linked to <span className="text-violet-800 dark:text-violet-200">{partner.name}</span>
+                  <span className="ml-1.5 font-mono text-xs font-normal text-violet-700/80 dark:text-violet-200">({referralCode})</span>
                 </p>
               ) : (
                 <Input
@@ -323,7 +368,7 @@ function CreateHotel({
                   readOnly={partnerLocked && !!resolved.source}
                 />
               )}
-              <p className="text-xs text-violet-900/70">
+              <p className="text-xs text-violet-900/70 dark:text-violet-200">
                 {partner
                   ? resolved.source === "inherit"
                     ? "Carried over from your portfolio so Support stays with the same partner."
@@ -479,6 +524,7 @@ export default function HotelApp() {
   const initialNav: NavKey = tabFromParam(tabParam) ?? "operations";
   const [active, setActive] = useState<NavKey>(initialNav);
   const [navOpen, setNavOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [focusRequestId, setFocusRequestId] = useState<string | null>(null);
 
   // Back/Forward change the URL, not our state — mirror the URL back into it,
@@ -711,60 +757,98 @@ export default function HotelApp() {
         }}
       />
 
-      <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3">
-        {visibleNav.map(({ key, label, icon: Icon }) => (
-          <button
-            key={key}
-            onClick={() => go(key)}
-            className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-              effectiveActive === key ? "bg-violet-600 text-white" : "text-white/60 hover:bg-white/5 hover:text-white"
-            }`}
-          >
-            <Icon className="h-4 w-4 shrink-0" />
-            {label}
-          </button>
-        ))}
+      <nav className="min-h-0 flex-1 overflow-y-auto px-3">
+        {NAV_GROUPS.map(({ key: groupKey, label: groupLabel }) => {
+          // A staff-role member sees only the first group — never print a
+          // heading for a section whose every item was filtered out.
+          const items = visibleNav.filter((n) => n.group === groupKey);
+          if (!items.length) return null;
+          return (
+            <div key={groupKey} className="mb-4 space-y-1 last:mb-0">
+              <p className="px-3 pb-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-white/35">
+                {groupLabel}
+              </p>
+              {items.map(({ key, label, icon: Icon }) => (
+                <button
+                  key={key}
+                  onClick={() => go(key)}
+                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                    effectiveActive === key ? "bg-violet-600 text-white" : "text-white/60 hover:bg-white/5 hover:text-white"
+                  }`}
+                >
+                  <Icon className="h-4 w-4 shrink-0" />
+                  {label}
+                </button>
+              ))}
+            </div>
+          );
+        })}
       </nav>
 
-      {/* Footer pinned to bottom on desktop + mobile — ops menu ends at Staff */}
+      {/* Footer pinned to bottom on desktop + mobile — ops menu ends at Staff.
+          Support, theme and the alert-sound picker are set-once things, so they
+          sit behind one row instead of taking four permanently. */}
       <div className="mt-auto space-y-1 border-t border-white/10 p-3">
-        <a
-          href="/support"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-white/60 hover:bg-white/5 hover:text-white"
-        >
-          <LifeBuoy className="h-4 w-4" /> Support & FAQ
-        </a>
-        <AlertSoundPicker hotelId={hotel.id} />
+        {settingsOpen && (
+          <div className="space-y-1 pb-1">
+            <button
+              type="button"
+              onClick={() => go("account")}
+              className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left transition-colors ${
+                effectiveActive === "account"
+                  ? "bg-violet-600 text-white"
+                  : "text-white/60 hover:bg-white/5 hover:text-white"
+              }`}
+            >
+              <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
+                effectiveActive === "account" ? "bg-white/20 text-white" : "bg-violet-600/30 text-violet-200"
+              }`}>
+                {identityInitial}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className={`truncate text-sm font-medium ${
+                  effectiveActive === "account" ? "text-white" : "text-white/85"
+                }`}>
+                  Account
+                </div>
+                {user?.email && (
+                  <div className={`truncate text-[11px] ${
+                    effectiveActive === "account" ? "text-white/75" : "text-white/40"
+                  }`}>
+                    {user.email}
+                  </div>
+                )}
+              </div>
+            </button>
+            <a
+              href="/support"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-white/60 hover:bg-white/5 hover:text-white"
+            >
+              <LifeBuoy className="h-4 w-4" /> Support & FAQ
+            </a>
+            <ThemeToggle />
+            <AlertSoundPicker hotelId={hotel.id} />
+          </div>
+        )}
+        {/* Collapsed, this is the only footer row — it still carries the avatar
+            so you can see which account you're signed in as at a glance. */}
         <button
           type="button"
-          onClick={() => go("account")}
-          className={`mt-1 flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left transition-colors ${
-            effectiveActive === "account"
+          onClick={() => setSettingsOpen((v) => !v)}
+          className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors ${
+            effectiveActive === "account" && !settingsOpen
               ? "bg-violet-600 text-white"
               : "text-white/60 hover:bg-white/5 hover:text-white"
           }`}
+          aria-expanded={settingsOpen}
         >
-          <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
-            effectiveActive === "account" ? "bg-white/20 text-white" : "bg-violet-600/30 text-violet-200"
-          }`}>
+          <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-violet-600/30 text-[10px] font-semibold text-violet-200">
             {identityInitial}
           </div>
-          <div className="min-w-0 flex-1">
-            <div className={`truncate text-sm font-medium ${
-              effectiveActive === "account" ? "text-white" : "text-white/85"
-            }`}>
-              Account
-            </div>
-            {user?.email && (
-              <div className={`truncate text-[11px] ${
-                effectiveActive === "account" ? "text-white/75" : "text-white/40"
-              }`}>
-                {user.email}
-              </div>
-            )}
-          </div>
+          Settings
+          <ChevronDown className={`ml-auto h-3.5 w-3.5 transition-transform ${settingsOpen ? "" : "-rotate-90"}`} />
         </button>
       </div>
     </div>

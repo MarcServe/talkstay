@@ -307,7 +307,7 @@ export default function CommunicationsPanel({ hotel }: { hotel: Hotel }) {
     <div className="mx-auto max-w-3xl space-y-4">
       <div className="rounded-2xl border bg-card p-5 shadow-sm">
         <div className="flex items-start gap-3">
-          <Mail className="mt-0.5 h-5 w-5 shrink-0 text-violet-600" />
+          <Mail className="mt-0.5 h-5 w-5 shrink-0 text-violet-600 dark:text-violet-300" />
           <div className="min-w-0">
             <h2 className="text-lg font-semibold tracking-tight">Communications</h2>
             <p className="mt-1 text-sm text-muted-foreground">
@@ -578,7 +578,7 @@ export default function CommunicationsPanel({ hotel }: { hotel: Hotel }) {
                   </Button>
                 </div>
               ) : (
-                <label className="flex w-full max-w-xs cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed px-4 py-3 text-sm text-muted-foreground hover:border-violet-400 hover:text-violet-700">
+                <label className="flex w-full max-w-xs cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed px-4 py-3 text-sm text-muted-foreground hover:border-violet-400 hover:text-violet-700 dark:hover:text-violet-100">
                   {imageUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />}
                   {imageUploading ? "Uploading…" : "Add a photo"}
                   <input type="file" accept="image/*" className="hidden" disabled={imageUploading} onChange={(e) => void onPickImage(e)} />
@@ -691,7 +691,7 @@ export default function CommunicationsPanel({ hotel }: { hotel: Hotel }) {
                     </Button>
                   </div>
                   {c.sent_count < c.recipient_count && (
-                    <p className="mt-1.5 text-[11px] text-amber-700">
+                    <p className="mt-1.5 text-[11px] text-amber-700 dark:text-amber-200">
                       {c.recipient_count - c.sent_count} didn’t send — resending copies everyone, so
                       select just those guests under Contacts if you only want to retry them.
                     </p>

@@ -103,9 +103,9 @@ export default function LiveShareCard({ hotel }: { hotel: Hotel }) {
   const active = links.find((l) => l.is_active);
 
   return (
-    <div className="rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50 to-white p-5 shadow-sm">
+    <div className="rounded-2xl border border-violet-200 dark:border-violet-400/30 bg-gradient-to-br from-violet-50 dark:from-violet-400/10 to-white dark:to-transparent p-5 shadow-sm">
       <div className="flex items-start gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-100 text-violet-700">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-100 dark:bg-violet-400/15 text-violet-700 dark:text-violet-200">
           <Link2 className="h-5 w-5" />
         </div>
         <div className="min-w-0 flex-1">
@@ -143,7 +143,7 @@ export default function LiveShareCard({ hotel }: { hotel: Hotel }) {
         <div className="mt-4 space-y-3">
           <div className="grid gap-3 sm:grid-cols-[1fr_7rem]">
             <div className="space-y-1">
-              <label className="text-xs font-medium text-violet-900/80">Link label</label>
+              <label className="text-xs font-medium text-violet-900/80 dark:text-violet-200">Link label</label>
               <Input
                 value={label}
                 onChange={(e) => setLabel(e.target.value)}
@@ -151,7 +151,7 @@ export default function LiveShareCard({ hotel }: { hotel: Hotel }) {
               />
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-medium text-violet-900/80" title="How long the shared link stays valid">
+              <label className="text-xs font-medium text-violet-900/80 dark:text-violet-200" title="How long the shared link stays valid">
                 Valid (days)
               </label>
               <Input

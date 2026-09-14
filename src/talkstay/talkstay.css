@@ -152,3 +152,90 @@
     background-attachment: scroll;
   }
 }
+
+/* ---------------------------------------------------------------------------
+ * Dark theme.
+ * The glass system above is built from white fills forced with !important, so
+ * component-level `dark:` classes can never win against it — the dark surfaces
+ * have to be redefined at the same specificity, here.
+ * ------------------------------------------------------------------------- */
+
+.dark {
+  --ts-glass-fill: linear-gradient(
+    155deg,
+    hsl(222 38% 17% / 0.78) 0%,
+    hsl(222 40% 14% / 0.62) 42%,
+    hsl(228 36% 13% / 0.55) 100%
+  );
+  --ts-glass-fill-strong: linear-gradient(
+    155deg,
+    hsl(222 38% 20% / 0.9) 0%,
+    hsl(222 40% 16% / 0.76) 50%,
+    hsl(228 36% 14% / 0.68) 100%
+  );
+  --ts-glass-border: hsl(220 30% 72% / 0.14);
+  --ts-glass-shadow:
+    0 1px 0 hsl(0 0% 100% / 0.05) inset,
+    0 -0.5px 0 hsl(220 25% 2% / 0.4) inset,
+    0 10px 40px hsl(222 60% 2% / 0.55),
+    0 2px 10px hsl(222 60% 2% / 0.4);
+}
+
+.dark [data-talkstay] {
+  --ts-ink: 213 31% 91%;
+}
+
+.dark [data-talkstay].ts-atmosphere,
+.dark [data-talkstay] .ts-atmosphere {
+  background-color: hsl(222 42% 7%);
+  background-image:
+    radial-gradient(ellipse 90% 70% at 8% -8%, hsl(258 48% 24% / 0.5), transparent 58%),
+    radial-gradient(ellipse 75% 55% at 96% 4%, hsl(198 50% 20% / 0.4), transparent 52%),
+    radial-gradient(ellipse 65% 45% at 60% 108%, hsl(168 38% 18% / 0.32), transparent 48%),
+    linear-gradient(165deg, hsl(224 40% 9%) 0%, hsl(222 38% 7.5%) 52%, hsl(220 36% 7%) 100%);
+}
+
+/* Multiply over a dark ground just muddies it — lift the grain instead. */
+.dark [data-talkstay].ts-atmosphere::before,
+.dark [data-talkstay] .ts-atmosphere::before {
+  opacity: 0.025;
+  mix-blend-mode: screen;
+}
+
+.dark .ts-glass-strong {
+  background-color: hsl(222 40% 16% / 0.8) !important;
+}
+
+.dark [data-talkstay] .bg-muted\/20,
+.dark [data-talkstay] .bg-muted\/30,
+.dark [data-talkstay] .bg-muted\/40,
+.dark [data-talkstay] .bg-muted\/50 {
+  background-color: hsl(0 0% 100% / 0.05) !important;
+}
+
+.dark [data-talkstay] header.border-b,
+.dark [data-talkstay] .sticky.border-b {
+  background-color: hsl(222 42% 10% / 0.6) !important;
+  background-image: linear-gradient(
+    180deg,
+    hsl(222 42% 13% / 0.7),
+    hsl(222 42% 9% / 0.4)
+  ) !important;
+  border-color: hsl(220 30% 72% / 0.12);
+}
+
+.dark [data-talkstay] input:not([type="file"]):not([type="checkbox"]):not([type="radio"]),
+.dark [data-talkstay] textarea,
+.dark [data-talkstay] select {
+  background-color: hsl(222 40% 15% / 0.65) !important;
+  border-color: hsl(220 25% 62% / 0.22);
+  box-shadow: 0 1px 0 hsl(0 0% 100% / 0.04) inset;
+}
+
+.dark [data-talkstay] input:focus-visible,
+.dark [data-talkstay] textarea:focus-visible,
+.dark [data-talkstay] select:focus-visible {
+  box-shadow:
+    0 0 0 2px hsl(222 42% 7% / 0.7),
+    0 0 0 4px hsl(198 55% 55% / 0.35);
+}

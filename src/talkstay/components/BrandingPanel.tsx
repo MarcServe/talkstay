@@ -361,7 +361,7 @@ function IdentityTab({ hotel, onSaved, onHotel }: {
               <span>More veil</span>
             </div>
             {!bgPhoto && (
-              <p className="mt-2 text-[11px] text-amber-800">
+              <p className="mt-2 text-[11px] text-amber-800 dark:text-amber-200">
                 Add a Poster background image (or logo) to see this on the guest screen.
               </p>
             )}

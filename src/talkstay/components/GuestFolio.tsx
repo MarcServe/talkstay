@@ -75,9 +75,9 @@ export function GuestFolio({
 
   if (!unpaid.length && !paid.length) {
     return (
-      <div className={`rounded-2xl border border-emerald-200 bg-emerald-50/80 ${isPage ? "px-4 py-5" : "px-3.5 py-3"}`}>
-        <p className="text-sm font-semibold text-emerald-950">Nothing to pay</p>
-        <p className="mt-1 text-xs text-emerald-900/80">{copy.emptyHint}</p>
+      <div className={`rounded-2xl border border-emerald-200 dark:border-emerald-400/30 bg-emerald-50/80 dark:bg-emerald-400/15 ${isPage ? "px-4 py-5" : "px-3.5 py-3"}`}>
+        <p className="text-sm font-semibold text-emerald-950 dark:text-emerald-200">Nothing to pay</p>
+        <p className="mt-1 text-xs text-emerald-900/80 dark:text-emerald-200">{copy.emptyHint}</p>
       </div>
     );
   }
@@ -93,16 +93,16 @@ export function GuestFolio({
   return (
     <div className="space-y-3">
       {unpaid.length > 0 && (
-        <div className={`rounded-2xl border border-amber-300/90 bg-amber-50 ${isPage ? "px-4 py-4" : "px-3.5 py-3"} text-amber-950`}>
+        <div className={`rounded-2xl border border-amber-300/90 dark:border-amber-400/30 bg-amber-50 dark:bg-amber-400/15 ${isPage ? "px-4 py-4" : "px-3.5 py-3"} text-amber-950 dark:text-amber-200`}>
           <div className="flex items-start gap-2.5">
-            <Banknote className={`${isPage ? "mt-0.5 h-5 w-5" : "mt-0.5 h-4 w-4"} shrink-0 text-amber-700`} />
+            <Banknote className={`${isPage ? "mt-0.5 h-5 w-5" : "mt-0.5 h-4 w-4"} shrink-0 text-amber-700 dark:text-amber-200`} />
             <div className="min-w-0 flex-1">
               <p className={`${isPage ? "text-base" : "text-sm"} font-semibold tracking-tight`}>
                 {owedTotal != null
                   ? `You currently owe ${formatMoney(owedTotal, currency)}`
                   : `${unpaid.length} unpaid item${unpaid.length === 1 ? "" : "s"}`}
               </p>
-              <p className="mt-1 text-[11px] leading-snug text-amber-900/80">{hint}</p>
+              <p className="mt-1 text-[11px] leading-snug text-amber-900/80 dark:text-amber-200">{hint}</p>
 
               {canCard && (
                 <Button
@@ -131,7 +131,7 @@ export function GuestFolio({
                     <Button
                       size="sm"
                       variant="outline"
-                      className="h-10 border-amber-300 bg-white/80"
+                      className="h-10 border-amber-300 dark:border-amber-400/30 bg-white/80"
                       disabled={!!payBusy || deferred}
                       onClick={() => { setCodeOpen(false); onPayAtCheckout(); }}
                     >
@@ -139,13 +139,13 @@ export function GuestFolio({
                     </Button>
                   </div>
                   {chargedToRoom ? (
-                    <p className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-[11px] font-medium text-emerald-950">
+                    <p className="rounded-lg border border-emerald-300 dark:border-emerald-400/30 bg-emerald-50 dark:bg-emerald-400/15 px-3 py-2 text-[11px] font-medium text-emerald-950 dark:text-emerald-200">
                       Charging to {formatRoomLabel(billingRoomNumber!)}
                     </p>
                   ) : onChargeToRoom ? (
                     codeOpen ? (
                       <form
-                        className="space-y-2 rounded-xl border border-amber-300/80 bg-white/80 p-3"
+                        className="space-y-2 rounded-xl border border-amber-300/80 dark:border-amber-400/30 bg-white/80 p-3"
                         onSubmit={(e) => {
                           e.preventDefault();
                           if (!code.trim() || payBusy) return;
@@ -157,7 +157,7 @@ export function GuestFolio({
                             .catch(() => { /* parent toasts */ });
                         }}
                       >
-                        <p className="text-[11px] leading-snug text-amber-900/85">{copy.codeHint}</p>
+                        <p className="text-[11px] leading-snug text-amber-900/85 dark:text-amber-200">{copy.codeHint}</p>
                         <Input
                           value={code}
                           onChange={(e) => setCode(e.target.value.toUpperCase())}
@@ -181,7 +181,7 @@ export function GuestFolio({
                       <Button
                         size="sm"
                         variant="outline"
-                        className="h-10 w-full border-amber-400 bg-white/90 font-medium"
+                        className="h-10 w-full border-amber-400 dark:border-amber-400/30 bg-white/90 font-medium"
                         disabled={!!payBusy}
                         onClick={() => setCodeOpen(true)}
                       >
@@ -204,7 +204,7 @@ export function GuestFolio({
                   <Button
                     size="sm"
                     variant="outline"
-                    className="h-10 border-amber-300 bg-white/80"
+                    className="h-10 border-amber-300 dark:border-amber-400/30 bg-white/80"
                     disabled={!!payBusy || deferred || chargedToRoom}
                     onClick={onPayAtCheckout}
                   >
@@ -251,13 +251,13 @@ export function GuestFolio({
       </div>
 
       {paid.length > 0 && (
-        <div className={`rounded-2xl border border-emerald-200/80 bg-emerald-50/50 ${isPage ? "p-4" : "p-3"}`}>
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-emerald-900/70">Already paid</h3>
+        <div className={`rounded-2xl border border-emerald-200/80 dark:border-emerald-400/30 bg-emerald-50/50 dark:bg-emerald-400/15 ${isPage ? "p-4" : "p-3"}`}>
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-emerald-900/70 dark:text-emerald-200">Already paid</h3>
           <ul className="mt-2 divide-y divide-emerald-200/60">
             {paid.map((r) => (
               <li key={r.id} className="flex items-start justify-between gap-3 py-2 first:pt-0 last:pb-0">
-                <p className="min-w-0 text-sm text-emerald-950/90">{r.summary}</p>
-                <p className="shrink-0 text-sm font-medium tabular-nums text-emerald-900">
+                <p className="min-w-0 text-sm text-emerald-950/90 dark:text-emerald-200">{r.summary}</p>
+                <p className="shrink-0 text-sm font-medium tabular-nums text-emerald-900 dark:text-emerald-200">
                   {r.price != null ? formatMoney(r.price, r.currency) : "Paid"}
                 </p>
               </li>

@@ -319,7 +319,7 @@ export default function DepartmentMenu({
           </span>
         )}
         {loaded && items.length === 0 && (
-          <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-normal text-amber-800">
+          <span className="rounded-full bg-amber-100 dark:bg-amber-400/15 px-1.5 py-0.5 text-[10px] font-normal text-amber-800 dark:text-amber-200">
             not set up yet
           </span>
         )}
@@ -463,7 +463,7 @@ export default function DepartmentMenu({
             <button
               type="button"
               onClick={() => setScanOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-dashed px-2.5 py-1.5 text-xs text-muted-foreground hover:border-violet-300 hover:bg-violet-50/50 hover:text-foreground"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-dashed px-2.5 py-1.5 text-xs text-muted-foreground hover:border-violet-300 hover:bg-violet-50/50 dark:hover:bg-violet-400/25 hover:text-foreground"
             >
               <Camera className="h-3.5 w-3.5" /> Scan or upload a menu to fill this in
             </button>
@@ -527,20 +527,20 @@ export default function DepartmentMenu({
           )}
 
           {found && (
-            <div className="space-y-2 rounded-lg border-2 border-violet-200 bg-violet-50/50 p-2.5">
+            <div className="space-y-2 rounded-lg border-2 border-violet-200 dark:border-violet-400/30 bg-violet-50/50 dark:bg-violet-400/15 p-2.5">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-xs font-semibold text-violet-950">
+                <p className="text-xs font-semibold text-violet-950 dark:text-violet-200">
                   Found {found.length} — adding to {outletName(resolvedOutletId)}
                 </p>
                 <button
                   type="button"
                   onClick={() => { setFound(null); setScanOpen(false); setPasted(""); }}
-                  className="text-[11px] text-violet-900/70 underline hover:text-violet-950"
+                  className="text-[11px] text-violet-900/70 dark:text-violet-200 underline hover:text-violet-950 dark:hover:text-violet-100"
                 >
                   Discard
                 </button>
               </div>
-              <p className="text-[11px] text-violet-900/75">
+              <p className="text-[11px] text-violet-900/75 dark:text-violet-200">
                 Prices are read from the menu, never guessed — anything unpriced is blank
                 for you to fill. Anything already on this menu is flagged and unticked,
                 so scanning the same menu twice adds nothing.
@@ -564,7 +564,7 @@ export default function DepartmentMenu({
                         className="h-8 w-full"
                       />
                       {f.dupe && (
-                        <span className="mt-0.5 block text-[10px] font-medium text-amber-700">
+                        <span className="mt-0.5 block text-[10px] font-medium text-amber-700 dark:text-amber-200">
                           Already on this menu
                         </span>
                       )}

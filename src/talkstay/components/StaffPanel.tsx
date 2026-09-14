@@ -484,7 +484,7 @@ export default function StaffPanel({
       {!deptScoped && (
       <div className="rounded-2xl border border-dashed bg-muted/20 p-4">
         <div className="flex flex-wrap items-center gap-3">
-          <FileSpreadsheet className="h-5 w-5 shrink-0 text-violet-600" />
+          <FileSpreadsheet className="h-5 w-5 shrink-0 text-violet-600 dark:text-violet-300" />
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium">Bulk import (CSV / Excel)</p>
             <p className="text-xs text-muted-foreground">

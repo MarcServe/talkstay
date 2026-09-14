@@ -51,12 +51,12 @@ function readRoomsView(): RoomsView {
 /** Short in-product explainers — demo visitors explore alone. */
 function FeatureTip({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-2xl border border-sky-200/80 bg-sky-50/80 px-4 py-3 text-sm text-sky-950">
+    <div className="rounded-2xl border border-sky-200/80 dark:border-sky-400/30 bg-sky-50/80 dark:bg-sky-400/15 px-4 py-3 text-sm text-sky-950 dark:text-sky-200">
       <div className="flex items-start gap-2">
-        <Info className="mt-0.5 h-4 w-4 shrink-0 text-sky-600" />
+        <Info className="mt-0.5 h-4 w-4 shrink-0 text-sky-600 dark:text-sky-300" />
         <div className="min-w-0">
           <p className="font-semibold tracking-tight">{title}</p>
-          <div className="mt-1 text-xs leading-relaxed text-sky-900/85">{children}</div>
+          <div className="mt-1 text-xs leading-relaxed text-sky-900/85 dark:text-sky-200">{children}</div>
         </div>
       </div>
     </div>
@@ -208,7 +208,7 @@ export function DemoRoomsPanel() {
                 type="button"
                 size="sm"
                 variant="ghost"
-                className={`h-8 gap-1.5 px-2.5 ${view === "card" ? "bg-violet-100 text-violet-900 hover:bg-violet-100" : ""}`}
+                className={`h-8 gap-1.5 px-2.5 ${view === "card" ? "bg-violet-100 dark:bg-violet-400/15 text-violet-900 dark:text-violet-200 hover:bg-violet-100 dark:hover:bg-violet-400/25" : ""}`}
                 onClick={() => setRoomsView("card")}
                 aria-pressed={view === "card"}
               >
@@ -219,7 +219,7 @@ export function DemoRoomsPanel() {
                 type="button"
                 size="sm"
                 variant="ghost"
-                className={`h-8 gap-1.5 px-2.5 ${view === "list" ? "bg-violet-100 text-violet-900 hover:bg-violet-100" : ""}`}
+                className={`h-8 gap-1.5 px-2.5 ${view === "list" ? "bg-violet-100 dark:bg-violet-400/15 text-violet-900 dark:text-violet-200 hover:bg-violet-100 dark:hover:bg-violet-400/25" : ""}`}
                 onClick={() => setRoomsView("list")}
                 aria-pressed={view === "list"}
               >
@@ -241,7 +241,7 @@ export function DemoRoomsPanel() {
                 return (
                   <div
                     key={r.id}
-                    className={`flex flex-wrap items-center gap-3 px-4 py-3 ${isPublic ? "bg-sky-50/40" : ""}`}
+                    className={`flex flex-wrap items-center gap-3 px-4 py-3 ${isPublic ? "bg-sky-50/40 dark:bg-sky-400/15" : ""}`}
                   >
                     <div className="min-w-[110px] flex-1">
                       <div className="font-semibold tracking-tight">{formatRoomLabel(r.room_number)}</div>
@@ -255,7 +255,7 @@ export function DemoRoomsPanel() {
                         type="button"
                         onClick={() => void copyCode(r.checkin_code!)}
                         title="Copy check-in code"
-                        className="inline-flex items-center gap-1.5 rounded-lg border bg-muted/40 px-2 py-1 font-mono text-sm tracking-widest hover:border-violet-300 hover:bg-violet-50/60"
+                        className="inline-flex items-center gap-1.5 rounded-lg border bg-muted/40 px-2 py-1 font-mono text-sm tracking-widest hover:border-violet-300 hover:bg-violet-50/60 dark:hover:bg-violet-400/25"
                       >
                         {r.checkin_code}
                         <Copy className="h-3.5 w-3.5 text-muted-foreground" />
@@ -267,7 +267,7 @@ export function DemoRoomsPanel() {
                     )}
 
                     <label className="flex cursor-pointer items-center gap-2 rounded-lg border px-2 py-1.5 text-xs">
-                      <span className={isPublic ? "font-medium text-sky-800" : "text-muted-foreground"}>
+                      <span className={isPublic ? "font-medium text-sky-800 dark:text-sky-200" : "text-muted-foreground"}>
                         Public QR
                       </span>
                       <button
@@ -283,7 +283,7 @@ export function DemoRoomsPanel() {
                     </label>
 
                     {isPublic ? (
-                      <Badge variant="outline" className="border-sky-300 bg-sky-50 text-sky-800">Public QR</Badge>
+                      <Badge variant="outline" className="border-sky-300 dark:border-sky-400/30 bg-sky-50 dark:bg-sky-400/15 text-sky-800 dark:text-sky-200">Public QR</Badge>
                     ) : (
                       <Badge
                         variant="outline"
@@ -350,7 +350,7 @@ export function DemoRoomsPanel() {
                 <div
                   key={r.id}
                   className={`rounded-2xl border bg-card p-4 shadow-sm ${
-                    isPublic ? "border-sky-300/80 ring-1 ring-sky-500/10" : ""
+                    isPublic ? "border-sky-300/80 dark:border-sky-400/30 ring-1 ring-sky-500/10" : ""
                   }`}
                 >
                   <div className="flex items-start justify-between gap-2">
@@ -362,7 +362,7 @@ export function DemoRoomsPanel() {
                       </div>
                     </div>
                     {isPublic ? (
-                      <Badge variant="outline" className="border-sky-300 bg-sky-50 text-sky-800">Public QR</Badge>
+                      <Badge variant="outline" className="border-sky-300 dark:border-sky-400/30 bg-sky-50 dark:bg-sky-400/15 text-sky-800 dark:text-sky-200">Public QR</Badge>
                     ) : (
                       <Badge
                         variant="outline"
@@ -498,7 +498,7 @@ export function DemoRoomsPanel() {
       )}
 
       {qrRoom && (
-        <div className="flex flex-col items-center gap-3 rounded-2xl border bg-violet-50/60 p-6 text-center">
+        <div className="flex flex-col items-center gap-3 rounded-2xl border bg-violet-50/60 dark:bg-violet-400/15 p-6 text-center">
           <p className="text-sm font-medium">Guest QR · {formatRoomLabel(qrRoom.room_number)}</p>
           <div className="grid w-full max-w-xs grid-cols-3 gap-1 rounded-xl bg-white/80 p-1">
             {([
@@ -697,7 +697,7 @@ export function DemoBrandingPanel() {
               <h3 className="mt-4 text-3xl font-bold">{demo.hotel.name.replace(" (Demo)", "")}</h3>
               <p className="mt-3 text-lg text-white/90">{tagline || "Need something? Just speak."}</p>
             </div>
-            <div className="rounded-2xl bg-white p-4 text-center text-violet-950">
+            <div className="rounded-2xl bg-white p-4 text-center text-violet-950 dark:text-violet-200">
               <div className="mx-auto mb-2 flex h-28 w-28 items-center justify-center rounded-xl border border-dashed text-xs text-muted-foreground">
                 Room QR
               </div>
@@ -931,7 +931,7 @@ export function DemoKnowledgePanel() {
         <div className="space-y-5">
           <div className="rounded-2xl border border-dashed bg-muted/20 p-4">
             <div className="flex items-start gap-3">
-              <Upload className="mt-0.5 h-5 w-5 shrink-0 text-violet-600" />
+              <Upload className="mt-0.5 h-5 w-5 shrink-0 text-violet-600 dark:text-violet-300" />
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium">Website crawl &amp; document upload</p>
                 <p className="mt-1 text-xs text-muted-foreground">
@@ -995,7 +995,7 @@ export function DemoKnowledgePanel() {
               filtered.map((k) => (
                 <div key={k.id} className="flex items-start justify-between gap-3 rounded-2xl border bg-card p-4 shadow-sm">
                   <div className="flex gap-3">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-700">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-100 dark:bg-amber-400/15 text-amber-700 dark:text-amber-200">
                       <BookOpen className="h-4 w-4" />
                     </div>
                     <div>
@@ -1108,7 +1108,7 @@ export function DemoStaffPanel() {
 
       <div className="rounded-2xl border border-dashed bg-muted/20 p-4">
         <div className="flex flex-wrap items-center gap-3">
-          <FileSpreadsheet className="h-5 w-5 shrink-0 text-violet-600" />
+          <FileSpreadsheet className="h-5 w-5 shrink-0 text-violet-600 dark:text-violet-300" />
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium">Bulk import (CSV / Excel)</p>
             <p className="text-xs text-muted-foreground">
