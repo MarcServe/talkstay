@@ -791,6 +791,35 @@ export default function HotelApp() {
       <div className="mt-auto space-y-1 border-t border-white/10 p-3">
         {settingsOpen && (
           <div className="space-y-1 pb-1">
+            <button
+              type="button"
+              onClick={() => go("account")}
+              className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left transition-colors ${
+                effectiveActive === "account"
+                  ? "bg-violet-600 text-white"
+                  : "text-white/60 hover:bg-white/5 hover:text-white"
+              }`}
+            >
+              <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
+                effectiveActive === "account" ? "bg-white/20 text-white" : "bg-violet-600/30 text-violet-200"
+              }`}>
+                {identityInitial}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className={`truncate text-sm font-medium ${
+                  effectiveActive === "account" ? "text-white" : "text-white/85"
+                }`}>
+                  Account
+                </div>
+                {user?.email && (
+                  <div className={`truncate text-[11px] ${
+                    effectiveActive === "account" ? "text-white/75" : "text-white/40"
+                  }`}>
+                    {user.email}
+                  </div>
+                )}
+              </div>
+            </button>
             <a
               href="/support"
               target="_blank"
@@ -803,44 +832,23 @@ export default function HotelApp() {
             <AlertSoundPicker hotelId={hotel.id} />
           </div>
         )}
+        {/* Collapsed, this is the only footer row — it still carries the avatar
+            so you can see which account you're signed in as at a glance. */}
         <button
           type="button"
           onClick={() => setSettingsOpen((v) => !v)}
-          className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-white/60 transition-colors hover:bg-white/5 hover:text-white"
-          aria-expanded={settingsOpen}
-        >
-          <Settings className="h-4 w-4 shrink-0" />
-          Settings
-          <ChevronDown className={`ml-auto h-3.5 w-3.5 transition-transform ${settingsOpen ? "" : "-rotate-90"}`} />
-        </button>
-        <button
-          type="button"
-          onClick={() => go("account")}
-          className={`mt-1 flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left transition-colors ${
-            effectiveActive === "account"
+          className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors ${
+            effectiveActive === "account" && !settingsOpen
               ? "bg-violet-600 text-white"
               : "text-white/60 hover:bg-white/5 hover:text-white"
           }`}
+          aria-expanded={settingsOpen}
         >
-          <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
-            effectiveActive === "account" ? "bg-white/20 text-white" : "bg-violet-600/30 text-violet-200"
-          }`}>
+          <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-violet-600/30 text-[10px] font-semibold text-violet-200">
             {identityInitial}
           </div>
-          <div className="min-w-0 flex-1">
-            <div className={`truncate text-sm font-medium ${
-              effectiveActive === "account" ? "text-white" : "text-white/85"
-            }`}>
-              Account
-            </div>
-            {user?.email && (
-              <div className={`truncate text-[11px] ${
-                effectiveActive === "account" ? "text-white/75" : "text-white/40"
-              }`}>
-                {user.email}
-              </div>
-            )}
-          </div>
+          Settings
+          <ChevronDown className={`ml-auto h-3.5 w-3.5 transition-transform ${settingsOpen ? "" : "-rotate-90"}`} />
         </button>
       </div>
     </div>
