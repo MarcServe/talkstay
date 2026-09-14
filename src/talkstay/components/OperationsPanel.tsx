@@ -8,8 +8,14 @@ import { toast } from "sonner";
 import {
   Loader2, AlertTriangle, RefreshCw, MessageCircle, Send, Search,
   UtensilsCrossed, BedDouble, Wrench, Wine, Shirt, ConciergeBell, KeyRound, ShieldAlert,
-  ArrowDownRight, ArrowUpRight, Clock3, Phone, Bot,
+  ArrowDownRight, ArrowUpRight, Clock3, Phone, Bot, SlidersHorizontal, MoreHorizontal, X,
+  FileSpreadsheet, FileText,
 } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
+  DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { DEPARTMENTS, type Hotel } from "@/talkstay/lib/hotels";
 import { formatRoomLabel, guestStayLabel } from "@/talkstay/lib/roomLabel";
 import type { OpsRequest, OpsTimeRange } from "@/talkstay/lib/data";
@@ -19,7 +25,7 @@ import {
 } from "@/talkstay/hooks/useTalkStayQueries";
 import { useHotelDepartments } from "@/talkstay/hooks/useHotelDepartments";
 import RequestDetailSheet from "@/talkstay/components/RequestDetailSheet";
-import ExportReportButton from "@/talkstay/components/ExportReportButton";
+import { useReportExport } from "@/talkstay/components/ExportReportButton";
 import LogOrderDialog from "@/talkstay/components/LogOrderDialog";
 import { exportFilenameBase, type TalkStayExportPayload } from "@/talkstay/lib/exportReport";
 import { statusBadge, statusCard, statusLabel, formatMoney, PAYMENT_STYLE, paymentLabel } from "@/talkstay/lib/statusStyles";
@@ -77,14 +83,14 @@ type Req = OpsRequest;
 // Each department gets a distinct icon + soft tint, so staff can scan the
 // queue by shape/colour instead of reading every card's department label.
 const DEPT_VISUAL: Record<string, { Icon: typeof Wrench; tint: string }> = {
-  housekeeping: { Icon: BedDouble, tint: "bg-sky-100 text-sky-600" },
-  laundry: { Icon: Shirt, tint: "bg-cyan-100 text-cyan-600" },
-  kitchen: { Icon: UtensilsCrossed, tint: "bg-amber-100 text-amber-600" },
-  bar: { Icon: Wine, tint: "bg-rose-100 text-rose-600" },
-  maintenance: { Icon: Wrench, tint: "bg-slate-100 text-slate-600" },
-  concierge: { Icon: ConciergeBell, tint: "bg-violet-100 text-violet-600" },
-  front_desk: { Icon: KeyRound, tint: "bg-indigo-100 text-indigo-600" },
-  duty_manager: { Icon: ShieldAlert, tint: "bg-red-100 text-red-600" },
+  housekeeping: { Icon: BedDouble, tint: "bg-sky-100 text-sky-600 dark:bg-sky-400/15 dark:text-sky-300" },
+  laundry: { Icon: Shirt, tint: "bg-cyan-100 text-cyan-600 dark:bg-cyan-400/15 dark:text-cyan-300" },
+  kitchen: { Icon: UtensilsCrossed, tint: "bg-amber-100 text-amber-600 dark:bg-amber-400/15 dark:text-amber-300" },
+  bar: { Icon: Wine, tint: "bg-rose-100 text-rose-600 dark:bg-rose-400/15 dark:text-rose-300" },
+  maintenance: { Icon: Wrench, tint: "bg-slate-100 text-slate-600 dark:bg-slate-400/15 dark:text-slate-300" },
+  concierge: { Icon: ConciergeBell, tint: "bg-violet-100 text-violet-600 dark:bg-violet-400/15 dark:text-violet-300" },
+  front_desk: { Icon: KeyRound, tint: "bg-indigo-100 text-indigo-600 dark:bg-indigo-400/15 dark:text-indigo-300" },
+  duty_manager: { Icon: ShieldAlert, tint: "bg-red-100 text-red-600 dark:bg-red-400/15 dark:text-red-300" },
 };
 
 // Next lifecycle action per status.
@@ -115,6 +121,17 @@ const FILTER_LABEL: Record<Filter, string> = {
   all: "All", new: "New", active: "Active", done: "Done", followup: "Follow-up",
 };
 
+const FILTER_GROUP_LABEL =
+  "mb-1.5 text-[10px] font-semibold uppercase tracking-[0.07em] text-muted-foreground";
+
+const optionClass = (on: boolean) =>
+  `rounded-md px-2 py-1 text-xs font-medium transition-colors ${
+    on ? "bg-violet-600 text-white" : "border bg-background text-muted-foreground hover:bg-muted"
+  }`;
+
+/** A filter narrowing the queue, shown as a dismissible chip under the bar. */
+type ActiveFilter = { key: string; label: string; clear: () => void };
+
 const startOfTodayMs = () => {
   const d = new Date();
   d.setHours(0, 0, 0, 0);
@@ -137,15 +154,15 @@ function OpsStat({
       onClick={onClick}
       className={`min-w-0 rounded-2xl border bg-card p-3 text-left shadow-sm transition-all sm:p-4 ${
         onClick
-          ? "cursor-pointer hover:border-violet-400/70 hover:bg-white/60 hover:shadow-md active:scale-[0.99]"
+          ? "cursor-pointer hover:border-violet-400/70 hover:bg-white/60 dark:hover:bg-white/10 hover:shadow-md active:scale-[0.99]"
           : "cursor-default"
-      } ${active ? "border-violet-500 bg-violet-50/80 ring-2 ring-violet-500/20" : ""}`}
+      } ${active ? "border-violet-500 bg-violet-50/80 dark:bg-violet-400/15 ring-2 ring-violet-500/20" : ""}`}
     >
       <div className="text-xs text-muted-foreground">{label}</div>
       <div className="mt-1 text-2xl font-semibold">{value}</div>
       {sub && <div className={`mt-1 text-xs ${accent ?? "text-muted-foreground"}`}>{sub}</div>}
       <div className={`mt-2 text-[10px] font-medium uppercase tracking-wide ${
-        active ? "text-violet-700" : "text-muted-foreground/80"
+        active ? "text-violet-700 dark:text-violet-200" : "text-muted-foreground/80"
       }`}>
         {active ? "Showing below ↓" : "Click to explore"}
       </div>
@@ -200,6 +217,8 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
   const [origin, setOrigin] = useState<OriginFilter>("all");
   const [locationFilter, setLocationFilter] = useState<LocationFilter>("all");
   const [paymentFilter, setPaymentFilter] = useState<PaymentFilter>("all");
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const { busy: exportBusy, run: runExport } = useReportExport(() => buildExportPayload());
 
   // Keep queue filter in sync when demo "View as" (or real staff lock) changes.
   useEffect(() => {
@@ -495,6 +514,30 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
     if (!lockedDepartment) setDept("all");
   };
 
+  // Status lives on the bar and speaks for itself; these are the ones now
+  // behind the Filters button, so each has to announce itself out here.
+  const activeFilters: ActiveFilter[] = [
+    ...(timeRange !== "3d"
+      ? [{
+          key: "time",
+          label: timeRange === "all" ? "Any age" : `Last ${TIME_RANGES.find((t) => t.id === timeRange)?.short}`,
+          clear: () => { setTimeRange("3d"); setBoardFocus(null); },
+        }]
+      : []),
+    ...(origin !== "all"
+      ? [{ key: "origin", label: ORIGIN_LABEL[origin], clear: () => { setOrigin("all"); setBoardFocus(null); } }]
+      : []),
+    ...(locationFilter !== "all"
+      ? [{ key: "location", label: LOCATION_LABEL[locationFilter], clear: () => { setLocationFilter("all"); setBoardFocus(null); } }]
+      : []),
+    ...(paymentFilter !== "all"
+      ? [{ key: "payment", label: PAYMENT_FILTER_LABEL[paymentFilter], clear: () => { setPaymentFilter("all"); setBoardFocus(null); } }]
+      : []),
+    ...(dept !== "all" && !lockedDepartment
+      ? [{ key: "dept", label: deptLabel(dept), clear: () => { setDept("all"); setBoardFocus(null); } }]
+      : []),
+  ];
+
   const exploreDept = (key: string) => {
     if (lockedDepartment) {
       // Department staff stay locked — still drill into today's work for their team.
@@ -585,8 +628,13 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
       avgAcceptLabel: fmtAvg(avgAccept),
       deptRows,
       deptTotal,
-      live: active.slice(0, 6),
-      recent: scoped.slice(0, 6),
+      // "Recent" and "Live" were two widgets over the same rows — the open
+      // ones showed up in both. One list: everything still open, then the
+      // most recent closed rows to fill, so nothing that was visible is lost.
+      queue: (() => {
+        const openIds = new Set(active.map((r) => r.id));
+        return [...active, ...scoped.filter((r) => !openIds.has(r.id))].slice(0, 6);
+      })(),
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reqs, dept, ack]);
@@ -656,16 +704,16 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
   return (
     <div className="min-w-0 space-y-4 overflow-x-hidden">
       <GuestAccessTip compact />
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-sky-200/80 bg-sky-50/70 px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-sky-200/80 dark:border-sky-400/30 bg-sky-50/70 dark:bg-sky-400/15 px-4 py-3">
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-sky-950">Find a room’s tickets first</p>
-          <p className="mt-0.5 text-xs text-sky-900/80">
+          <p className="text-sm font-semibold text-sky-950 dark:text-sky-200">Find a room’s tickets first</p>
+          <p className="mt-0.5 text-xs text-sky-900/80 dark:text-sky-200">
             Guest-app requests already land on this board. Search the room to open what’s in progress —
             only use <span className="font-medium">Log order</span> for phone, walk-in, or front-desk
             calls that aren’t already logged.
           </p>
           <div className="relative mt-2.5 max-w-md">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-sky-700/70" />
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-sky-700/70 dark:text-sky-200" />
             <Input
               value={roomQuery}
               onChange={(e) => {
@@ -676,7 +724,7 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
                 }
               }}
               placeholder="Search room number or keyword…"
-              className="h-9 border-sky-200/80 bg-white/90 pl-8"
+              className="h-9 border-sky-200/80 dark:border-sky-400/30 bg-white/90 dark:bg-white/10 pl-8"
               aria-label="Search tickets by room"
             />
           </div>
@@ -684,7 +732,7 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
         <Button
           size="sm"
           variant="outline"
-          className="shrink-0 border-violet-300 bg-white text-violet-800 hover:bg-violet-50"
+          className="shrink-0 border-violet-300 dark:border-violet-400/30 bg-white dark:bg-transparent text-violet-800 dark:text-violet-200 hover:bg-violet-50 dark:hover:bg-violet-400/25"
           onClick={() => setLogOpen(true)}
         >
           <Phone className="mr-1.5 h-3.5 w-3.5" /> Log phone / walk-in
@@ -722,14 +770,14 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
             const total = priced.reduce((sum, r) => sum + Number(r.price), 0);
             const currency = unpaid.find((r) => r.currency)?.currency ?? "GBP";
             return (
-              <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2.5 text-sm text-amber-950">
+              <div className="mt-3 rounded-xl border border-amber-300 dark:border-amber-400/30 bg-amber-50 dark:bg-amber-400/15 px-3 py-2.5 text-sm text-amber-950 dark:text-amber-200">
                 <p className="font-semibold">
                   {unpaid.length} unpaid chargeable item{unpaid.length === 1 ? "" : "s"}
                   {priced.length
                     ? ` · ${formatMoney(total, currency)}`
                     : " · add amounts on each ticket"}
                 </p>
-                <p className="mt-0.5 text-xs text-amber-900/80">
+                <p className="mt-0.5 text-xs text-amber-900/80 dark:text-amber-200">
                   Collect before checkout. Open a ticket to mark paid or waive.
                 </p>
               </div>
@@ -754,11 +802,11 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
                           </Badge>
                           <span className="text-xs text-muted-foreground">{deptLabel(r.department_key)}</span>
                           {isStaffLogged(r.source) ? (
-                            <Badge variant="outline" className="border-sky-200 bg-sky-50 text-sky-800">
+                            <Badge variant="outline" className="border-sky-200 dark:border-sky-400/30 bg-sky-50 dark:bg-sky-400/15 text-sky-800 dark:text-sky-200">
                               <Phone className="mr-1 h-3 w-3" />{channelLabel(r.source) ?? "Staff logged"}
                             </Badge>
                           ) : (
-                            <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-800">
+                            <Badge variant="outline" className="border-emerald-200 dark:border-emerald-400/30 bg-emerald-50 dark:bg-emerald-400/15 text-emerald-800 dark:text-emerald-200">
                               <Bot className="mr-1 h-3 w-3" />
                               {channelLabel(r.source) ?? "Guest app"}
                             </Badge>
@@ -776,7 +824,7 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
                             return (
                               <Badge
                                 variant="outline"
-                                className="border-amber-300 bg-amber-50 text-amber-900"
+                                className="border-amber-300 dark:border-amber-400/30 bg-amber-50 dark:bg-amber-400/15 text-amber-900 dark:text-amber-200"
                                 title={`${tab.count} unpaid items on this tab`}
                               >
                                 {tab.roomNumber ? `Room ${tab.roomNumber} tab` : "Tab"}
@@ -790,7 +838,7 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
                           {acked?.by ? ` · Accepted by ${acked.by}` : ""}
                         </p>
                       </div>
-                      <span className="shrink-0 text-xs font-medium text-violet-700">Open</span>
+                      <span className="shrink-0 text-xs font-medium text-violet-700 dark:text-violet-200">Open</span>
                     </button>
                   </li>
                 );
@@ -849,7 +897,7 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
         />
       </div>
 
-      <div className="grid min-w-0 gap-3 lg:grid-cols-3">
+      <div className="grid min-w-0 gap-3 lg:grid-cols-2">
         <div className="min-w-0 overflow-hidden rounded-2xl border bg-card p-4 shadow-sm lg:col-span-1">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
@@ -873,7 +921,7 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
                   clearBoardFilters("all");
                   revealQueue("All departments");
                 }}
-                className="shrink-0 rounded-lg border border-violet-200 bg-violet-50 px-2 py-1 text-[11px] font-medium text-violet-700 hover:bg-violet-100"
+                className="shrink-0 rounded-lg border border-violet-200 dark:border-violet-400/30 bg-violet-50 dark:bg-violet-400/15 px-2 py-1 text-[11px] font-medium text-violet-700 dark:text-violet-200 hover:bg-violet-100 dark:hover:bg-violet-400/25"
               >
                 ← All departments
               </button>
@@ -891,8 +939,8 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
                     <button
                       type="button"
                       onClick={() => exploreDept(d.key)}
-                      className={`w-full min-w-0 rounded-xl px-2 py-2 text-left transition-colors hover:bg-violet-50 ${
-                        on ? "bg-violet-50 ring-1 ring-violet-300" : ""
+                      className={`w-full min-w-0 rounded-xl px-2 py-2 text-left transition-colors hover:bg-violet-50 dark:hover:bg-violet-400/25 ${
+                        on ? "bg-violet-50 dark:bg-violet-400/15 ring-1 ring-violet-300 dark:ring-violet-400/40" : ""
                       }`}
                     >
                       <div className="mb-1 flex min-w-0 items-center justify-between gap-2 text-xs">
@@ -900,7 +948,7 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
                         <span className="shrink-0 text-muted-foreground">{d.count} · {pct}%</span>
                       </div>
                       <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                        <div className="h-full max-w-full rounded-full bg-violet-500" style={{ width: `${pct}%` }} />
+                        <div className="h-full max-w-full rounded-full bg-violet-50 dark:bg-violet-400/150" style={{ width: `${pct}%` }} />
                       </div>
                     </button>
                   </li>
@@ -912,62 +960,26 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
 
         <div className="min-w-0 overflow-hidden rounded-2xl border bg-card p-4 shadow-sm">
           <div className="flex items-center justify-between gap-2">
-            <h3 className="min-w-0 truncate text-sm font-medium">Recent requests</h3>
+            <h3 className="min-w-0 truncate text-sm font-medium">Live queue</h3>
             <button
               type="button"
-              className="shrink-0 text-xs text-violet-600 hover:underline"
-              onClick={() => exploreBoard(null, "all", "All requests")}
-            >
-              View all
-            </button>
-          </div>
-          <ul className="mt-3 divide-y">
-            {bi.recent.length === 0 ? (
-              <li className="py-4 text-sm text-muted-foreground">Nothing yet.</li>
-            ) : bi.recent.map((r) => (
-              <li key={r.id} className="min-w-0">
-                <button
-                  type="button"
-                  onClick={() => setSelectedId(r.id)}
-                  className="flex w-full min-w-0 items-start gap-2 py-2.5 text-left transition-colors hover:bg-muted/40"
-                >
-                  <div className="min-w-0 flex-1 overflow-hidden">
-                    <p className="truncate text-sm font-medium">{r.summary_staff || r.summary}</p>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {deptLabel(r.department_key)} · {timeAgo(r.created_at)}
-                    </p>
-                  </div>
-                  <span className={`max-w-[40%] shrink-0 truncate rounded-full px-2 py-0.5 text-[10px] font-medium ${statusBadge(r.status)}`}>
-                    {statusLabel(r.status)}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
-
-        <div className="min-w-0 overflow-hidden rounded-2xl border bg-card p-4 shadow-sm">
-          <div className="flex items-center justify-between gap-2">
-            <h3 className="min-w-0 truncate text-sm font-medium">Live requests</h3>
-            <button
-              type="button"
-              className="shrink-0 text-xs text-violet-600 hover:underline"
+              className="shrink-0 text-xs font-medium text-violet-600 hover:underline dark:text-violet-300"
               onClick={() => exploreBoard("active", "active", "Active queue")}
             >
               View all
             </button>
           </div>
           <ul className="mt-3 divide-y">
-            {bi.live.length === 0 ? (
+            {bi.queue.length === 0 ? (
               <li className="py-4 text-sm text-muted-foreground">Queue is clear.</li>
-            ) : bi.live.map((r) => (
+            ) : bi.queue.map((r) => (
               <li key={r.id} className="min-w-0">
                 <button
                   type="button"
                   onClick={() => setSelectedId(r.id)}
                   className="flex w-full min-w-0 items-start gap-3 py-2.5 text-left transition-colors hover:bg-muted/40"
                 >
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-xs font-semibold text-violet-700">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-100 dark:bg-violet-400/15 text-xs font-semibold text-violet-700 dark:bg-violet-500/20 dark:text-violet-200">
                     {r.ts_rooms?.room_number ?? "—"}
                   </div>
                   <div className="min-w-0 flex-1 overflow-hidden">
@@ -989,25 +1001,223 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
         </div>
       </div>
 
-      <div ref={queueRef} className="flex flex-wrap items-center justify-between gap-3 scroll-mt-4">
-        <div className="flex flex-wrap items-center gap-1.5">
-          {(["all", "new", "active", "done", "followup"] as Filter[]).map((f) => {
-            const on = filter === f;
-            return (
+      <div ref={queueRef} className="scroll-mt-4 space-y-2">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {(["all", "new", "active", "done", "followup"] as Filter[]).map((f) => {
+              const on = filter === f;
+              return (
+                <button
+                  key={f}
+                  type="button"
+                  onClick={() => { setBoardFocus(null); setFilter(f); }}
+                  className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                    on ? "bg-violet-600 text-white" : "border bg-background text-muted-foreground hover:bg-muted"
+                  }`}
+                >
+                  {FILTER_LABEL[f]}
+                  <span className={on ? "text-white/70" : "text-muted-foreground/70"}>{counts[f]}</span>
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Popover open={filtersOpen} onOpenChange={setFiltersOpen}>
+              <PopoverTrigger asChild>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className={activeFilters.length ? "border-violet-300 dark:border-violet-400/30 text-violet-800 dark:border-violet-500/60 dark:text-violet-200" : ""}
+                >
+                  <SlidersHorizontal className="mr-1.5 h-3.5 w-3.5" />
+                  Filters
+                  {activeFilters.length > 0 && (
+                    <span className="ml-1.5 rounded-full bg-violet-600 px-1.5 text-[10px] font-semibold text-white">
+                      {activeFilters.length}
+                    </span>
+                  )}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-[19rem] space-y-3.5 p-3.5">
+                <div>
+                  <p className={FILTER_GROUP_LABEL}>Closed requests from</p>
+                  <div className="flex flex-wrap gap-1">
+                    {TIME_RANGES.map((r) => (
+                      <button
+                        key={r.id}
+                        type="button"
+                        onClick={() => { setTimeRange(r.id); setBoardFocus(null); }}
+                        className={optionClass(timeRange === r.id)}
+                      >
+                        {r.short}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    Open tickets always show, however old.
+                  </p>
+                </div>
+
+                <div>
+                  <p className={FILTER_GROUP_LABEL}>Raised by</p>
+                  <div className="flex flex-wrap gap-1">
+                    {(["all", "guest", "logged"] as OriginFilter[]).map((o) => {
+                      const on = origin === o;
+                      return (
+                        <button
+                          key={o}
+                          type="button"
+                          onClick={() => { setOrigin(o); setBoardFocus(null); }}
+                          className={`${optionClass(on)} inline-flex items-center gap-1`}
+                        >
+                          {o === "guest" && <Bot className="h-3 w-3" />}
+                          {o === "logged" && <Phone className="h-3 w-3" />}
+                          {o === "all" ? "Anyone" : ORIGIN_LABEL[o]}
+                          <span className={on ? "text-white/70" : "text-muted-foreground/70"}>{originCounts[o]}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <p className={FILTER_GROUP_LABEL}>Location</p>
+                  <div className="flex flex-wrap gap-1">
+                    {(["all", "rooms", "public"] as LocationFilter[]).map((loc) => (
+                      <button
+                        key={loc}
+                        type="button"
+                        onClick={() => { setLocationFilter(loc); setBoardFocus(null); }}
+                        className={optionClass(locationFilter === loc)}
+                      >
+                        {loc === "all" ? "Anywhere" : LOCATION_LABEL[loc]}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {!lockedDepartment && (
+                  <div>
+                    <p className={FILTER_GROUP_LABEL}>Department</p>
+                    <select
+                      className="w-full rounded-md border bg-background px-2 py-1.5 text-sm"
+                      value={dept}
+                      onChange={(e) => { setDept(e.target.value); setBoardFocus(null); }}
+                      aria-label="Filter by department"
+                    >
+                      <option value="all">All departments</option>
+                      {hotelDepts.map((d) => <option key={d.key} value={d.key}>{d.display_name}</option>)}
+                    </select>
+                  </div>
+                )}
+
+                <div>
+                  <p className={FILTER_GROUP_LABEL}>Payment</p>
+                  <select
+                    className="w-full rounded-md border bg-background px-2 py-1.5 text-sm"
+                    value={paymentFilter}
+                    aria-label="Filter by payment settlement"
+                    onChange={(e) => {
+                      setPaymentFilter(e.target.value as PaymentFilter);
+                      setBoardFocus(null);
+                    }}
+                  >
+                    {(Object.keys(PAYMENT_FILTER_LABEL) as PaymentFilter[]).map((p) => (
+                      <option key={p} value={p}>{PAYMENT_FILTER_LABEL[p]}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex items-center justify-between border-t pt-3">
+                  <button
+                    type="button"
+                    disabled={!activeFilters.length}
+                    onClick={() => { clearBoardFilters(filter); setTimeRange("3d"); }}
+                    className="text-xs font-medium text-muted-foreground hover:text-foreground disabled:opacity-40"
+                  >
+                    Clear all
+                  </button>
+                  <Button size="sm" onClick={() => setFiltersOpen(false)}>Done</Button>
+                </div>
+              </PopoverContent>
+            </Popover>
+
+            {lockedDepartment && (
+              onClearDepartmentLock ? (
+                <button
+                  type="button"
+                  onClick={onClearDepartmentLock}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-violet-200 dark:border-violet-400/30 bg-violet-50 dark:bg-violet-400/15 px-2 py-1 text-sm font-medium text-violet-800 hover:bg-violet-100 dark:hover:bg-violet-400/25 dark:border-violet-500/40 dark:bg-violet-500/15 dark:text-violet-200 dark:hover:bg-violet-500/25"
+                  title="Return to owner view — all departments"
+                >
+                  {deptLabel(lockedDepartment)}
+                  <span className="text-[11px] font-normal text-violet-600 dark:text-violet-300">· All departments</span>
+                </button>
+              ) : (
+                <Badge variant="secondary" className="px-2 py-1">{deptLabel(lockedDepartment)}</Badge>
+              )
+            )}
+
+            <Button
+              size="sm"
+              variant="outline"
+              className="border-violet-300 dark:border-violet-400/30 text-violet-800 hover:bg-violet-50 dark:hover:bg-violet-400/25 dark:border-violet-500/60 dark:text-violet-200 dark:hover:bg-violet-500/15"
+              onClick={() => setLogOpen(true)}
+              title="Only for phone, walk-in, or front-desk — search the room above first"
+            >
+              <Phone className="mr-1.5 h-3.5 w-3.5" /> Log phone / walk-in
+            </Button>
+
+            {/* Export and Refresh were sitting in a row of filters looking like
+                filters — neither one narrows the queue. */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" variant="ghost" title="More actions" aria-label="More actions">
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuLabel>Export full report</DropdownMenuLabel>
+                <DropdownMenuItem
+                  disabled={exportBusy || loading || !exportScope.length}
+                  onClick={() => void runExport("csv")}
+                >
+                  <FileSpreadsheet className="mr-2 h-4 w-4 text-emerald-600" />
+                  CSV
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={exportBusy || loading || !exportScope.length}
+                  onClick={() => void runExport("pdf")}
+                >
+                  <FileText className="mr-2 h-4 w-4 text-rose-600" />
+                  PDF
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem disabled={isFetching} onClick={refresh}>
+                  <RefreshCw className={`mr-2 h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
+                  Refresh queue
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </div>
+
+        {/* Every narrowing filter names itself and carries its own dismiss, so
+            what is hiding rows is visible without opening the popover. */}
+        {(activeFilters.length > 0 || boardFocus || (!!lockedDepartment && !!onClearDepartmentLock)) && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {activeFilters.map((f) => (
               <button
-                key={f}
+                key={f.key}
                 type="button"
-                onClick={() => { setBoardFocus(null); setFilter(f); }}
-                className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                  on ? "bg-violet-600 text-white" : "border bg-background text-muted-foreground hover:bg-muted"
-                }`}
+                onClick={f.clear}
+                className="inline-flex items-center gap-1 rounded-full bg-violet-100 dark:bg-violet-400/15 px-2.5 py-1 text-xs font-medium text-violet-800 dark:text-violet-200 hover:bg-violet-200 dark:hover:bg-violet-400/25 dark:bg-violet-500/20 dark:text-violet-100 dark:hover:bg-violet-500/30"
+                title={`Remove ${f.label} filter`}
               >
-                {FILTER_LABEL[f]}
-                <span className={on ? "text-white/70" : "text-muted-foreground/70"}>{counts[f]}</span>
+                {f.label}
+                <X className="h-3 w-3" />
               </button>
-            );
-          })}
-          {(boardFocus || origin !== "all" || locationFilter !== "all" || paymentFilter !== "all" || (dept !== "all" && !lockedDepartment) || (!!lockedDepartment && !!onClearDepartmentLock)) && (
+            ))}
             <button
               type="button"
               onClick={() => {
@@ -1016,129 +1226,15 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
                   return;
                 }
                 clearBoardFilters("active");
+                setTimeRange("3d");
                 revealQueue("Full queue");
               }}
-              className="rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-1.5 text-xs font-medium text-violet-700 hover:bg-violet-100"
+              className="px-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
             >
-              {lockedDepartment && onClearDepartmentLock ? "← All departments" : "← Clear filters"}
+              {lockedDepartment && onClearDepartmentLock ? "← All departments" : "Clear all"}
             </button>
-          )}
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex rounded-lg border bg-background p-0.5" title="How far back to show closed requests">
-            {TIME_RANGES.map((r) => (
-              <button
-                key={r.id}
-                type="button"
-                onClick={() => { setTimeRange(r.id); setBoardFocus(null); }}
-                className={`rounded-md px-2 py-1 text-xs font-medium transition-colors ${
-                  timeRange === r.id ? "bg-violet-600 text-white" : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {r.short}
-              </button>
-            ))}
           </div>
-          <div
-            className="flex rounded-lg border bg-background p-0.5"
-            title="Guest room-assistant requests vs phone / walk-in / front-desk logs"
-          >
-            {(["all", "guest", "logged"] as OriginFilter[]).map((o) => {
-              const on = origin === o;
-              return (
-                <button
-                  key={o}
-                  type="button"
-                  onClick={() => { setOrigin(o); setBoardFocus(null); }}
-                  className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors ${
-                    on ? "bg-violet-600 text-white" : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  {o === "guest" && <Bot className={`h-3 w-3 ${on ? "text-white/90" : ""}`} />}
-                  {o === "logged" && <Phone className={`h-3 w-3 ${on ? "text-white/90" : ""}`} />}
-                  {ORIGIN_LABEL[o]}
-                  <span className={on ? "text-white/70" : "text-muted-foreground/70"}>{originCounts[o]}</span>
-                </button>
-              );
-            })}
-          </div>
-          <div
-            className="flex rounded-lg border bg-background p-0.5"
-            title="Bedroom stays vs public QR areas (lobby, bar, restaurant…)"
-          >
-            {(["all", "rooms", "public"] as LocationFilter[]).map((loc) => {
-              const on = locationFilter === loc;
-              return (
-                <button
-                  key={loc}
-                  type="button"
-                  onClick={() => { setLocationFilter(loc); setBoardFocus(null); }}
-                  className={`rounded-md px-2 py-1 text-xs font-medium transition-colors ${
-                    on ? "bg-sky-700 text-white" : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  {LOCATION_LABEL[loc]}
-                </button>
-              );
-            })}
-          </div>
-          <select
-            className="rounded-md border bg-background px-2 py-1.5 text-xs"
-            value={paymentFilter}
-            title="Payment settlement"
-            onChange={(e) => {
-              setPaymentFilter(e.target.value as PaymentFilter);
-              setBoardFocus(null);
-            }}
-          >
-            {(Object.keys(PAYMENT_FILTER_LABEL) as PaymentFilter[]).map((p) => (
-              <option key={p} value={p}>{PAYMENT_FILTER_LABEL[p]}</option>
-            ))}
-          </select>
-          {lockedDepartment ? (
-            onClearDepartmentLock ? (
-              <button
-                type="button"
-                onClick={onClearDepartmentLock}
-                className="inline-flex items-center gap-1.5 rounded-md border border-violet-200 bg-violet-50 px-2 py-1 text-sm font-medium text-violet-800 hover:bg-violet-100"
-                title="Return to owner view — all departments"
-              >
-                {deptLabel(lockedDepartment)}
-                <span className="text-[11px] font-normal text-violet-600">· All departments</span>
-              </button>
-            ) : (
-              <Badge variant="secondary" className="px-2 py-1">{deptLabel(lockedDepartment)}</Badge>
-            )
-          ) : (
-            <select
-              className="rounded-md border bg-background px-2 py-1.5 text-sm"
-              value={dept}
-              onChange={(e) => { setDept(e.target.value); setBoardFocus(null); }}
-              title="Filter by department — works with Guest assistant / Staff logged"
-              aria-label="Filter by department"
-            >
-              <option value="all">All departments</option>
-              {hotelDepts.map((d) => <option key={d.key} value={d.key}>{d.display_name}</option>)}
-            </select>
-          )}
-          <Button
-            size="sm"
-            variant="outline"
-            className="border-violet-300 text-violet-800 hover:bg-violet-50"
-            onClick={() => setLogOpen(true)}
-            title="Only for phone, walk-in, or front-desk — search the room above first"
-          >
-            <Phone className="mr-1.5 h-3.5 w-3.5" /> Log phone / walk-in
-          </Button>
-          <ExportReportButton
-            buildPayload={buildExportPayload}
-            disabled={loading || !exportScope.length}
-            label="Export"
-          />
-          <Button size="sm" variant="ghost" onClick={refresh} disabled={isFetching} title="Refresh queue">
-            <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
-          </Button>
-        </div>
+        )}
       </div>
 
       {logOpen && (
@@ -1173,13 +1269,13 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
             return (
               <div key={r.id} className={`min-w-0 overflow-hidden rounded-2xl border p-4 shadow-sm ${
                 r.is_complaint || overdue
-                  ? "border-rose-300/50 bg-rose-100/35 border-l-[3px] border-l-rose-500"
+                  ? "border-rose-300/50 dark:border-rose-400/30 bg-rose-100/35 dark:bg-rose-400/15 border-l-[3px] border-l-rose-500 dark:border-l-rose-400"
                   : statusCard(r.status)
               }`}>
                 <button
                   type="button"
                   onClick={() => setSelectedId(r.id)}
-                  className="flex w-full min-w-0 items-start justify-between gap-2 rounded-xl text-left transition-colors hover:bg-white/40 sm:gap-3"
+                  className="flex w-full min-w-0 items-start justify-between gap-2 rounded-xl text-left transition-colors hover:bg-white/40 dark:hover:bg-white/10 sm:gap-3"
                 >
                   <div className={`hidden h-11 w-11 shrink-0 items-center justify-center rounded-xl sm:flex ${visual.tint}`}>
                     <DeptIcon className="h-5 w-5" />
@@ -1188,39 +1284,39 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-semibold">{guestStayLabel(r.guest_first_name, r.ts_rooms?.room_number, { locator: r.guest_locator })}</span>
                       {r.ts_rooms?.is_public ? (
-                        <Badge variant="outline" className="border-sky-300 bg-sky-50 text-sky-800">Public</Badge>
+                        <Badge variant="outline" className="border-sky-300 dark:border-sky-400/30 bg-sky-50 dark:bg-sky-400/15 text-sky-800 dark:text-sky-200">Public</Badge>
                       ) : null}
                       {r.billing_room_number ? (
-                        <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-950">
+                        <Badge variant="outline" className="border-amber-300 dark:border-amber-400/30 bg-amber-50 dark:bg-amber-400/15 text-amber-950 dark:text-amber-200">
                           Bill → {formatRoomLabel(r.billing_room_number)}
                         </Badge>
                       ) : null}
                       <Badge variant="secondary">{deptLabel(r.department_key)}</Badge>
                       {isStaffLogged(r.source) ? (
-                        <Badge variant="outline" className="border-sky-200 bg-sky-50 text-sky-800">
+                        <Badge variant="outline" className="border-sky-200 dark:border-sky-400/30 bg-sky-50 dark:bg-sky-400/15 text-sky-800 dark:text-sky-200">
                           <Phone className="mr-1 h-3 w-3" />{channelLabel(r.source) ?? "Staff logged"}
                         </Badge>
                       ) : (
-                        <Badge variant="outline" className="border-emerald-200 bg-emerald-50 text-emerald-800">
+                        <Badge variant="outline" className="border-emerald-200 dark:border-emerald-400/30 bg-emerald-50 dark:bg-emerald-400/15 text-emerald-800 dark:text-emerald-200">
                           <Bot className="mr-1 h-3 w-3" />
                           {channelLabel(r.source) ?? "Guest app"}
                         </Badge>
                       )}
                       {r.is_complaint && (
-                        <Badge className="border border-rose-200 bg-rose-100 text-rose-800"><AlertTriangle className="mr-1 h-3 w-3" />Complaint</Badge>
+                        <Badge className="border border-rose-200 dark:border-rose-400/30 bg-rose-100 dark:bg-rose-400/15 text-rose-800 dark:text-rose-200"><AlertTriangle className="mr-1 h-3 w-3" />Complaint</Badge>
                       )}
-                      {r.priority === "urgent" && <Badge className="border border-rose-200 bg-rose-100 text-rose-800">Urgent</Badge>}
-                      {overdue && <Badge className="border border-rose-200 bg-rose-100 text-rose-800">Overdue</Badge>}
-                      {r.needs_triage && <Badge className="border border-amber-200 bg-amber-100 text-amber-900">Check routing</Badge>}
+                      {r.priority === "urgent" && <Badge className="border border-rose-200 dark:border-rose-400/30 bg-rose-100 dark:bg-rose-400/15 text-rose-800 dark:text-rose-200">Urgent</Badge>}
+                      {overdue && <Badge className="border border-rose-200 dark:border-rose-400/30 bg-rose-100 dark:bg-rose-400/15 text-rose-800 dark:text-rose-200">Overdue</Badge>}
+                      {r.needs_triage && <Badge className="border border-amber-200 dark:border-amber-400/30 bg-amber-100 dark:bg-amber-400/15 text-amber-900 dark:text-amber-200">Check routing</Badge>}
                       {escalation && (
                         <Badge className={`border ${
                           escalation.kind === "update"
-                            ? "border-amber-200 bg-amber-100 text-amber-950"
+                            ? "border-amber-200 dark:border-amber-400/30 bg-amber-100 dark:bg-amber-400/15 text-amber-950 dark:text-amber-200"
                             : escalation.kind === "cancel"
-                              ? "border-slate-300 bg-slate-100 text-slate-800"
+                              ? "border-slate-300 dark:border-slate-400/30 bg-slate-100 dark:bg-slate-400/15 text-slate-800 dark:text-slate-200"
                               : escalation.kind === "payment"
-                                ? "border-amber-300 bg-amber-100 text-amber-950"
-                                : "border-rose-200 bg-rose-100 text-rose-800"
+                                ? "border-amber-300 dark:border-amber-400/30 bg-amber-100 dark:bg-amber-400/15 text-amber-950 dark:text-amber-200"
+                                : "border-rose-200 dark:border-rose-400/30 bg-rose-100 dark:bg-rose-400/15 text-rose-800 dark:text-rose-200"
                         }`}
                         >
                           <MessageCircle className="mr-1 h-3 w-3" />
@@ -1242,16 +1338,16 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
                     )}
                     <p className="mt-1 text-xs text-muted-foreground">
                       {timeAgo(r.created_at)}{r.guest_language ? ` · ${r.guest_language}` : ""}
-                      <span className="ml-2 font-medium text-teal-700">View details</span>
+                      <span className="ml-2 font-medium text-teal-700 dark:text-teal-200">View details</span>
                     </p>
                     {acked && (
-                      <p className="mt-1 text-xs text-emerald-700">✓ Accepted by {acked.by} · {timeAgo(acked.at)}</p>
+                      <p className="mt-1 text-xs text-emerald-700 dark:text-emerald-200">✓ Accepted by {acked.by} · {timeAgo(acked.at)}</p>
                     )}
                     {handlers[r.id] && (
-                      <p className="mt-1 text-xs text-teal-800">Handling · {handlers[r.id].by}</p>
+                      <p className="mt-1 text-xs text-teal-800 dark:text-teal-200">Handling · {handlers[r.id].by}</p>
                     )}
                     {notes[r.id]?.note && (
-                      <p className="mt-1 line-clamp-2 text-xs text-violet-800">Note · {notes[r.id].note}</p>
+                      <p className="mt-1 line-clamp-2 text-xs text-violet-800 dark:text-violet-200">Note · {notes[r.id].note}</p>
                     )}
                   </div>
                   <span className={`max-w-[35%] shrink-0 truncate rounded-full px-2 py-1 text-xs sm:max-w-none sm:whitespace-nowrap ${statusBadge(r.status)}`}>
@@ -1268,12 +1364,12 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
                     }}
                     className={`mt-2 block w-full break-words rounded-lg border px-3 py-2 text-left text-xs font-medium transition-colors ${
                       escalation.kind === "update"
-                        ? "border-amber-300 bg-amber-50 text-amber-950 hover:bg-amber-100"
+                        ? "border-amber-300 dark:border-amber-400/30 bg-amber-50 dark:bg-amber-400/15 text-amber-950 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-400/25"
                         : escalation.kind === "cancel"
-                          ? "border-slate-300 bg-slate-50 text-slate-800 hover:bg-slate-100"
+                          ? "border-slate-300 dark:border-slate-400/30 bg-slate-50 dark:bg-slate-400/15 text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-400/25"
                           : escalation.kind === "payment"
-                            ? "border-amber-400 bg-amber-50 text-amber-950 hover:bg-amber-100"
-                            : "border-rose-200 bg-rose-50/80 text-rose-800 hover:bg-rose-100"
+                            ? "border-amber-400 dark:border-amber-400/30 bg-amber-50 dark:bg-amber-400/15 text-amber-950 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-400/25"
+                            : "border-rose-200 dark:border-rose-400/30 bg-rose-50/80 dark:bg-rose-400/15 text-rose-800 dark:text-rose-200 hover:bg-rose-100 dark:hover:bg-rose-400/25"
                     }`}
                   >
                     {escalation.kind === "update"

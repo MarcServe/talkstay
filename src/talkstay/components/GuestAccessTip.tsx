@@ -12,23 +12,23 @@ export default function GuestAccessTip({
 }) {
   return (
     <div
-      className={`rounded-2xl border border-violet-200/80 bg-violet-50/60 text-violet-950 ${
+      className={`rounded-2xl border border-violet-200/80 dark:border-violet-400/30 bg-violet-50/60 dark:bg-violet-400/15 text-violet-950 dark:text-violet-200 ${
         compact ? "px-3 py-2.5" : "p-4"
       } ${className}`}
       role="note"
     >
       <div className="flex items-start gap-2.5">
-        <div className="mt-0.5 flex shrink-0 items-center gap-1 text-violet-700">
+        <div className="mt-0.5 flex shrink-0 items-center gap-1 text-violet-700 dark:text-violet-200">
           <QrCode className="h-4 w-4" aria-hidden />
           <Mail className="h-4 w-4" aria-hidden />
         </div>
         <div className="min-w-0">
           {!compact && (
-            <p className="text-xs font-semibold uppercase tracking-wide text-violet-800/80">
+            <p className="text-xs font-semibold uppercase tracking-wide text-violet-800/80 dark:text-violet-200">
               {GUEST_ACCESS_HEADLINE}
             </p>
           )}
-          <p className={`text-sm leading-relaxed text-violet-950/90 ${compact ? "" : "mt-0.5"}`}>
+          <p className={`text-sm leading-relaxed text-violet-950/90 dark:text-violet-200 ${compact ? "" : "mt-0.5"}`}>
             {GUEST_ACCESS_TIP}
           </p>
         </div>

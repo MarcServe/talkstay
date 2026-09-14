@@ -16,17 +16,10 @@ import {
   type TalkStayExportPayload,
 } from "@/talkstay/lib/exportReport";
 
-/** Shared CSV / PDF export control for Operations and Insights. */
-export default function ExportReportButton({
-  buildPayload,
-  disabled,
-  label = "Export",
-}: {
-  /** Build the full report at click-time so filters/range stay current. */
-  buildPayload: () => TalkStayExportPayload | null;
-  disabled?: boolean;
-  label?: string;
-}) {
+/** Export behaviour on its own, so a caller that already owns a menu can offer
+ *  CSV/PDF as its own items — nesting this component's menu inside another
+ *  Radix menu leaves the inner one unable to open. */
+export function useReportExport(buildPayload: () => TalkStayExportPayload | null) {
   const [busy, setBusy] = useState(false);
 
   const run = async (format: ExportFormat) => {
@@ -54,6 +47,22 @@ export default function ExportReportButton({
       setBusy(false);
     }
   };
+
+  return { busy, run };
+}
+
+/** Shared CSV / PDF export control for Operations and Insights. */
+export default function ExportReportButton({
+  buildPayload,
+  disabled,
+  label = "Export",
+}: {
+  /** Build the full report at click-time so filters/range stay current. */
+  buildPayload: () => TalkStayExportPayload | null;
+  disabled?: boolean;
+  label?: string;
+}) {
+  const { busy, run } = useReportExport(buildPayload);
 
   return (
     <DropdownMenu>
