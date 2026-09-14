@@ -335,7 +335,10 @@ export default function DepartmentsPanel({ hotel }: { hotel: Hotel }) {
               )}
             </div>
 
-            <DepartmentMenu hotelId={hotel.id} departmentKey={d.key} departmentName={d.display_name} />
+            <DepartmentMenu
+              hotelId={hotel.id} departmentKey={d.key} departmentName={d.display_name}
+              hotelCurrency={hotel.currency || "GBP"}
+            />
           </div>
         ))}
       </div>

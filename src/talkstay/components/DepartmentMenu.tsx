@@ -24,9 +24,13 @@ type OutletFilter = "all" | "shared" | string; // string = room id
  * Outdoor Restaurant, Table 12…), menus can be uploaded per outlet.
  */
 export default function DepartmentMenu({
-  hotelId, departmentKey, departmentName,
+  hotelId, departmentKey, departmentName, hotelCurrency = "GBP",
 }: {
   hotelId: string; departmentKey: string; departmentName: string;
+  /** New items default to this — without it every property's items kept
+   *  landing on the database column's hardcoded 'GBP' default regardless of
+   *  what currency the property actually chose in Branding. */
+  hotelCurrency?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<CatalogItem[]>([]);
@@ -121,6 +125,7 @@ export default function DepartmentMenu({
         price: p,
         outletRoomId: resolvedOutletId,
         availability: resolvedAvailability,
+        currency: hotelCurrency,
       });
       setItems((prev) => [...prev, row].sort((a, b) => a.name.localeCompare(b.name)));
       setName(""); setPrice("");
@@ -234,6 +239,7 @@ export default function DepartmentMenu({
           price: f.price,
           outletRoomId: resolvedOutletId,
           availability: resolvedAvailability,
+          currency: hotelCurrency,
         });
         setItems((prev) => [...prev, row].sort((a, b) => a.name.localeCompare(b.name)));
         added++;
