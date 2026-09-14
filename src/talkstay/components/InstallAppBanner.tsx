@@ -280,7 +280,7 @@ export default function InstallAppBanner({
               variant={needsIosInstall ? "outline" : "default"}
               disabled={busy}
               onClick={turnOnAlerts}
-              className={needsIosInstall ? "border-violet-300 dark:border-violet-400/30 bg-white" : "bg-violet-700 hover:bg-violet-800"}
+              className={needsIosInstall ? "border-violet-300 dark:border-violet-400/30 bg-white dark:bg-white/10" : "bg-violet-700 hover:bg-violet-800"}
             >
               <Bell className="mr-1.5 h-3.5 w-3.5" />
               {busy ? "Enabling…" : "Turn on alert sounds"}
@@ -292,7 +292,7 @@ export default function InstallAppBanner({
               variant="outline"
               disabled={busy}
               onClick={addToHomeScreen}
-              className="border-violet-300 dark:border-violet-400/30 bg-white"
+              className="border-violet-300 dark:border-violet-400/30 bg-white dark:bg-white/10"
               aria-expanded={showGuide}
             >
               <Smartphone className="mr-1.5 h-3.5 w-3.5" />
@@ -305,7 +305,7 @@ export default function InstallAppBanner({
         </div>
 
         {showGuide && !onHomeScreen && (
-          <div className="mt-3 max-w-lg rounded-xl border border-violet-200/90 dark:border-violet-400/30 bg-white/90 p-3 shadow-sm">
+          <div className="mt-3 max-w-lg rounded-xl border border-violet-200/90 dark:border-violet-400/30 bg-white/90 dark:bg-white/10 p-3 shadow-sm">
             <div className="flex items-start gap-2">
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-100 dark:bg-violet-400/15 text-violet-700 dark:text-violet-200">
                 <Home className="h-4 w-4" />

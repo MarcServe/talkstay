@@ -131,7 +131,7 @@ export function GuestFolio({
                     <Button
                       size="sm"
                       variant="outline"
-                      className="h-10 border-amber-300 dark:border-amber-400/30 bg-white/80"
+                      className="h-10 border-amber-300 dark:border-amber-400/30 bg-white/80 dark:bg-white/10"
                       disabled={!!payBusy || deferred}
                       onClick={() => { setCodeOpen(false); onPayAtCheckout(); }}
                     >
@@ -145,7 +145,7 @@ export function GuestFolio({
                   ) : onChargeToRoom ? (
                     codeOpen ? (
                       <form
-                        className="space-y-2 rounded-xl border border-amber-300/80 dark:border-amber-400/30 bg-white/80 p-3"
+                        className="space-y-2 rounded-xl border border-amber-300/80 dark:border-amber-400/30 bg-white/80 dark:bg-white/10 p-3"
                         onSubmit={(e) => {
                           e.preventDefault();
                           if (!code.trim() || payBusy) return;
@@ -181,7 +181,7 @@ export function GuestFolio({
                       <Button
                         size="sm"
                         variant="outline"
-                        className="h-10 w-full border-amber-400 dark:border-amber-400/30 bg-white/90 font-medium"
+                        className="h-10 w-full border-amber-400 dark:border-amber-400/30 bg-white/90 dark:bg-white/10 font-medium"
                         disabled={!!payBusy}
                         onClick={() => setCodeOpen(true)}
                       >
@@ -204,7 +204,7 @@ export function GuestFolio({
                   <Button
                     size="sm"
                     variant="outline"
-                    className="h-10 border-amber-300 dark:border-amber-400/30 bg-white/80"
+                    className="h-10 border-amber-300 dark:border-amber-400/30 bg-white/80 dark:bg-white/10"
                     disabled={!!payBusy || deferred || chargedToRoom}
                     onClick={onPayAtCheckout}
                   >
@@ -217,7 +217,7 @@ export function GuestFolio({
         </div>
       )}
 
-      <div className={`rounded-2xl border bg-white/80 ${isPage ? "p-4" : "p-3"}`}>
+      <div className={`rounded-2xl border bg-white/80 dark:bg-white/10 ${isPage ? "p-4" : "p-3"}`}>
         <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           {unpaid.length ? "Open charges" : "Charges"}
         </h3>

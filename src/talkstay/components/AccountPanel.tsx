@@ -137,7 +137,7 @@ export default function AccountPanel({
                   {supportLabelForHotel(hotel.referral_code)}
                 </a>
               </Button>
-              <Button asChild variant="outline" className="border-violet-200 dark:border-violet-400/30 bg-white/80">
+              <Button asChild variant="outline" className="border-violet-200 dark:border-violet-400/30 bg-white/80 dark:bg-white/10">
                 <a href={TEL_SUPPORT}>
                   Call {SUPPORT_PHONE}
                 </a>

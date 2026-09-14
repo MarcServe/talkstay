@@ -641,7 +641,7 @@ export default function LogOrderDialog({
                 value={price}
                 onChange={(e) => { setPrice(e.target.value); setPriceEdited(true); }}
                 placeholder="0.00"
-                className="max-w-[10rem] bg-white"
+                className="max-w-[10rem] bg-white dark:bg-white/10"
               />
               {pickedTotal > 0 && !priceEdited && (
                 <p className="text-[11px] text-emerald-900/75 dark:text-emerald-200">
@@ -691,12 +691,12 @@ export default function LogOrderDialog({
                           onOpenRequest(o.id);
                           onClose?.();
                         }}
-                        className="w-full rounded-lg border border-amber-200/80 dark:border-amber-400/30 bg-white/70 px-2.5 py-1.5 text-left text-xs transition-colors hover:border-violet-300 hover:bg-violet-50/60 dark:hover:bg-violet-400/25"
+                        className="w-full rounded-lg border border-amber-200/80 dark:border-amber-400/30 bg-white/70 dark:bg-white/10 px-2.5 py-1.5 text-left text-xs transition-colors hover:border-violet-300 hover:bg-violet-50/60 dark:hover:bg-violet-400/25"
                       >
                         {body}
                       </button>
                     ) : (
-                      <div className="rounded-lg border border-amber-200/80 dark:border-amber-400/30 bg-white/70 px-2.5 py-1.5 text-xs">
+                      <div className="rounded-lg border border-amber-200/80 dark:border-amber-400/30 bg-white/70 dark:bg-white/10 px-2.5 py-1.5 text-xs">
                         {body}
                       </div>
                     )}

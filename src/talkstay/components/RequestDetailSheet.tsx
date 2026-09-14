@@ -535,7 +535,7 @@ export default function RequestDetailSheet({
                     value={priceDraft}
                     onChange={(e) => setPriceDraft(e.target.value)}
                     placeholder="0.00"
-                    className="mt-1 h-9 bg-white"
+                    className="mt-1 h-9 bg-white dark:bg-white/10"
                     disabled={billingBusy || !req.is_chargeable}
                   />
                 </div>
@@ -648,8 +648,8 @@ export default function RequestDetailSheet({
                         onClick={() => setTeamAction(on ? null : key)}
                         className={`rounded-xl border px-3 py-2.5 text-left transition-colors ${
                           on
-                            ? "border-amber-400 dark:border-amber-400/30 bg-white ring-2 ring-amber-500/25"
-                            : "border-amber-200/80 dark:border-amber-400/30 bg-white/70 hover:bg-white"
+                            ? "border-amber-400 dark:border-amber-400/30 bg-white dark:bg-white/10 ring-2 ring-amber-500/25"
+                            : "border-amber-200/80 dark:border-amber-400/30 bg-white/70 dark:bg-white/10 hover:bg-white dark:hover:bg-white/15"
                         }`}
                       >
                         <div className="flex items-center gap-1.5 text-sm font-medium text-amber-950 dark:text-amber-200">
@@ -663,7 +663,7 @@ export default function RequestDetailSheet({
                 </div>
 
                 {teamAction === "message" && (
-                  <div className="space-y-2 rounded-xl border border-amber-300 dark:border-amber-400/30 bg-white p-3">
+                  <div className="space-y-2 rounded-xl border border-amber-300 dark:border-amber-400/30 bg-white dark:bg-white/10 p-3">
                     <p className="text-sm font-medium text-amber-950 dark:text-amber-200">Send an internal note</p>
                     <p className="text-xs text-amber-900/80 dark:text-amber-200">
                       Tell {deptLabel(req.department_key)} something about this order. The guest never sees it.
@@ -688,7 +688,7 @@ export default function RequestDetailSheet({
                 )}
 
                 {teamAction === "handler" && (
-                  <div className="space-y-2 rounded-xl border border-amber-300 dark:border-amber-400/30 bg-white p-3">
+                  <div className="space-y-2 rounded-xl border border-amber-300 dark:border-amber-400/30 bg-white dark:bg-white/10 p-3">
                     <p className="text-sm font-medium text-amber-950 dark:text-amber-200">Say who’s handling this</p>
                     <p className="text-xs text-amber-900/80 dark:text-amber-200">
                       So everyone knows who owns it — pick a teammate from the list, or type a name.
@@ -705,7 +705,7 @@ export default function RequestDetailSheet({
                         setHandlerName("");
                       }}
                     >
-                      <SelectTrigger className="border-amber-200 dark:border-amber-400/30 bg-white"><SelectValue placeholder="Pick a teammate (optional)" /></SelectTrigger>
+                      <SelectTrigger className="border-amber-200 dark:border-amber-400/30 bg-white dark:bg-white/10"><SelectValue placeholder="Pick a teammate (optional)" /></SelectTrigger>
                       <SelectContent>
                         {handlers.map((h) => (
                           <SelectItem key={h.id} value={h.id}>
@@ -723,7 +723,7 @@ export default function RequestDetailSheet({
                           if (e.target.value.trim()) setHandlerPick("");
                         }}
                         placeholder="e.g. Mark"
-                        className="border-amber-200 dark:border-amber-400/30 bg-white"
+                        className="border-amber-200 dark:border-amber-400/30 bg-white dark:bg-white/10"
                       />
                     </div>
                     <Button
@@ -739,14 +739,14 @@ export default function RequestDetailSheet({
                 )}
 
                 {teamAction === "forward" && (
-                  <div className="space-y-2 rounded-xl border border-amber-300 dark:border-amber-400/30 bg-white p-3">
+                  <div className="space-y-2 rounded-xl border border-amber-300 dark:border-amber-400/30 bg-white dark:bg-white/10 p-3">
                     <p className="text-sm font-medium text-amber-950 dark:text-amber-200">Send this ticket to another department</p>
                     <p className="text-xs text-amber-900/80 dark:text-amber-200">
                       Only if this request is with the wrong team. It leaves {deptLabel(req.department_key)} and
                       appears on the new department’s Operations board (they get notified).
                     </p>
                     <Select value={forwardDept || undefined} onValueChange={setForwardDept}>
-                      <SelectTrigger className="border-amber-200 dark:border-amber-400/30 bg-white"><SelectValue placeholder="Which department should handle it?" /></SelectTrigger>
+                      <SelectTrigger className="border-amber-200 dark:border-amber-400/30 bg-white dark:bg-white/10"><SelectValue placeholder="Which department should handle it?" /></SelectTrigger>
                       <SelectContent>
                         {hotelDepts.filter((d) => d.key !== req.department_key).map((d) => (
                           <SelectItem key={d.key} value={d.key}>{d.display_name}</SelectItem>
@@ -758,7 +758,7 @@ export default function RequestDetailSheet({
                       onChange={(e) => setForwardNote(e.target.value)}
                       rows={2}
                       placeholder="Optional: why you’re sending it / what they need to know…"
-                      className="border-amber-200 dark:border-amber-400/30 bg-white"
+                      className="border-amber-200 dark:border-amber-400/30 bg-white dark:bg-white/10"
                     />
                     <Button
                       size="sm"
@@ -838,7 +838,7 @@ export default function RequestDetailSheet({
                       key={m.id}
                       className={`rounded-xl border px-3 py-2 text-sm ${
                         m.sender === "staff"
-                          ? "border-emerald-200 dark:border-emerald-400/30 bg-white"
+                          ? "border-emerald-200 dark:border-emerald-400/30 bg-white dark:bg-white/10"
                           : "border-emerald-200/80 dark:border-emerald-400/30 bg-emerald-100/60 dark:bg-emerald-400/15"
                       }`}
                     >
@@ -860,7 +860,7 @@ export default function RequestDetailSheet({
                   onChange={(e) => setReply(e.target.value)}
                   onKeyDown={(e) => { if (e.key === "Enter") sendReply(); }}
                   placeholder="Reply to the guest…"
-                  className="h-9 border-emerald-200 dark:border-emerald-400/30 bg-white focus-visible:ring-emerald-400"
+                  className="h-9 border-emerald-200 dark:border-emerald-400/30 bg-white dark:bg-white/10 focus-visible:ring-emerald-400"
                 />
                 <Button
                   size="sm"

@@ -99,7 +99,7 @@ function Stat({ icon: Icon, label, value, sub, active, onClick }: {
       disabled={!clickable}
       className={`rounded-2xl border p-4 text-left transition-all ${
         clickable
-          ? "cursor-pointer hover:border-teal-400/70 hover:bg-white/50 hover:shadow-md active:scale-[0.99]"
+          ? "cursor-pointer hover:border-teal-400/70 hover:bg-white/50 dark:hover:bg-white/10 hover:shadow-md active:scale-[0.99]"
           : "cursor-default"
       } ${active ? "border-teal-500 bg-teal-50/80 dark:bg-teal-400/15 ring-2 ring-teal-500/20" : ""}`}
     >
