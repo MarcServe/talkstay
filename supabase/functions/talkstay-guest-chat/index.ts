@@ -1668,9 +1668,14 @@ serve(async (req) => {
       if (first) patch.guest_first_name = first;
       if (locator) patch.guest_locator = locator;
       if (channel != null && String(channel).trim()) {
-        const clean = String(contact ?? "").trim().slice(0, 200).toLowerCase();
         patch.notify_channel = String(channel);
-        patch.contact_email = clean || null;
+        // A guest turning email OFF sends channel:"none" with no `contact` —
+        // that must not erase the address on file, or turning it back on
+        // later has nothing to send to. Only touch contact_email when the
+        // caller actually supplied one (including "" to explicitly clear it).
+        if (contact !== undefined) {
+          patch.contact_email = String(contact ?? "").trim().slice(0, 200).toLowerCase() || null;
+        }
       }
       if (!first && !locator && !patch.notify_channel) {
         return json({ error: "guestFirstName, guestLocator or channel required" }, 400);
@@ -1680,6 +1685,25 @@ serve(async (req) => {
       });
       if (error) return json({ error: error.message }, 400);
       return json({ ok: true });
+    }
+
+    // ---- get_contact: read this device's current notification preference,
+    // so the settings sheet can show what's actually on file instead of
+    // always resetting to blank (which made "turn it off" impossible to
+    // reliably act on — the guest would toggle a checkbox that had already
+    // forgotten their prior choice). ----
+    if (action === "get_contact") {
+      if (!sessionId) return json({ error: "sessionId required" }, 400);
+      const { data } = await admin
+        .from("ts_guest_sessions")
+        .select("notify_channel, contact_email, guest_first_name, guest_locator")
+        .eq("hotel_id", ctx.hotelId).eq("session_id", sessionId).maybeSingle();
+      return json({
+        notifyChannel: data?.notify_channel ?? null,
+        contactEmail: data?.contact_email ?? null,
+        guestFirstName: data?.guest_first_name ?? null,
+        guestLocator: data?.guest_locator ?? null,
+      });
     }
 
     // ---- set_push: this device wants push notifications for this stay ----
@@ -2187,6 +2211,7 @@ WHAT TO DO:
 - General questions about the hotel (breakfast times, wifi, checkout, facilities, allergens, local tips): call answer_from_knowledge FIRST. When it returns structured cards, reply with ONE short plain sentence only (the UI shows the organised card). Never paste menus as markdown lists. If knowledge is empty, say you'll check with the team — never invent facts.
 - If a knowledge document and the menu disagree on a price or on whether something is available, the MENU wins, every time. Quote the menu and say nothing about the discrepancy.
 - A request for something (towels, food, drinks, laundry, a repair, taxi, late checkout, etc.): call create_service_request with the correct department. Confirm back conversationally with a rough ETA. Do NOT ask the guest to "track" anything.
+- ORDERING MULTIPLE THINGS AT ONCE that span two different departments (e.g. a sandwich from the kitchen and a drink from the bar): ask ONE short question first — "Would you like that all brought together, or is it fine arriving separately?" — before calling create_service_request. Skip the question when it's not needed: everything is from the same department, or the guest already said how they want it (e.g. "together please", "whenever each is ready", "the drink first"). Once you know, create one request per department as usual, and when they want it together add a short cross-reference to each summary so both teams coordinate, e.g. "Deliver a club sandwich to Room 306 — bring together with the bar order" and "Deliver an Aperol Spritz to Room 306 — bring together with the kitchen order". This mirrors the "bring it all together" option on the tap-to-order menu — same idea, asked conversationally.
 - Complaints, safety issues, anything upsetting or urgent: do NOT try to resolve it yourself. Call create_service_request with department "duty_manager", priority "urgent", is_complaint true, and reassure them a manager will contact them shortly.
 - If they want to re-open a cancelled request or "same again" / repeat something from RECENT CLOSED REQUESTS: call create_service_request with the SAME department and a matching English summary (you may copy the closed summary). Confirm warmly that it's back with the team. Tell them they can also tap Ask again in My requests.
 
@@ -2342,13 +2367,47 @@ what you just said. Vary your phrasing so it doesn't sound like a scripted closi
       const dept = ctx.departments.includes(dept0) ? dept0 : (DEPARTMENTS.includes(dept0) ? dept0 : "front_desk");
       const isComplaint = o.isComplaint ?? (dept === "duty_manager");
       const enSummary = summary.slice(0, 500);
-      // B4: give staff the request in the hotel's language (falls back to English).
-      const summaryStaff = await translateForStaff(OPENAI_API_KEY, enSummary, ctx.language, llmTrack);
       const guestSource = o.method === "guest_repeat" ? "repeat" : "guest_chat";
       const chargeable = !!o.isChargeable;
-      const priceNum = chargeable && typeof o.price === "number" && Number.isFinite(o.price) && o.price > 0
+      let priceNum = chargeable && typeof o.price === "number" && Number.isFinite(o.price) && o.price > 0
         ? Math.round(Number(o.price) * 100) / 100
         : null;
+
+      // The model computes this price itself from the list in its prompt —
+      // nothing here checks its arithmetic. That gap once billed a guest
+      // £2,300 for two bottles of beer. Sanity-check any price against what
+      // this property actually charges for anything, and refuse a wild
+      // outlier rather than silently charge it; needs_triage below then
+      // surfaces it to staff instead of the guest just seeing nothing.
+      let priceSuspicious = false;
+      if (priceNum != null) {
+        try {
+          const catalog = await loadGuestCatalog(admin, ctx.hotelId, ctx.roomId, !!ctx.isPublic);
+          const pricedItems = catalog.filter((i) => typeof i.price === "number" && Number(i.price) > 0);
+          const maxItem = pricedItems.length ? Math.max(...pricedItems.map((i) => Number(i.price))) : 0;
+          // Generous on purpose: up to 15x the priciest single catalog item,
+          // or £250, whichever is larger — covers a big multi-item order and
+          // properties with no priced catalog at all, without waving through
+          // an obvious slip.
+          const ceiling = Math.max(maxItem * 15, 250);
+          if (priceNum > ceiling) {
+            priceSuspicious = true;
+            priceNum = null;
+          }
+        } catch { /* lookup failing shouldn't lose the request; needs_triage below still catches the missing price */ }
+      }
+
+      // A chargeable item with no price (never supplied, or just clamped
+      // above) must not sit invisibly as "TBC" on the guest's bill — flag it
+      // for a human to price it, the same way a genuine routing miss does.
+      const needsTriage = !!o.needsTriage || (chargeable && priceNum == null);
+
+      // B4: give staff the request in the hotel's language (falls back to English).
+      let summaryStaff = await translateForStaff(OPENAI_API_KEY, enSummary, ctx.language, llmTrack);
+      if (priceSuspicious) {
+        summaryStaff = `${summaryStaff ?? enSummary} — price looks wrong, please set it manually`;
+      }
+
       const baseInsert: Record<string, unknown> = {
         hotel_id: ctx.hotelId, room_id: ctx.roomId, department_key: dept,
         intent: message.slice(0, 200), summary: enSummary, summary_staff: summaryStaff,
@@ -2356,7 +2415,7 @@ what you just said. Vary your phrasing so it doesn't sound like a scripted closi
         is_complaint: isComplaint, is_chargeable: chargeable,
         payment_status: chargeable ? "unpaid" : null,
         guest_language: ctx.language, session_id: sessionId || null,
-        classification_method: o.method, needs_triage: !!o.needsTriage,
+        classification_method: o.method, needs_triage: needsTriage,
         conversation: [...history.slice(-6), { role: "user", content: message }],
       };
       if (priceNum != null) {
@@ -2581,17 +2640,47 @@ what you just said. Vary your phrasing so it doesn't sound like a scripted closi
         ? "Done — I've passed that to the team. They'll be with you shortly."
         : "I've noted that. Is there anything else I can help with?");
     } catch (_llmErr) {
-      // ⛑️ DETERMINISTIC FALLBACK — OpenAI failed/timed out. NEVER lose the request.
+      // ⛑️ DETERMINISTIC FALLBACK — the LLM call failed or kept failing
+      // (timeout, rate limit, outage). NEVER lose the request. But this path
+      // has no LLM to tell a QUESTION ("what's on the menu?") apart from an
+      // ACTION ("bring me towels") — keyword-routing a question to Kitchen as
+      // if it were a food order produced a real ticket a duty manager had to
+      // untangle. So: never guess an order out of a question, and always
+      // label the raw text as unprocessed rather than let it read like a
+      // normal, LLM-written summary.
+      const trimmed = message.trim();
+      const looksLikeQuestion = /\?\s*$/.test(trimmed)
+        || /^(what|when|where|how|why|who|which|can you|could you|do you|does|is there|are there|any chance)\b/i.test(trimmed);
+      const rawNote = (label: string) => `${label}: "${trimmed.slice(0, 300)}"`;
+
+      if (looksLikeQuestion) {
+        guestIntent = "other";
+        await createRequest(
+          "front_desk",
+          rawNote("Guest question — assistant couldn't answer just now"),
+          { method: "fallback_question", needsTriage: true },
+        );
+        return await logAndReturn("Thanks for your question — reception has it and will get back to you shortly.");
+      }
+
       const det = classifyDeterministic(message, ctx);
       if (det) {
         const isComplaint = det.dept === "duty_manager";
         guestIntent = isComplaint ? "complaint" : "request";
-        await createRequest(det.dept, message, { isComplaint, method: det.source, needsTriage: det.source === "keyword" });
+        await createRequest(
+          det.dept,
+          rawNote("Guest message — assistant unavailable, not yet reviewed"),
+          { isComplaint, method: det.source, needsTriage: det.source === "keyword" },
+        );
         return await logAndReturn("Thanks — I've passed your request to the team. They'll be with you shortly.");
       }
       // No clear intent — still don't drop it: send to front desk for human triage.
       guestIntent = "other";
-      await createRequest("front_desk", message, { method: "fallback", needsTriage: true });
+      await createRequest(
+        "front_desk",
+        rawNote("Guest message — assistant unavailable, not yet reviewed"),
+        { method: "fallback", needsTriage: true },
+      );
       return await logAndReturn("Thanks for your message — reception has it and will follow up with you shortly.");
     }
   } catch (e) {
