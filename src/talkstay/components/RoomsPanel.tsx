@@ -503,11 +503,11 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
 
       {panelTab === "venues" ? (
         <>
-          <div className="rounded-2xl border border-sky-200/80 bg-sky-50/50 p-4">
-            <p className="text-sm font-medium text-sky-950">
+          <div className="rounded-2xl border border-sky-200/80 dark:border-sky-400/30 bg-sky-50/50 dark:bg-sky-400/15 p-4">
+            <p className="text-sm font-medium text-sky-950 dark:text-sky-200">
               {restaurantMode ? "Table & area QRs" : "Bar, pool, restaurant & outdoor QRs"}
             </p>
-            <p className="mt-1 text-xs leading-relaxed text-sky-900/75">
+            <p className="mt-1 text-xs leading-relaxed text-sky-900/75 dark:text-sky-200">
               {restaurantMode ? (
                 <>Each table gets its own QR. Link it to a <span className="font-medium">department</span> (Kitchen, Bar, Host) — guests open Menu, voice, or chat. Upload the menu under Departments.</>
               ) : (
@@ -524,7 +524,7 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
                   size="sm"
                   variant="outline"
                   disabled={busy}
-                  className="border-sky-300 bg-white hover:bg-sky-50"
+                  className="border-sky-300 dark:border-sky-400/30 bg-white hover:bg-sky-50 dark:hover:bg-sky-400/25"
                   onClick={() => void addVenuePreset(p)}
                 >
                   <Plus className="mr-1 h-3.5 w-3.5" />
@@ -625,7 +625,7 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
         <div className="rounded-2xl border border-dashed bg-muted/20 px-5 py-10 text-center">
           {panelTab === "venues" ? (
             <>
-              <MapPin className="mx-auto h-8 w-8 text-sky-600/70" />
+              <MapPin className="mx-auto h-8 w-8 text-sky-600/70 dark:text-sky-300" />
               <p className="mt-3 text-sm font-medium">{restaurantMode ? "No table QRs yet" : "No venue QRs yet"}</p>
               <p className="mx-auto mt-1 max-w-md text-xs text-muted-foreground">
                 {restaurantMode
@@ -639,7 +639,7 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
             </>
           ) : (
             <>
-              <QrCode className="mx-auto h-8 w-8 text-violet-600/70" />
+              <QrCode className="mx-auto h-8 w-8 text-violet-600/70 dark:text-violet-300" />
               <p className="mt-3 text-sm font-medium">No rooms yet</p>
               <p className="mx-auto mt-1 max-w-md text-xs text-muted-foreground">
                 Add a room number or name (e.g. Ocean Suite) — a secure QR is generated automatically.
@@ -676,7 +676,7 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
                 type="button"
                 size="sm"
                 variant="ghost"
-                className={`h-8 gap-1.5 px-2.5 ${view === "card" ? "bg-violet-100 text-violet-900 hover:bg-violet-100" : ""}`}
+                className={`h-8 gap-1.5 px-2.5 ${view === "card" ? "bg-violet-100 dark:bg-violet-400/15 text-violet-900 dark:text-violet-200 hover:bg-violet-100 dark:hover:bg-violet-400/25" : ""}`}
                 onClick={() => setRoomsView("card")}
                 aria-pressed={view === "card"}
                 title="Card view"
@@ -688,7 +688,7 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
                 type="button"
                 size="sm"
                 variant="ghost"
-                className={`h-8 gap-1.5 px-2.5 ${view === "list" ? "bg-violet-100 text-violet-900 hover:bg-violet-100" : ""}`}
+                className={`h-8 gap-1.5 px-2.5 ${view === "list" ? "bg-violet-100 dark:bg-violet-400/15 text-violet-900 dark:text-violet-200 hover:bg-violet-100 dark:hover:bg-violet-400/25" : ""}`}
                 onClick={() => setRoomsView("list")}
                 aria-pressed={view === "list"}
                 title="List view"
@@ -715,7 +715,7 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
                   <div
                     key={r.id}
                     className={`flex flex-wrap items-center gap-3 px-4 py-3 ${
-                      isPublic ? "bg-sky-50/40" : ""
+                      isPublic ? "bg-sky-50/40 dark:bg-sky-400/15" : ""
                     }`}
                   >
                     <div className="min-w-[110px] flex-1">
@@ -730,7 +730,7 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
                         type="button"
                         onClick={() => copyCode(r)}
                         title="Copy check-in code"
-                        className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border bg-muted/40 px-2.5 py-1.5 font-mono text-sm tracking-widest hover:border-violet-300 hover:bg-violet-50/60"
+                        className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border bg-muted/40 px-2.5 py-1.5 font-mono text-sm tracking-widest hover:border-violet-300 hover:bg-violet-50/60 dark:hover:bg-violet-400/25"
                       >
                         {r.checkin_code}
                         <Copy className="h-3.5 w-3.5 text-muted-foreground" />
@@ -745,7 +745,7 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
                       type="button"
                       onClick={() => copyGuestLink(r)}
                       title="Copy guest link"
-                      className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-dashed px-2.5 py-1.5 text-xs font-medium hover:border-violet-300 hover:bg-violet-50/60"
+                      className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-dashed px-2.5 py-1.5 text-xs font-medium hover:border-violet-300 hover:bg-violet-50/60 dark:hover:bg-violet-400/25"
                     >
                       <Link2 className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                       Copy link
@@ -753,7 +753,7 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
 
                     {!restaurantMode && (
                     <label className="flex cursor-pointer items-center gap-2 rounded-lg border px-2 py-1.5 text-xs">
-                      <span className={isPublic ? "font-medium text-sky-800" : "text-muted-foreground"}>
+                      <span className={isPublic ? "font-medium text-sky-800 dark:text-sky-200" : "text-muted-foreground"}>
                         Public QR
                       </span>
                       <button
@@ -770,7 +770,7 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
                     )}
 
                     {isPublic || restaurantMode ? (
-                      <Badge variant="outline" className="border-sky-300 bg-sky-50 text-sky-800">
+                      <Badge variant="outline" className="border-sky-300 dark:border-sky-400/30 bg-sky-50 dark:bg-sky-400/15 text-sky-800 dark:text-sky-200">
                         {restaurantMode ? "Table QR" : "Public QR"}
                       </Badge>
                     ) : (
@@ -790,7 +790,7 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
                       className={`rounded-lg border px-2 py-1.5 text-left text-[11px] leading-tight transition-colors ${
                         isPublic
                           ? "cursor-not-allowed border-dashed text-muted-foreground opacity-60"
-                          : "hover:border-violet-300 hover:bg-violet-50/60"
+                          : "hover:border-violet-300 hover:bg-violet-50/60 dark:hover:bg-violet-400/25"
                       }`}
                     >
                       {r.require_checkin_code == null
@@ -853,7 +853,7 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
               <div
                 key={r.id}
                 className={`rounded-2xl border bg-card p-4 shadow-sm ${
-                  isPublic ? "border-sky-300/80 ring-1 ring-sky-500/10" : ""
+                  isPublic ? "border-sky-300/80 dark:border-sky-400/30 ring-1 ring-sky-500/10" : ""
                 }`}
               >
                 <div className="flex items-start justify-between gap-2">
@@ -870,7 +870,7 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
                   </div>
                   <div className="flex shrink-0 flex-col items-end gap-1">
                     {isPublic || restaurantMode ? (
-                      <Badge variant="outline" className="border-sky-300 bg-sky-50 text-sky-800">
+                      <Badge variant="outline" className="border-sky-300 dark:border-sky-400/30 bg-sky-50 dark:bg-sky-400/15 text-sky-800 dark:text-sky-200">
                         {restaurantMode ? "Table QR" : "Public QR"}
                       </Badge>
                     ) : (
@@ -956,7 +956,7 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
                   <button
                     type="button"
                     onClick={() => toggleRoomCode(r)}
-                    className="mt-2 w-full rounded-lg border border-dashed px-2.5 py-1.5 text-left text-[11px] text-muted-foreground hover:border-violet-300 hover:bg-violet-50/50 hover:text-foreground"
+                    className="mt-2 w-full rounded-lg border border-dashed px-2.5 py-1.5 text-left text-[11px] text-muted-foreground hover:border-violet-300 hover:bg-violet-50/50 dark:hover:bg-violet-400/25 hover:text-foreground"
                   >
                     {codeOverrideLabel}
                     <span className="text-muted-foreground/80"> · tap to change</span>
@@ -1099,7 +1099,7 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
               </p>
             )}
             {(qr.room.is_public || restaurantMode) && (
-              <p className="mt-2 text-xs text-sky-800">
+              <p className="mt-2 text-xs text-sky-800 dark:text-sky-200">
                 {restaurantMode
                   ? "Table QR — diners scan for menu, voice, and chat. No check-in code."
                   : "Public QR — visitors can scan without a check-in code."}

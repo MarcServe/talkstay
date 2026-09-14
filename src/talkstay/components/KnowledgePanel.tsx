@@ -957,14 +957,14 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
         </div>
 
         {pendingReview && (
-          <div className="flex flex-wrap items-start justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50/90 px-3 py-2.5 text-sm text-amber-950">
+          <div className="flex flex-wrap items-start justify-between gap-2 rounded-xl border border-amber-200 dark:border-amber-400/30 bg-amber-50/90 dark:bg-amber-400/15 px-3 py-2.5 text-sm text-amber-950 dark:text-amber-200">
             <div className="min-w-0">
               <p className="font-medium">Review before publishing</p>
-              <p className="text-xs text-amber-900/80">
+              <p className="text-xs text-amber-900/80 dark:text-amber-200">
                 Edit the title or text if needed, then tap Add card. Nothing is live for guests until you confirm.
               </p>
             </div>
-            <Button type="button" size="sm" variant="ghost" className="shrink-0 text-amber-900" onClick={discardDraft}>
+            <Button type="button" size="sm" variant="ghost" className="shrink-0 text-amber-900 dark:text-amber-200" onClick={discardDraft}>
               Discard
             </Button>
           </div>

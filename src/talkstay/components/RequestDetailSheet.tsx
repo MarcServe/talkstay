@@ -441,9 +441,9 @@ export default function RequestDetailSheet({
               <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${statusBadge(req.status)}`}>
                 {statusLabel(req.status)}
               </span>
-              {req.priority === "urgent" && <Badge className="border border-rose-200 bg-rose-100 text-rose-800">Urgent</Badge>}
-              {req.is_complaint && <Badge className="border border-rose-200 bg-rose-100 text-rose-800">Complaint</Badge>}
-              {req.needs_triage && <Badge className="border border-amber-200 bg-amber-100 text-amber-900">Check routing</Badge>}
+              {req.priority === "urgent" && <Badge className="border border-rose-200 dark:border-rose-400/30 bg-rose-100 dark:bg-rose-400/15 text-rose-800 dark:text-rose-200">Urgent</Badge>}
+              {req.is_complaint && <Badge className="border border-rose-200 dark:border-rose-400/30 bg-rose-100 dark:bg-rose-400/15 text-rose-800 dark:text-rose-200">Complaint</Badge>}
+              {req.needs_triage && <Badge className="border border-amber-200 dark:border-amber-400/30 bg-amber-100 dark:bg-amber-400/15 text-amber-900 dark:text-amber-200">Check routing</Badge>}
               {req.guest_language && (
                 <Badge variant="secondary">{req.guest_language}</Badge>
               )}
@@ -460,12 +460,12 @@ export default function RequestDetailSheet({
               <div
                 className={`rounded-xl border px-3 py-2.5 text-sm font-medium ${
                   guestSignal.kind === "update"
-                    ? "border-amber-300 bg-amber-50 text-amber-950"
+                    ? "border-amber-300 dark:border-amber-400/30 bg-amber-50 dark:bg-amber-400/15 text-amber-950 dark:text-amber-200"
                     : guestSignal.kind === "cancel"
-                      ? "border-slate-300 bg-slate-50 text-slate-800"
+                      ? "border-slate-300 dark:border-slate-400/30 bg-slate-50 dark:bg-slate-400/15 text-slate-800 dark:text-slate-200"
                       : guestSignal.kind === "payment" || guestSignal.kind === "callout"
-                        ? "border-amber-400 bg-amber-50 text-amber-950"
-                        : "border-rose-200 bg-rose-50 text-rose-900"
+                        ? "border-amber-400 dark:border-amber-400/30 bg-amber-50 dark:bg-amber-400/15 text-amber-950 dark:text-amber-200"
+                        : "border-rose-200 dark:border-rose-400/30 bg-rose-50 dark:bg-rose-400/15 text-rose-900 dark:text-rose-200"
                 }`}
               >
                 {guestSignal.kind === "update"
@@ -490,7 +490,7 @@ export default function RequestDetailSheet({
                 <p className="mt-1 text-xs italic text-muted-foreground">{req.summary}</p>
               )}
               {latestHandler && (
-                <p className="mt-2 flex items-start gap-1.5 text-xs text-teal-800">
+                <p className="mt-2 flex items-start gap-1.5 text-xs text-teal-800 dark:text-teal-200">
                   <UserRound className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                   {latestHandler}
                 </p>
@@ -503,14 +503,14 @@ export default function RequestDetailSheet({
               )}
             </div>
 
-            <section className="space-y-3 rounded-2xl border border-emerald-200/80 bg-emerald-50/40 p-4">
+            <section className="space-y-3 rounded-2xl border border-emerald-200/80 dark:border-emerald-400/30 bg-emerald-50/40 dark:bg-emerald-400/15 p-4">
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>
-                  <h3 className="flex items-center gap-1.5 text-sm font-semibold text-emerald-950">
+                  <h3 className="flex items-center gap-1.5 text-sm font-semibold text-emerald-950 dark:text-emerald-200">
                     <Banknote className="h-4 w-4" />
                     Billing / checkout
                   </h3>
-                  <p className="mt-1 text-xs text-emerald-900/75">
+                  <p className="mt-1 text-xs text-emerald-900/75 dark:text-emerald-200">
                     Mark chargeable orders paid before the guest checks out. Fulfillment status stays separate.
                     Upload menus in Knowledge so the guest assistant can attach prices when it knows them.
                   </p>
@@ -606,7 +606,7 @@ export default function RequestDetailSheet({
             </section>
 
             {isOpen && (
-              <section className="space-y-3 rounded-2xl border-2 border-amber-300/80 bg-amber-50/50 p-4 shadow-sm">
+              <section className="space-y-3 rounded-2xl border-2 border-amber-300/80 dark:border-amber-400/30 bg-amber-50/50 dark:bg-amber-400/15 p-4 shadow-sm">
                 <button
                   type="button"
                   onClick={() => setTeamOpen((o) => !o)}
@@ -614,19 +614,19 @@ export default function RequestDetailSheet({
                   className="flex w-full flex-wrap items-center justify-between gap-2 text-left"
                 >
                   <span className="min-w-0">
-                    <span className="block text-sm font-semibold text-amber-950">Talk to your team (not the guest)</span>
-                    <span className="mt-0.5 block text-xs text-amber-900/80">
+                    <span className="block text-sm font-semibold text-amber-950 dark:text-amber-200">Talk to your team (not the guest)</span>
+                    <span className="mt-0.5 block text-xs text-amber-900/80 dark:text-amber-200">
                       {teamOpen
                         ? "Guests never see these — scroll down to the green box to message the guest."
                         : "Send a note, say who’s on it, or move the ticket."}
                     </span>
                   </span>
                   <span className="flex shrink-0 items-center gap-2">
-                    <span className="rounded-full border border-amber-300 bg-amber-100 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-900">
+                    <span className="rounded-full border border-amber-300 dark:border-amber-400/30 bg-amber-100 dark:bg-amber-400/15 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-900 dark:text-amber-200">
                       Staff only
                     </span>
                     <ChevronDown
-                      className={`h-4 w-4 text-amber-800 transition-transform ${teamOpen ? "rotate-180" : ""}`}
+                      className={`h-4 w-4 text-amber-800 dark:text-amber-200 transition-transform ${teamOpen ? "rotate-180" : ""}`}
                     />
                   </span>
                 </button>
@@ -648,24 +648,24 @@ export default function RequestDetailSheet({
                         onClick={() => setTeamAction(on ? null : key)}
                         className={`rounded-xl border px-3 py-2.5 text-left transition-colors ${
                           on
-                            ? "border-amber-400 bg-white ring-2 ring-amber-500/25"
-                            : "border-amber-200/80 bg-white/70 hover:bg-white"
+                            ? "border-amber-400 dark:border-amber-400/30 bg-white ring-2 ring-amber-500/25"
+                            : "border-amber-200/80 dark:border-amber-400/30 bg-white/70 hover:bg-white"
                         }`}
                       >
-                        <div className="flex items-center gap-1.5 text-sm font-medium text-amber-950">
-                          <Icon className="h-3.5 w-3.5 shrink-0 text-amber-700" />
+                        <div className="flex items-center gap-1.5 text-sm font-medium text-amber-950 dark:text-amber-200">
+                          <Icon className="h-3.5 w-3.5 shrink-0 text-amber-700 dark:text-amber-200" />
                           {label}
                         </div>
-                        <p className="mt-0.5 text-[11px] text-amber-900/70">{hint}</p>
+                        <p className="mt-0.5 text-[11px] text-amber-900/70 dark:text-amber-200">{hint}</p>
                       </button>
                     );
                   })}
                 </div>
 
                 {teamAction === "message" && (
-                  <div className="space-y-2 rounded-xl border border-amber-300 bg-white p-3">
-                    <p className="text-sm font-medium text-amber-950">Send an internal note</p>
-                    <p className="text-xs text-amber-900/80">
+                  <div className="space-y-2 rounded-xl border border-amber-300 dark:border-amber-400/30 bg-white p-3">
+                    <p className="text-sm font-medium text-amber-950 dark:text-amber-200">Send an internal note</p>
+                    <p className="text-xs text-amber-900/80 dark:text-amber-200">
                       Tell {deptLabel(req.department_key)} something about this order. The guest never sees it.
                     </p>
                     <Textarea
@@ -673,7 +673,7 @@ export default function RequestDetailSheet({
                       onChange={(e) => setTeamNote(e.target.value)}
                       rows={3}
                       placeholder="e.g. Room called — please hurry breakfast"
-                      className="border-amber-200 bg-amber-50/30 focus-visible:ring-amber-400"
+                      className="border-amber-200 dark:border-amber-400/30 bg-amber-50/30 dark:bg-amber-400/15 focus-visible:ring-amber-400"
                     />
                     <Button
                       size="sm"
@@ -688,13 +688,13 @@ export default function RequestDetailSheet({
                 )}
 
                 {teamAction === "handler" && (
-                  <div className="space-y-2 rounded-xl border border-amber-300 bg-white p-3">
-                    <p className="text-sm font-medium text-amber-950">Say who’s handling this</p>
-                    <p className="text-xs text-amber-900/80">
+                  <div className="space-y-2 rounded-xl border border-amber-300 dark:border-amber-400/30 bg-white p-3">
+                    <p className="text-sm font-medium text-amber-950 dark:text-amber-200">Say who’s handling this</p>
+                    <p className="text-xs text-amber-900/80 dark:text-amber-200">
                       So everyone knows who owns it — pick a teammate from the list, or type a name.
                     </p>
                     {latestHandler && (
-                      <p className="rounded-lg border border-amber-200 bg-amber-50/60 px-2.5 py-1.5 text-xs text-amber-950">
+                      <p className="rounded-lg border border-amber-200 dark:border-amber-400/30 bg-amber-50/60 dark:bg-amber-400/15 px-2.5 py-1.5 text-xs text-amber-950 dark:text-amber-200">
                         Currently: {latestHandler}
                       </p>
                     )}
@@ -705,7 +705,7 @@ export default function RequestDetailSheet({
                         setHandlerName("");
                       }}
                     >
-                      <SelectTrigger className="border-amber-200 bg-white"><SelectValue placeholder="Pick a teammate (optional)" /></SelectTrigger>
+                      <SelectTrigger className="border-amber-200 dark:border-amber-400/30 bg-white"><SelectValue placeholder="Pick a teammate (optional)" /></SelectTrigger>
                       <SelectContent>
                         {handlers.map((h) => (
                           <SelectItem key={h.id} value={h.id}>
@@ -715,7 +715,7 @@ export default function RequestDetailSheet({
                       </SelectContent>
                     </Select>
                     <div className="relative">
-                      <span className="mb-1 block text-[11px] text-amber-900/70">Or type a name</span>
+                      <span className="mb-1 block text-[11px] text-amber-900/70 dark:text-amber-200">Or type a name</span>
                       <Input
                         value={handlerName}
                         onChange={(e) => {
@@ -723,7 +723,7 @@ export default function RequestDetailSheet({
                           if (e.target.value.trim()) setHandlerPick("");
                         }}
                         placeholder="e.g. Mark"
-                        className="border-amber-200 bg-white"
+                        className="border-amber-200 dark:border-amber-400/30 bg-white"
                       />
                     </div>
                     <Button
@@ -739,14 +739,14 @@ export default function RequestDetailSheet({
                 )}
 
                 {teamAction === "forward" && (
-                  <div className="space-y-2 rounded-xl border border-amber-300 bg-white p-3">
-                    <p className="text-sm font-medium text-amber-950">Send this ticket to another department</p>
-                    <p className="text-xs text-amber-900/80">
+                  <div className="space-y-2 rounded-xl border border-amber-300 dark:border-amber-400/30 bg-white p-3">
+                    <p className="text-sm font-medium text-amber-950 dark:text-amber-200">Send this ticket to another department</p>
+                    <p className="text-xs text-amber-900/80 dark:text-amber-200">
                       Only if this request is with the wrong team. It leaves {deptLabel(req.department_key)} and
                       appears on the new department’s Operations board (they get notified).
                     </p>
                     <Select value={forwardDept || undefined} onValueChange={setForwardDept}>
-                      <SelectTrigger className="border-amber-200 bg-white"><SelectValue placeholder="Which department should handle it?" /></SelectTrigger>
+                      <SelectTrigger className="border-amber-200 dark:border-amber-400/30 bg-white"><SelectValue placeholder="Which department should handle it?" /></SelectTrigger>
                       <SelectContent>
                         {hotelDepts.filter((d) => d.key !== req.department_key).map((d) => (
                           <SelectItem key={d.key} value={d.key}>{d.display_name}</SelectItem>
@@ -758,7 +758,7 @@ export default function RequestDetailSheet({
                       onChange={(e) => setForwardNote(e.target.value)}
                       rows={2}
                       placeholder="Optional: why you’re sending it / what they need to know…"
-                      className="border-amber-200 bg-white"
+                      className="border-amber-200 dark:border-amber-400/30 bg-white"
                     />
                     <Button
                       size="sm"
@@ -797,7 +797,7 @@ export default function RequestDetailSheet({
                       {e.note && (
                         <p className={`text-xs ${
                           e.status === "staff_note"
-                            ? "mt-0.5 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 font-medium text-amber-950"
+                            ? "mt-0.5 rounded-md border border-amber-200 dark:border-amber-400/30 bg-amber-50 dark:bg-amber-400/15 px-2 py-1 font-medium text-amber-950 dark:text-amber-200"
                             : "text-muted-foreground"
                         }`}
                         >
@@ -815,22 +815,22 @@ export default function RequestDetailSheet({
               )}
             </section>
 
-            <section className="space-y-3 rounded-2xl border-2 border-emerald-300/80 bg-emerald-50/50 p-4 shadow-sm">
+            <section className="space-y-3 rounded-2xl border-2 border-emerald-300/80 dark:border-emerald-400/30 bg-emerald-50/50 dark:bg-emerald-400/15 p-4 shadow-sm">
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>
-                  <h3 className="text-sm font-semibold text-emerald-950">
+                  <h3 className="text-sm font-semibold text-emerald-950 dark:text-emerald-200">
                     Message the guest ({messages.length})
                   </h3>
-                  <p className="mt-1 text-xs text-emerald-900/80">
+                  <p className="mt-1 text-xs text-emerald-900/80 dark:text-emerald-200">
                     This goes to the guest’s phone/app. For staff-only notes, use the amber box above.
                   </p>
                 </div>
-                <span className="shrink-0 rounded-full border border-emerald-300 bg-emerald-100 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-emerald-900">
+                <span className="shrink-0 rounded-full border border-emerald-300 dark:border-emerald-400/30 bg-emerald-100 dark:bg-emerald-400/15 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-emerald-900 dark:text-emerald-200">
                   Guest sees this
                 </span>
               </div>
               {messages.length === 0 ? (
-                <p className="text-sm text-emerald-900/70">No guest replies yet.</p>
+                <p className="text-sm text-emerald-900/70 dark:text-emerald-200">No guest replies yet.</p>
               ) : (
                 <div className="space-y-2">
                   {messages.map((m) => (
@@ -838,17 +838,17 @@ export default function RequestDetailSheet({
                       key={m.id}
                       className={`rounded-xl border px-3 py-2 text-sm ${
                         m.sender === "staff"
-                          ? "border-emerald-200 bg-white"
-                          : "border-emerald-200/80 bg-emerald-100/60"
+                          ? "border-emerald-200 dark:border-emerald-400/30 bg-white"
+                          : "border-emerald-200/80 dark:border-emerald-400/30 bg-emerald-100/60 dark:bg-emerald-400/15"
                       }`}
                     >
-                      <div className="flex items-center justify-between gap-2 text-xs text-emerald-900/70">
+                      <div className="flex items-center justify-between gap-2 text-xs text-emerald-900/70 dark:text-emerald-200">
                         <span>{m.sender === "staff" ? (m.staff_label || "Staff") : "Guest"}</span>
                         <span>{fmtWhen(m.created_at)}</span>
                       </div>
-                      <p className="mt-1 text-emerald-950">{m.body}</p>
+                      <p className="mt-1 text-emerald-950 dark:text-emerald-200">{m.body}</p>
                       {m.body_guest && m.body_guest !== m.body && (
-                        <p className="mt-0.5 text-xs italic text-emerald-800/70">Guest saw: {m.body_guest}</p>
+                        <p className="mt-0.5 text-xs italic text-emerald-800/70 dark:text-emerald-200">Guest saw: {m.body_guest}</p>
                       )}
                     </div>
                   ))}
@@ -860,7 +860,7 @@ export default function RequestDetailSheet({
                   onChange={(e) => setReply(e.target.value)}
                   onKeyDown={(e) => { if (e.key === "Enter") sendReply(); }}
                   placeholder="Reply to the guest…"
-                  className="h-9 border-emerald-200 bg-white focus-visible:ring-emerald-400"
+                  className="h-9 border-emerald-200 dark:border-emerald-400/30 bg-white focus-visible:ring-emerald-400"
                 />
                 <Button
                   size="sm"
@@ -887,7 +887,7 @@ export default function RequestDetailSheet({
                       <div
                         key={i}
                         className={`rounded-xl px-3 py-2 text-sm ${
-                          guest ? "bg-violet-50 text-foreground" : "bg-muted/50 text-muted-foreground"
+                          guest ? "bg-violet-50 dark:bg-violet-400/15 text-foreground" : "bg-muted/50 text-muted-foreground"
                         }`}
                       >
                         <div className="mb-0.5 flex items-center justify-between gap-2 text-[10px] uppercase tracking-wide text-muted-foreground">

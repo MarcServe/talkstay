@@ -78,14 +78,14 @@ export default function ExportReportButton({
         <DropdownMenuLabel>Export full report</DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuItem disabled={busy} onClick={() => void run("csv")}>
-          <FileSpreadsheet className="mr-2 h-4 w-4 text-emerald-600" />
+          <FileSpreadsheet className="mr-2 h-4 w-4 text-emerald-600 dark:text-emerald-300" />
           <div>
             <div className="font-medium">CSV</div>
             <div className="text-xs text-muted-foreground">Spreadsheets · Excel / Sheets</div>
           </div>
         </DropdownMenuItem>
         <DropdownMenuItem disabled={busy} onClick={() => void run("pdf")}>
-          <FileText className="mr-2 h-4 w-4 text-rose-600" />
+          <FileText className="mr-2 h-4 w-4 text-rose-600 dark:text-rose-300" />
           <div>
             <div className="font-medium">PDF</div>
             <div className="text-xs text-muted-foreground">Printable summary + tables</div>

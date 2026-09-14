@@ -275,7 +275,7 @@ export default function DepartmentsPanel({ hotel }: { hotel: Hotel }) {
                   <span key={s.id} className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs">
                     {s.name || s.email}
                     {area && (
-                      <span className="rounded-full bg-sky-100 px-1.5 text-[10px] font-medium text-sky-900">
+                      <span className="rounded-full bg-sky-100 dark:bg-sky-400/15 px-1.5 text-[10px] font-medium text-sky-900 dark:text-sky-200">
                         {area.room_number}
                       </span>
                     )}
@@ -327,7 +327,7 @@ export default function DepartmentsPanel({ hotel }: { hotel: Hotel }) {
                 venues.filter((v) => v.department_key === d.key).map((v) => (
                   <span
                     key={v.id}
-                    className="inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-xs text-sky-900"
+                    className="inline-flex items-center gap-1 rounded-full border border-sky-200 dark:border-sky-400/30 bg-sky-50 dark:bg-sky-400/15 px-2 py-0.5 text-xs text-sky-900 dark:text-sky-200"
                   >
                     {formatRoomLabel(v.room_number)}
                   </span>

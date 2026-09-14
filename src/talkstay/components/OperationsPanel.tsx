@@ -867,7 +867,7 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
           value={bi.inProgress}
           active={boardFocus === "active" || (boardFocus == null && filter === "active")}
           onClick={() => exploreBoard("active", "active", "Active queue")}
-          accent="text-violet-600"
+          accent="text-violet-600 dark:text-violet-300"
           sub="Active now"
         />
         <OpsStat

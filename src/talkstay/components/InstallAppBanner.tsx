@@ -111,9 +111,9 @@ function homeScreenGuide(platform: PlatformHint, canPrompt: boolean): {
 }
 
 function StepIcon({ kind }: { kind?: Step["icon"] }) {
-  if (kind === "share") return <Share className="mt-0.5 h-3.5 w-3.5 shrink-0 text-violet-600" />;
-  if (kind === "menu") return <MoreVertical className="mt-0.5 h-3.5 w-3.5 shrink-0 text-violet-600" />;
-  if (kind === "home") return <Home className="mt-0.5 h-3.5 w-3.5 shrink-0 text-violet-600" />;
+  if (kind === "share") return <Share className="mt-0.5 h-3.5 w-3.5 shrink-0 text-violet-600 dark:text-violet-300" />;
+  if (kind === "menu") return <MoreVertical className="mt-0.5 h-3.5 w-3.5 shrink-0 text-violet-600 dark:text-violet-300" />;
+  if (kind === "home") return <Home className="mt-0.5 h-3.5 w-3.5 shrink-0 text-violet-600 dark:text-violet-300" />;
   return <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-violet-400" />;
 }
 
@@ -248,18 +248,18 @@ export default function InstallAppBanner({
       : "Allow notifications so you hear when the team replies — add TalkStay to your home screen for quick access. No download.";
 
   return (
-    <div className="relative z-30 border-b border-violet-200 bg-gradient-to-r from-violet-50 via-white to-violet-50/80 px-3 py-3 text-violet-950 sm:px-4">
+    <div className="relative z-30 border-b border-violet-200 dark:border-violet-400/30 bg-gradient-to-r from-violet-50 dark:from-violet-400/10 via-white dark:via-transparent to-violet-50/80 dark:to-violet-400/10 px-3 py-3 text-violet-950 dark:text-violet-200 sm:px-4">
       <button
         type="button"
         onClick={dismiss}
-        className="absolute right-2 top-2 rounded-md p-1 text-violet-400 hover:bg-violet-100 hover:text-violet-700"
+        className="absolute right-2 top-2 rounded-md p-1 text-violet-400 hover:bg-violet-100 dark:hover:bg-violet-400/25 hover:text-violet-700 dark:hover:text-violet-100"
         aria-label="Dismiss"
       >
         <X className="h-4 w-4" />
       </button>
       <div className="pr-8">
         <p className="text-sm font-semibold">{title}</p>
-        <p className="mt-0.5 max-w-2xl text-xs leading-relaxed text-violet-800/85">{blurb}</p>
+        <p className="mt-0.5 max-w-2xl text-xs leading-relaxed text-violet-800/85 dark:text-violet-200">{blurb}</p>
         <div className="mt-2.5 flex flex-wrap gap-2">
           {/* On iOS Safari tabs, prioritize Home Screen install before the alerts CTA. */}
           {needsIosInstall && !onHomeScreen && (
@@ -280,7 +280,7 @@ export default function InstallAppBanner({
               variant={needsIosInstall ? "outline" : "default"}
               disabled={busy}
               onClick={turnOnAlerts}
-              className={needsIosInstall ? "border-violet-300 bg-white" : "bg-violet-700 hover:bg-violet-800"}
+              className={needsIosInstall ? "border-violet-300 dark:border-violet-400/30 bg-white" : "bg-violet-700 hover:bg-violet-800"}
             >
               <Bell className="mr-1.5 h-3.5 w-3.5" />
               {busy ? "Enabling…" : "Turn on alert sounds"}
@@ -292,7 +292,7 @@ export default function InstallAppBanner({
               variant="outline"
               disabled={busy}
               onClick={addToHomeScreen}
-              className="border-violet-300 bg-white"
+              className="border-violet-300 dark:border-violet-400/30 bg-white"
               aria-expanded={showGuide}
             >
               <Smartphone className="mr-1.5 h-3.5 w-3.5" />
@@ -305,17 +305,17 @@ export default function InstallAppBanner({
         </div>
 
         {showGuide && !onHomeScreen && (
-          <div className="mt-3 max-w-lg rounded-xl border border-violet-200/90 bg-white/90 p-3 shadow-sm">
+          <div className="mt-3 max-w-lg rounded-xl border border-violet-200/90 dark:border-violet-400/30 bg-white/90 p-3 shadow-sm">
             <div className="flex items-start gap-2">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-violet-700">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-100 dark:bg-violet-400/15 text-violet-700 dark:text-violet-200">
                 <Home className="h-4 w-4" />
               </div>
               <div className="min-w-0 flex-1">
-                <p className="text-xs font-semibold text-violet-950">{guide.title}</p>
+                <p className="text-xs font-semibold text-violet-950 dark:text-violet-200">{guide.title}</p>
                 <ol className="mt-2 space-y-2">
                   {guide.steps.map((step, i) => (
-                    <li key={step.text} className="flex gap-2 text-xs leading-snug text-violet-900/90">
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-violet-100 text-[10px] font-bold text-violet-700">
+                    <li key={step.text} className="flex gap-2 text-xs leading-snug text-violet-900/90 dark:text-violet-200">
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-violet-100 dark:bg-violet-400/15 text-[10px] font-bold text-violet-700 dark:text-violet-200">
                         {i + 1}
                       </span>
                       <span className="flex gap-1.5 pt-0.5">
@@ -326,12 +326,12 @@ export default function InstallAppBanner({
                   ))}
                 </ol>
                 {guide.tip && (
-                  <p className="mt-2 text-[11px] text-violet-700/75">{guide.tip}</p>
+                  <p className="mt-2 text-[11px] text-violet-700/75 dark:text-violet-200">{guide.tip}</p>
                 )}
                 {/* Installing to the Home Screen is a fiddly, Apple-specific
                     detour. Nobody should feel they've lost their alerts by
                     skipping it — email needs no setup and works on any phone. */}
-                <p className="mt-2 rounded-lg bg-violet-100/70 px-2.5 py-1.5 text-[11px] leading-relaxed text-violet-900/85">
+                <p className="mt-2 rounded-lg bg-violet-100/70 dark:bg-violet-400/15 px-2.5 py-1.5 text-[11px] leading-relaxed text-violet-900/85 dark:text-violet-200">
                   {variant === "staff"
                     ? "Rather not? You don't have to — alerts still reach you by email, and the dashboard updates live while it's open."
                     : "Rather not? You don't have to — just tick “Email me updates” instead. It works on any phone, no setup."}

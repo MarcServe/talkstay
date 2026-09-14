@@ -351,12 +351,12 @@ function CreateHotel({
           </div>
 
           {partner || referralCode ? (
-            <div className="space-y-1.5 rounded-xl border border-violet-200 bg-violet-50/60 p-4">
+            <div className="space-y-1.5 rounded-xl border border-violet-200 dark:border-violet-400/30 bg-violet-50/60 dark:bg-violet-400/15 p-4">
               <Label htmlFor="hotel-ref">Partner referral</Label>
               {partner ? (
-                <p className="text-sm font-medium text-violet-950">
-                  Linked to <span className="text-violet-800">{partner.name}</span>
-                  <span className="ml-1.5 font-mono text-xs font-normal text-violet-700/80">({referralCode})</span>
+                <p className="text-sm font-medium text-violet-950 dark:text-violet-200">
+                  Linked to <span className="text-violet-800 dark:text-violet-200">{partner.name}</span>
+                  <span className="ml-1.5 font-mono text-xs font-normal text-violet-700/80 dark:text-violet-200">({referralCode})</span>
                 </p>
               ) : (
                 <Input
@@ -368,7 +368,7 @@ function CreateHotel({
                   readOnly={partnerLocked && !!resolved.source}
                 />
               )}
-              <p className="text-xs text-violet-900/70">
+              <p className="text-xs text-violet-900/70 dark:text-violet-200">
                 {partner
                   ? resolved.source === "inherit"
                     ? "Carried over from your portfolio so Support stays with the same partner."
