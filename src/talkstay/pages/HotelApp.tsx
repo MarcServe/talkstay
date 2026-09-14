@@ -11,7 +11,7 @@ import { toast } from "sonner";
 import {
   Loader2, Menu, X, Phone,
   Inbox, BarChart3, QrCode, Building2, BookOpen, Users, Palette, LifeBuoy, CreditCard, Mail,
-  Moon, Sun,
+  Moon, Sun, Settings, ChevronDown,
 } from "lucide-react";
 import AuthPage, { isPasswordSetupUrl } from "@/talkstay/pages/AuthPage";
 import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
@@ -524,6 +524,7 @@ export default function HotelApp() {
   const initialNav: NavKey = tabFromParam(tabParam) ?? "operations";
   const [active, setActive] = useState<NavKey>(initialNav);
   const [navOpen, setNavOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [focusRequestId, setFocusRequestId] = useState<string | null>(null);
 
   // Back/Forward change the URL, not our state — mirror the URL back into it,
@@ -784,18 +785,34 @@ export default function HotelApp() {
         })}
       </nav>
 
-      {/* Footer pinned to bottom on desktop + mobile — ops menu ends at Staff */}
+      {/* Footer pinned to bottom on desktop + mobile — ops menu ends at Staff.
+          Support, theme and the alert-sound picker are set-once things, so they
+          sit behind one row instead of taking four permanently. */}
       <div className="mt-auto space-y-1 border-t border-white/10 p-3">
-        <a
-          href="/support"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-white/60 hover:bg-white/5 hover:text-white"
+        {settingsOpen && (
+          <div className="space-y-1 pb-1">
+            <a
+              href="/support"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-white/60 hover:bg-white/5 hover:text-white"
+            >
+              <LifeBuoy className="h-4 w-4" /> Support & FAQ
+            </a>
+            <ThemeToggle />
+            <AlertSoundPicker hotelId={hotel.id} />
+          </div>
+        )}
+        <button
+          type="button"
+          onClick={() => setSettingsOpen((v) => !v)}
+          className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm text-white/60 transition-colors hover:bg-white/5 hover:text-white"
+          aria-expanded={settingsOpen}
         >
-          <LifeBuoy className="h-4 w-4" /> Support & FAQ
-        </a>
-        <ThemeToggle />
-        <AlertSoundPicker hotelId={hotel.id} />
+          <Settings className="h-4 w-4 shrink-0" />
+          Settings
+          <ChevronDown className={`ml-auto h-3.5 w-3.5 transition-transform ${settingsOpen ? "" : "-rotate-90"}`} />
+        </button>
         <button
           type="button"
           onClick={() => go("account")}

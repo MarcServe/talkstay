@@ -9,7 +9,7 @@ import {
   Loader2, AlertTriangle, RefreshCw, MessageCircle, Send, Search,
   UtensilsCrossed, BedDouble, Wrench, Wine, Shirt, ConciergeBell, KeyRound, ShieldAlert,
   ArrowDownRight, ArrowUpRight, Clock3, Phone, Bot, SlidersHorizontal, MoreHorizontal, X,
-  FileSpreadsheet, FileText,
+  FileSpreadsheet, FileText, ChevronRight,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -218,6 +218,20 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
   const [locationFilter, setLocationFilter] = useState<LocationFilter>("all");
   const [paymentFilter, setPaymentFilter] = useState<PaymentFilter>("all");
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [summaryOpen, setSummaryOpen] = useState(() => {
+    try {
+      return localStorage.getItem("talkstay.ops.summaryOpen") !== "0";
+    } catch {
+      return true;
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("talkstay.ops.summaryOpen", summaryOpen ? "1" : "0");
+    } catch {
+      // Private browsing — the preference just won't survive a reload.
+    }
+  }, [summaryOpen]);
   const { busy: exportBusy, run: runExport } = useReportExport(() => buildExportPayload());
 
   // Keep queue filter in sync when demo "View as" (or real staff lock) changes.
@@ -703,41 +717,7 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
 
   return (
     <div className="min-w-0 space-y-4 overflow-x-hidden">
-      <GuestAccessTip compact />
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-sky-200/80 dark:border-sky-400/30 bg-sky-50/70 dark:bg-sky-400/15 px-4 py-3">
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-sky-950 dark:text-sky-200">Find a room’s tickets first</p>
-          <p className="mt-0.5 text-xs text-sky-900/80 dark:text-sky-200">
-            Guest-app requests already land on this board. Search the room to open what’s in progress —
-            only use <span className="font-medium">Log order</span> for phone, walk-in, or front-desk
-            calls that aren’t already logged.
-          </p>
-          <div className="relative mt-2.5 max-w-md">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-sky-700/70 dark:text-sky-200" />
-            <Input
-              value={roomQuery}
-              onChange={(e) => {
-                setRoomQuery(e.target.value);
-                if (e.target.value.trim()) {
-                  setBoardFocus(null);
-                  setFilter("all");
-                }
-              }}
-              placeholder="Search room number or keyword…"
-              className="h-9 border-sky-200/80 dark:border-sky-400/30 bg-white/90 dark:bg-white/10 pl-8"
-              aria-label="Search tickets by room"
-            />
-          </div>
-        </div>
-        <Button
-          size="sm"
-          variant="outline"
-          className="shrink-0 border-violet-300 dark:border-violet-400/30 bg-white dark:bg-transparent text-violet-800 dark:text-violet-200 hover:bg-violet-50 dark:hover:bg-violet-400/25"
-          onClick={() => setLogOpen(true)}
-        >
-          <Phone className="mr-1.5 h-3.5 w-3.5" /> Log phone / walk-in
-        </Button>
-      </div>
+      <GuestAccessTip compact dismissKey="ops-guest-access" />
 
           {roomQ && (
         <div className="rounded-2xl border bg-card p-4 shadow-sm">
@@ -848,6 +828,26 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
         </div>
       )}
 
+      {/* Today's numbers are worth a look at the start of a shift, not on every
+          load — the queue is what people came for, so this folds away and
+          remembers that it was folded. */}
+      <button
+        type="button"
+        onClick={() => setSummaryOpen((v) => !v)}
+        className="flex w-full items-center gap-2 rounded-lg px-1 py-1 text-left text-xs font-semibold uppercase tracking-[0.07em] text-muted-foreground transition-colors hover:text-foreground"
+        aria-expanded={summaryOpen}
+      >
+        <ChevronRight className={`h-3.5 w-3.5 transition-transform ${summaryOpen ? "rotate-90" : ""}`} />
+        Today
+        {!summaryOpen && (
+          <span className="font-normal normal-case tracking-normal text-muted-foreground/80">
+            · {bi.totalToday} in · {bi.inProgress} active · {bi.completedToday} done · {bi.avgAcceptLabel} to accept
+          </span>
+        )}
+      </button>
+
+      {summaryOpen && (
+      <>
       {/* BI strip — click a card to filter the queue below */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <OpsStat
@@ -897,8 +897,8 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
         />
       </div>
 
-      <div className="grid min-w-0 gap-3 lg:grid-cols-2">
-        <div className="min-w-0 overflow-hidden rounded-2xl border bg-card p-4 shadow-sm lg:col-span-1">
+      <div className="grid min-w-0 gap-3">
+        <div className="min-w-0 overflow-hidden rounded-2xl border bg-card p-4 shadow-sm">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
               <h3 className="text-sm font-medium">Requests by department today</h3>
@@ -948,7 +948,7 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
                         <span className="shrink-0 text-muted-foreground">{d.count} · {pct}%</span>
                       </div>
                       <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                        <div className="h-full max-w-full rounded-full bg-violet-50 dark:bg-violet-400/150" style={{ width: `${pct}%` }} />
+                        <div className="h-full max-w-full rounded-full bg-violet-500 dark:bg-violet-400" style={{ width: `${pct}%` }} />
                       </div>
                     </button>
                   </li>
@@ -957,49 +957,9 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
             </ul>
           )}
         </div>
-
-        <div className="min-w-0 overflow-hidden rounded-2xl border bg-card p-4 shadow-sm">
-          <div className="flex items-center justify-between gap-2">
-            <h3 className="min-w-0 truncate text-sm font-medium">Live queue</h3>
-            <button
-              type="button"
-              className="shrink-0 text-xs font-medium text-violet-600 hover:underline dark:text-violet-300"
-              onClick={() => exploreBoard("active", "active", "Active queue")}
-            >
-              View all
-            </button>
-          </div>
-          <ul className="mt-3 divide-y">
-            {bi.queue.length === 0 ? (
-              <li className="py-4 text-sm text-muted-foreground">Queue is clear.</li>
-            ) : bi.queue.map((r) => (
-              <li key={r.id} className="min-w-0">
-                <button
-                  type="button"
-                  onClick={() => setSelectedId(r.id)}
-                  className="flex w-full min-w-0 items-start gap-3 py-2.5 text-left transition-colors hover:bg-muted/40"
-                >
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-100 dark:bg-violet-400/15 text-xs font-semibold text-violet-700 dark:bg-violet-500/20 dark:text-violet-200">
-                    {r.ts_rooms?.room_number ?? "—"}
-                  </div>
-                  <div className="min-w-0 flex-1 overflow-hidden">
-                    {/* What was actually asked for — the room/guest chip alone
-                        told you WHO and WHERE but never WHAT, so every row for
-                        the same room read identically until opened. */}
-                    <p className="truncate text-sm font-medium">{r.summary_staff || r.summary}</p>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {guestStayLabel(r.guest_first_name, r.ts_rooms?.room_number, { locator: r.guest_locator })} · {deptLabel(r.department_key)} · {timeAgo(r.created_at)}
-                    </p>
-                  </div>
-                  <span className={`max-w-[40%] shrink-0 truncate rounded-full px-2 py-0.5 text-[10px] font-medium ${statusBadge(r.status)}`}>
-                    {statusLabel(r.status)}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
       </div>
+      </>
+      )}
 
       <div ref={queueRef} className="scroll-mt-4 space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1022,6 +982,22 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
             })}
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <div className="relative min-w-[7rem] flex-1 sm:max-w-[13rem]">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={roomQuery}
+                onChange={(e) => {
+                  setRoomQuery(e.target.value);
+                  if (e.target.value.trim()) {
+                    setBoardFocus(null);
+                    setFilter("all");
+                  }
+                }}
+                placeholder="Search a room…"
+                className="h-9 pl-8"
+                aria-label="Search tickets by room"
+              />
+            </div>
             <Popover open={filtersOpen} onOpenChange={setFiltersOpen}>
               <PopoverTrigger asChild>
                 <Button
