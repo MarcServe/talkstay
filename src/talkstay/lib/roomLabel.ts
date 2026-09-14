@@ -37,7 +37,11 @@ export function guestStayLabel(
   const base = formatRoomLabel(roomNumber, opts);
   const room = locator ? `${base} · ${locator}` : base;
   const first = String(guestFirstName ?? "").trim();
-  if (!first) return room;
+  // Someone occasionally pastes their email into the "first name" field
+  // (testing their own property, or just habit) — showing the full address
+  // as if it were a name is both unreadable and not what anyone meant to
+  // share. Fall back to the room, same as if nothing had been given.
+  if (!first || first.includes("@")) return room;
   // Title-case lightly for display (Timothy, not TIMOTHY).
   const nice = first.charAt(0).toUpperCase() + first.slice(1);
   return `${nice} · ${room}`;
