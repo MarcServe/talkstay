@@ -333,6 +333,16 @@ export async function updateHotelCurrency(hotelId: string, currency: string) {
   const code = currency.trim().toUpperCase().slice(0, 3);
   const { error } = await supabase.from("ts_hotels").update({ currency: code }).eq("id", hotelId);
   if (error) throw new Error(error.message);
+  // Every catalogue row carries its own currency, copied from the property the
+  // moment it was added. Leave them and the switch only reaches items created
+  // afterwards — the existing menu keeps its old symbol, so one menu ends up
+  // quoting two currencies. Past requests are deliberately not touched: they
+  // record what a guest was actually quoted at the time.
+  const { error: itemsError } = await supabase
+    .from("ts_catalog_items")
+    .update({ currency: code })
+    .eq("hotel_id", hotelId);
+  if (itemsError) throw new Error(itemsError.message);
 }
 
 /** Persist which property the dashboard is showing (per auth user). */
