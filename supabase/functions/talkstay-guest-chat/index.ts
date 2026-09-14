@@ -64,6 +64,14 @@ const DEFAULT_RULES: Record<string, string[]> = {
   duty_manager: ["complaint", "complain", "manager", "unacceptable", "terrible", "awful", "disgusting", "refund", "compensation", "safety", "emergency", "police", "dangerous", "threat", "harass", "discriminat"],
 };
 
+/** Words that only carry meaning whole. The lists above are matched as plain
+ *  substrings, which is right for phrases but wrong for a short verb: "iron"
+ *  would fire on "environment" and "ironic". These get word boundaries, so a
+ *  guest can say "how much to iron?" and not only "ironing". */
+const WORD_RULES: Record<string, string[]> = {
+  laundry: ["iron", "irons", "ironed", "ironing", "press", "pressed", "pressing", "starch", "creased"],
+};
+
 /** Sensible keyword seeds for common custom departments (Spa, Security, …). */
 const CUSTOM_DEPT_HINTS: Record<string, string[]> = {
   spa: ["spa", "massage", "facial", "treatment", "sauna", "hammam", "wellness", "beauty", "manicure", "pedicure"],
@@ -117,6 +125,12 @@ function classifyDeterministic(message: string, ctx: RoomCtx): { dept: string; s
   for (const [dept, kws] of Object.entries(DEFAULT_RULES)) {
     if (!ctx.departments.includes(dept)) continue;
     const hits = kws.filter((k) => m.includes(k)).length;
+    if (hits > 0 && (!best || hits > best.hits)) best = { dept, hits };
+  }
+  // 2b) whole-word verbs the substring lists can't express safely
+  for (const [dept, words] of Object.entries(WORD_RULES)) {
+    if (!ctx.departments.includes(dept)) continue;
+    const hits = words.filter((w) => new RegExp(`\\b${w}\\b`, "i").test(message)).length;
     if (hits > 0 && (!best || hits > best.hits)) best = { dept, hits };
   }
   // 3) common custom-dept hints (spa, security, …) when those teams exist
