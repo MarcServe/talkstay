@@ -37,6 +37,10 @@ interface RoomCtx {
   rules: { department_key: string; keywords: string[] }[];
   branding: Record<string, unknown>;
   pulseEnabled: boolean;
+  /** The property's own currency (ts_hotels.currency) — every "GBP" fallback
+   *  in this file used to be hardcoded regardless of this column's value, so
+   *  a property outside the UK saw their own guests quoted in pounds. */
+  currency: string;
   /** Public QR (lobby/bar/spa…) — walk-in / non-resident location. */
   isPublic: boolean;
   /** Department this Public QR venue belongs to, set when the venue was created
@@ -161,7 +165,7 @@ async function resolveRoom(
   {
     const withPulse = await admin
       .from("ts_hotels")
-      .select("id, name, slug, assistant_id, default_language, branding, pulse_enabled")
+      .select("id, name, slug, assistant_id, default_language, branding, pulse_enabled, currency")
       .eq("id", tok.hotel_id).maybeSingle();
     if (withPulse.error) {
       const base = await admin
@@ -229,6 +233,9 @@ async function resolveRoom(
     rules: (rules ?? []) as any,
     branding: (hotel as any).branding || {},
     pulseEnabled: (hotel as any).pulse_enabled !== false,
+    // Undefined on the reduced-select fallback path above (older DB) — GBP
+    // stays the fallback there, same as before this column was read at all.
+    currency: String((hotel as any).currency || "GBP").toUpperCase(),
     isPublic,
     checkedInAt: (room as any).checked_in_at ?? null,
     // Undefined on the reduced-select fallback path above, which is fine —
@@ -308,7 +315,7 @@ type GuestCard = {
  *  disappear: this outlet's own row, then one scoped to this guest's kind, then
  *  the everywhere row. They used to be returned all together, so a bar with its
  *  own Aperol price showed Aperol twice at two prices. */
-async function loadGuestCatalog(admin: any, hotelId: string, roomId: string, isPublic: boolean): Promise<{
+async function loadGuestCatalog(admin: any, hotelId: string, roomId: string, isPublic: boolean, defaultCurrency = "GBP"): Promise<{
   id: string; name: string; price: number | null; currency: string;
   departmentKey: string; outletRoomId: string | null; availability: string;
 }[]> {
@@ -353,7 +360,7 @@ async function loadGuestCatalog(admin: any, hotelId: string, roomId: string, isP
     id: r.id,
     name: r.name,
     price: r.price,
-    currency: r.currency || "GBP",
+    currency: r.currency || defaultCurrency,
     departmentKey: r.department_key,
     outletRoomId: r.outlet_room_id ?? null,
     availability: r.availability ?? "everywhere",
@@ -798,6 +805,7 @@ async function handleMarketingDemo(body: any, OPENAI_API_KEY: string) {
     rules: [],
     branding: { primary_color: "#4c2bb8" },
     pulseEnabled: false,
+    currency: "GBP",
     isPublic: false,
     checkedInAt: null,
   };
@@ -1025,7 +1033,7 @@ serve(async (req) => {
 
     // ---- list_menu: guest-facing digital menu from ts_catalog_items ----
     if (action === "list_menu") {
-      const items = await loadGuestCatalog(admin, ctx.hotelId, ctx.roomId, !!ctx.isPublic);
+      const items = await loadGuestCatalog(admin, ctx.hotelId, ctx.roomId, !!ctx.isPublic, ctx.currency);
 
       const { data: depts } = await admin
         .from("ts_departments")
@@ -1087,7 +1095,7 @@ serve(async (req) => {
         if (!row) continue;
         const line = qty > 1 ? `${qty}× ${row.name}` : row.name;
         const g = groups.get(row.department_key)
-          ?? { names: [], total: 0, priced: false, currency: "GBP" };
+          ?? { names: [], total: 0, priced: false, currency: ctx.currency };
         g.names.push(line);
         if (typeof row.price === "number") {
           g.total += Number(row.price) * qty;
@@ -1238,7 +1246,7 @@ serve(async (req) => {
       const owedTotal = priced.length
         ? priced.reduce((sum: number, r: any) => sum + Number(r.price), 0)
         : null;
-      const currency = unpaid.find((r: any) => r.currency)?.currency ?? "GBP";
+      const currency = unpaid.find((r: any) => r.currency)?.currency ?? ctx.currency;
 
       let cardPayEnabled = false;
       {
@@ -1458,7 +1466,7 @@ serve(async (req) => {
 
       const priced = unpaid.filter((r: any) => typeof r.price === "number" && Number(r.price) > 0);
       const total = priced.reduce((sum: number, r: any) => sum + Number(r.price), 0);
-      const currency = unpaid.find((r: any) => r.currency)?.currency ?? "GBP";
+      const currency = unpaid.find((r: any) => r.currency)?.currency ?? ctx.currency;
       const amountBit = priced.length
         ? ` · about ${Number(total).toFixed(2)} ${String(currency).toUpperCase()}`
         : "";
@@ -2174,13 +2182,13 @@ serve(async (req) => {
     // Knowledge, which is how it priced before.
     let priceList = "";
     try {
-      const rows = (await loadGuestCatalog(admin, ctx.hotelId, ctx.roomId, !!ctx.isPublic))
+      const rows = (await loadGuestCatalog(admin, ctx.hotelId, ctx.roomId, !!ctx.isPublic, ctx.currency))
         .filter((r) => typeof r.price === "number")
         .slice(0, 200);
       if (rows.length) {
         // Scope and outlet precedence are already resolved by loadGuestCatalog —
         // these are the items this guest can actually order, at their price.
-        const cur = rows.find((r) => r.currency)?.currency ?? "GBP";
+        const cur = rows.find((r) => r.currency)?.currency ?? ctx.currency;
         const byDept = new Map<string, string[]>();
         for (const r of rows) {
           const line = `${r.name} — ${Number(r.price).toFixed(2)}`;
@@ -2382,7 +2390,7 @@ what you just said. Vary your phrasing so it doesn't sound like a scripted closi
       let priceSuspicious = false;
       if (priceNum != null) {
         try {
-          const catalog = await loadGuestCatalog(admin, ctx.hotelId, ctx.roomId, !!ctx.isPublic);
+          const catalog = await loadGuestCatalog(admin, ctx.hotelId, ctx.roomId, !!ctx.isPublic, ctx.currency);
           const pricedItems = catalog.filter((i) => typeof i.price === "number" && Number(i.price) > 0);
           const maxItem = pricedItems.length ? Math.max(...pricedItems.map((i) => Number(i.price))) : 0;
           // Generous on purpose: up to 15x the priciest single catalog item,
@@ -2420,7 +2428,7 @@ what you just said. Vary your phrasing so it doesn't sound like a scripted closi
       };
       if (priceNum != null) {
         baseInsert.price = priceNum;
-        baseInsert.currency = "GBP";
+        baseInsert.currency = ctx.currency;
       }
       let reqRow: any = null;
       {
@@ -2505,11 +2513,11 @@ what you just said. Vary your phrasing so it doesn't sound like a scripted closi
 
           if (tc.function.name === "show_menu") {
             if (guestIntent === "other") guestIntent = "question";
-            const menu = await loadGuestCatalog(admin, ctx.hotelId, ctx.roomId, !!ctx.isPublic);
+            const menu = await loadGuestCatalog(admin, ctx.hotelId, ctx.roomId, !!ctx.isPublic, ctx.currency);
             const want = String(args.department || "").trim().toLowerCase();
             const shown = want ? menu.filter((i) => i.departmentKey === want) : menu;
             if (shown.length) {
-              const cur = shown.find((i) => i.currency)?.currency ?? "GBP";
+              const cur = shown.find((i) => i.currency)?.currency ?? ctx.currency;
               const sym = cur === "GBP" ? "£" : cur === "EUR" ? "€" : cur === "USD" ? "$" : `${cur} `;
               const byDept = new Map<string, string[]>();
               for (const i of shown.slice(0, 120)) {

@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { Loader2, Minus, Plus, ShoppingBag, X } from "lucide-react";
+import { Loader2, Minus, Plus, ShoppingBag, TriangleAlert, X } from "lucide-react";
 import { formatMoney } from "@/talkstay/lib/statusStyles";
 import {
   fetchGuestMenu,
@@ -27,26 +27,49 @@ export default function GuestMenuSheet({
   const [items, setItems] = useState<GuestMenuItem[]>([]);
   const [depts, setDepts] = useState<{ key: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
+  // Distinct from "loaded fine, nothing on it" — a genuinely empty catalog and
+  // a failed fetch used to render the exact same "No menu items yet" card,
+  // which is how a real error (stale token, a 500) read as "this property
+  // just hasn't set up a menu" with no way to tell the difference or retry.
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [deptFilter, setDeptFilter] = useState<string>("all");
   const [cart, setCart] = useState<Record<string, number>>({});
   const [busy, setBusy] = useState(false);
+  const [retryTick, setRetryTick] = useState(0);
+
+  const load = useCallback(
+    (cancelledRef: { cancelled: boolean }) => {
+      setLoading(true);
+      setLoadError(null);
+      fetchGuestMenu({ hotelSlug, roomId, token, sessionId })
+        .then((payload) => {
+          if (cancelledRef.cancelled) return;
+          setItems(payload.items);
+          setDepts(payload.departments);
+        })
+        .catch((err) => {
+          if (cancelledRef.cancelled) return;
+          // eslint-disable-next-line no-console
+          console.error("fetchGuestMenu failed:", err);
+          const code = typeof err?.code === "string" ? err.code : "";
+          const friendly = code === "checked_out"
+            ? "This stay has ended, so the menu isn't available anymore."
+            : "Couldn't load the menu — check your connection and try again.";
+          setLoadError(friendly);
+          toast.error(friendly);
+        })
+        .finally(() => {
+          if (!cancelledRef.cancelled) setLoading(false);
+        });
+    },
+    [hotelSlug, roomId, token, sessionId],
+  );
 
   useEffect(() => {
-    let cancelled = false;
-    fetchGuestMenu({ hotelSlug, roomId, token, sessionId })
-      .then((payload) => {
-        if (cancelled) return;
-        setItems(payload.items);
-        setDepts(payload.departments);
-      })
-      .catch(() => {
-        if (!cancelled) toast.error("Couldn't load the menu");
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, [hotelSlug, roomId, token, sessionId]);
+    const ref = { cancelled: false };
+    load(ref);
+    return () => { ref.cancelled = true; };
+  }, [load, retryTick]);
 
   const visible = useMemo(
     () => (deptFilter === "all" ? items : items.filter((i) => i.departmentKey === deptFilter)),
@@ -166,6 +189,17 @@ export default function GuestMenuSheet({
           {loading ? (
             <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" /> Loading menu…
+            </div>
+          ) : loadError ? (
+            <div className="rounded-2xl border border-dashed px-4 py-10 text-center">
+              <TriangleAlert className="mx-auto mb-2 h-5 w-5 text-amber-600" />
+              <p className="text-sm font-medium">{loadError}</p>
+              <Button
+                variant="outline" size="sm" className="mt-3"
+                onClick={() => setRetryTick((t) => t + 1)}
+              >
+                Try again
+              </Button>
             </div>
           ) : visible.length === 0 ? (
             <div className="rounded-2xl border border-dashed px-4 py-10 text-center">

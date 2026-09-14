@@ -153,7 +153,38 @@ export interface Hotel {
   stripe_charges_enabled?: boolean;
   stripe_details_submitted?: boolean;
   stripe_connected_at?: string | null;
+  /** Guest-facing pricing currency (ISO 4217, e.g. "GBP", "EUR", "USD"). The
+   *  column has always existed with a 'GBP' default; nothing surfaced it in
+   *  the UI, so a property outside the UK had no way to change what their
+   *  own guests were quoted in. */
+  currency?: string | null;
   created_at?: string;
+}
+
+/** Common currencies with the symbol shown alongside the code — enough for
+ *  the properties actually using TalkStay today, not an exhaustive ISO list. */
+export const CURRENCY_OPTIONS: { code: string; label: string }[] = [
+  { code: "GBP", label: "GBP — £ British Pound" },
+  { code: "EUR", label: "EUR — € Euro" },
+  { code: "USD", label: "USD — $ US Dollar" },
+  { code: "AUD", label: "AUD — $ Australian Dollar" },
+  { code: "CAD", label: "CAD — $ Canadian Dollar" },
+  { code: "NZD", label: "NZD — $ New Zealand Dollar" },
+  { code: "AED", label: "AED — د.إ UAE Dirham" },
+  { code: "ZAR", label: "ZAR — R South African Rand" },
+  { code: "NGN", label: "NGN — ₦ Nigerian Naira" },
+  { code: "INR", label: "INR — ₹ Indian Rupee" },
+];
+
+/** Sets the property's own pricing currency. Guests see it on menus, folios
+ *  and chargeable requests; it does not change what Stripe actually settles
+ *  in — that's fixed to the connected account's own country at Connect
+ *  onboarding, so the two can drift for a property that connected Stripe
+ *  before changing this. */
+export async function updateHotelCurrency(hotelId: string, currency: string) {
+  const code = currency.trim().toUpperCase().slice(0, 3);
+  const { error } = await supabase.from("ts_hotels").update({ currency: code }).eq("id", hotelId);
+  if (error) throw new Error(error.message);
 }
 
 /** Persist which property the dashboard is showing (per auth user). */
@@ -992,6 +1023,10 @@ export async function addCatalogItem(input: {
   outletRoomId?: string | null;
   /** Defaults to everywhere — narrowing is always a deliberate choice. */
   availability?: CatalogAvailability;
+  /** The property's own currency. Omit to keep the column's 'GBP' default —
+   *  only pass it when the caller actually knows the hotel's currency, so a
+   *  property that changed to EUR gets EUR on every new item, not GBP. */
+  currency?: string | null;
 }): Promise<CatalogItem> {
   const row: Record<string, unknown> = {
     hotel_id: input.hotelId,
@@ -1003,6 +1038,7 @@ export async function addCatalogItem(input: {
   if (input.availability && input.availability !== "everywhere") {
     row.availability = input.availability;
   }
+  if (input.currency) row.currency = input.currency.trim().toUpperCase().slice(0, 3);
 
   const { data, error } = await supabase
     .from("ts_catalog_items")

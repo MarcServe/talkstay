@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { Loader2, Upload, Mic, Palette, Printer, ImageIcon, X, Building2 } from "lucide-react";
 import {
   clampGuestBgWash, friendlyImageName, updatePropertyProfile, updateHotelContactEmail,
+  updateHotelCurrency, CURRENCY_OPTIONS,
   type Hotel, type HotelBranding, type PropertyProfile,
 } from "@/talkstay/lib/hotels";
 import PosterPanel from "@/talkstay/components/PosterPanel";
@@ -46,7 +47,7 @@ export default function BrandingPanel({
         <TabsTrigger value="poster"><Printer className="mr-1.5 h-4 w-4" /> Poster</TabsTrigger>
       </TabsList>
       <TabsContent value="identity">
-        <IdentityTab hotel={hotel} onSaved={onSaved} />
+        <IdentityTab hotel={hotel} onSaved={onSaved} onHotel={onHotel} />
       </TabsContent>
       <TabsContent value="property">
         <PropertyTab hotel={hotel} onSaved={onSaved} onHotel={onHotel} />
@@ -176,11 +177,14 @@ function PropertyTab({
   );
 }
 
-function IdentityTab({ hotel, onSaved }: { hotel: Hotel; onSaved?: (b: HotelBranding) => void }) {
+function IdentityTab({ hotel, onSaved, onHotel }: {
+  hotel: Hotel; onSaved?: (b: HotelBranding) => void; onHotel?: (h: Hotel) => void;
+}) {
   const demo = useDemo();
   const [logo, setLogo] = useState(hotel.branding?.logo_url ?? "");
   const [color, setColor] = useState(hotel.branding?.primary_color ?? DEFAULT_COLOR);
   const [tagline, setTagline] = useState(hotel.branding?.tagline ?? "Scan. Speak. Consider it done.");
+  const [currency, setCurrency] = useState((hotel.currency || "GBP").toUpperCase());
   const [guestWash, setGuestWash] = useState(
     clampGuestBgWash(hotel.branding?.guest_bg_wash ?? DEFAULT_GUEST_WASH),
   );
@@ -234,16 +238,29 @@ function IdentityTab({ hotel, onSaved }: { hotel: Hotel; onSaved?: (b: HotelBran
       tagline: tagline.trim() || null,
       guest_bg_wash: clampGuestBgWash(guestWash),
     };
+    const currencyChanged = currency !== (hotel.currency || "GBP").toUpperCase();
     if (demo) {
       demo.updateBranding(branding);
       setSaving(false);
       onSaved?.(branding);
+      if (currencyChanged) onHotel?.({ ...hotel, currency });
       toast.success("Branding saved (demo).");
       return;
     }
     const { error } = await supabase.from("ts_hotels").update({ branding }).eq("id", hotel.id);
+    if (error) { setSaving(false); toast.error(error.message); return; }
+    if (currencyChanged) {
+      try {
+        await updateHotelCurrency(hotel.id, currency);
+        onHotel?.({ ...hotel, branding, currency });
+      } catch (err: any) {
+        setSaving(false);
+        toast.error(err?.message ?? "Saved branding, but couldn't save the currency.");
+        onSaved?.(branding);
+        return;
+      }
+    }
     setSaving(false);
-    if (error) { toast.error(error.message); return; }
     onSaved?.(branding);
     toast.success("Branding saved.");
   };
@@ -293,6 +310,24 @@ function IdentityTab({ hotel, onSaved }: { hotel: Hotel; onSaved?: (b: HotelBran
             <input type="color" value={color} onChange={(e) => setColor(e.target.value)} className="h-10 w-14 cursor-pointer rounded border" />
             <Input value={color} onChange={(e) => setColor(e.target.value)} className="w-32" />
           </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label>Currency</Label>
+          <select
+            value={currency}
+            onChange={(e) => setCurrency(e.target.value)}
+            className="h-10 w-full rounded-md border bg-background px-3 text-sm"
+          >
+            {CURRENCY_OPTIONS.map((c) => (
+              <option key={c.code} value={c.code}>{c.label}</option>
+            ))}
+          </select>
+          <p className="text-xs text-muted-foreground">
+            What guests are quoted on menus, folios and chargeable requests. This is
+            display pricing only — if you've connected Stripe, it still settles in
+            whatever currency your connected account uses.
+          </p>
         </div>
 
         <div className="space-y-2">
