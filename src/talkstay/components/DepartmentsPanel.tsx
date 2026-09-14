@@ -6,11 +6,16 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Loader2, Plus, Trash2, X, MapPin } from "lucide-react";
+import { Loader2, Plus, Trash2, X, MapPin, ChevronRight, Info } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { listRooms, setCalloutDepartment, setOwnerUrgentCopy, type Hotel, type Room } from "@/talkstay/lib/hotels";
 import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
 
 interface StaffRow { id: string; user_id: string; name: string | null; email: string; department_key: string | null; room_id?: string | null; }
+
+/** Small caps label that turns each stacked block in a team row into a named
+ *  section instead of a run-on line. */
+const ROW_LABEL = "text-[10px] font-semibold uppercase tracking-[0.07em] text-muted-foreground";
 
 const DEFAULT_KEYS = ["housekeeping","laundry","kitchen","bar","maintenance","concierge","front_desk","duty_manager"];
 const deptKeyFromName = (name: string) =>
@@ -27,6 +32,7 @@ interface Dept {
 
 export default function DepartmentsPanel({ hotel }: { hotel: Hotel }) {
   const [depts, setDepts] = useState<Dept[]>([]);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [roster, setRoster] = useState<StaffRow[]>([]);
   const [venues, setVenues] = useState<Room[]>([]);
   const [loading, setLoading] = useState(true);
@@ -165,13 +171,28 @@ export default function DepartmentsPanel({ hotel }: { hotel: Hotel }) {
         Requests are auto-routed to these teams. Add an alert email and an escalation time for each.
       </p>
 
-      <div className="flex flex-wrap items-center gap-4">
-        <form onSubmit={(e) => { e.preventDefault(); addDept(); }} className="flex items-center gap-2">
-          <Input value={newDept} onChange={(e) => setNewDept(e.target.value)} placeholder="Add a department (e.g. Spa, Valet)" className="w-56" />
-          <Button type="submit" size="sm" disabled={adding || !newDept.trim()}>
-            <Plus className="mr-1 h-4 w-4" /> Add
-          </Button>
-        </form>
+      {/* Three property-wide settings used to sit in the same row as "add a
+          department", so a one-off action and three set-once toggles read as
+          one undifferentiated bar. They fold away together now. */}
+      <button
+        type="button"
+        onClick={() => setSettingsOpen((v) => !v)}
+        className="flex w-full items-center gap-2 rounded-lg px-1 py-1 text-left text-xs font-semibold uppercase tracking-[0.07em] text-muted-foreground transition-colors hover:text-foreground"
+        aria-expanded={settingsOpen}
+      >
+        <ChevronRight className={`h-3.5 w-3.5 transition-transform ${settingsOpen ? "rotate-90" : ""}`} />
+        Alert settings
+        {!settingsOpen && (
+          <span className="font-normal normal-case tracking-normal text-muted-foreground/80">
+            · callouts to {depts.find((d) => d.key === (calloutDept || "front_desk"))?.display_name ?? "Front Desk"}
+            {ownerCopy ? " · copied on urgent" : ""}
+            {escPhone ? " · escalation call set" : ""}
+          </span>
+        )}
+      </button>
+
+      {settingsOpen && (
+      <div className="flex flex-wrap items-center gap-4 rounded-2xl border bg-card p-4">
         {/* Where a bare "please send someone" goes. A venue QR linked to a team
             still wins — this is the answer for rooms, and for venues nobody
             linked. */}
@@ -223,6 +244,19 @@ export default function DepartmentsPanel({ hotel }: { hotel: Hotel }) {
           />
         </div>
       </div>
+      )}
+
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs font-semibold uppercase tracking-[0.07em] text-muted-foreground">
+          Teams <span className="font-normal normal-case tracking-normal">· {depts.filter((d) => d.is_active).length} active</span>
+        </p>
+        <form onSubmit={(e) => { e.preventDefault(); addDept(); }} className="flex items-center gap-2">
+          <Input value={newDept} onChange={(e) => setNewDept(e.target.value)} placeholder="Add a department (e.g. Spa, Valet)" className="h-8 w-56" />
+          <Button type="submit" size="sm" disabled={adding || !newDept.trim()}>
+            <Plus className="mr-1 h-4 w-4" /> Add
+          </Button>
+        </form>
+      </div>
 
       <div className="divide-y rounded-2xl border">
         {depts.map((d) => (
@@ -240,6 +274,7 @@ export default function DepartmentsPanel({ hotel }: { hotel: Hotel }) {
                 )}
               </div>
               <div className="flex flex-wrap items-center gap-2">
+                <span className={ROW_LABEL}>Alerts</span>
                 <Input
                   type="email"
                   defaultValue={d.notify_email ?? ""}
@@ -268,7 +303,7 @@ export default function DepartmentsPanel({ hotel }: { hotel: Hotel }) {
 
             {/* Assigned staff (alerts + escalation) */}
             <div className="flex flex-wrap items-center gap-2 pl-11">
-              <span className="text-xs text-muted-foreground">Staff:</span>
+              <span className={ROW_LABEL}>Staff</span>
               {assignedTo(d.key).map((s) => {
                 const area = s.room_id ? publicAreas.find((a) => a.id === s.room_id) : null;
                 return (
@@ -316,8 +351,8 @@ export default function DepartmentsPanel({ hotel }: { hotel: Hotel }) {
 
             {/* Linked Public QR venues (outlets under this department) */}
             <div className="flex flex-wrap items-center gap-2 pl-11">
-              <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                <MapPin className="h-3 w-3" /> Venues:
+              <span className={`${ROW_LABEL} inline-flex items-center gap-1`}>
+                <MapPin className="h-3 w-3" /> Venues
               </span>
               {venues.filter((v) => v.department_key === d.key).length === 0 ? (
                 <span className="text-xs text-muted-foreground">
@@ -335,10 +370,48 @@ export default function DepartmentsPanel({ hotel }: { hotel: Hotel }) {
               )}
             </div>
 
-            <DepartmentMenu
-              hotelId={hotel.id} departmentKey={d.key} departmentName={d.display_name}
-              hotelCurrency={hotel.currency || "GBP"}
-            />
+            <div className="pl-11">
+              <div className="mb-1 flex items-center gap-1.5">
+                <span className={ROW_LABEL}>Guest menu</span>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="text-muted-foreground transition-colors hover:text-foreground"
+                      aria-label={`Where the ${d.display_name} menu appears`}
+                    >
+                      <Info className="h-3.5 w-3.5" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="w-80 space-y-2 text-xs leading-relaxed">
+                    <p className="text-sm font-medium">Where this menu appears</p>
+                    <p className="text-muted-foreground">
+                      Guests don't see a menu per team. Every team's items are pooled into
+                      one menu and grouped under a heading — so {d.display_name} items show
+                      as a {d.display_name} section alongside the others.
+                    </p>
+                    <p className="text-muted-foreground">
+                      What decides whether an item shows is <span className="font-medium text-foreground">where
+                      the guest is</span>, not which team it belongs to:
+                    </p>
+                    <ul className="space-y-1 text-muted-foreground">
+                      <li><span className="font-medium text-foreground">Rooms and public areas</span> — everyone sees it.</li>
+                      <li><span className="font-medium text-foreground">Guest rooms only</span> — hidden from lobby and bar QRs.</li>
+                      <li><span className="font-medium text-foreground">Public areas only</span> — hidden from in-room guests.</li>
+                      <li><span className="font-medium text-foreground">Only a named venue</span> — just that QR.</li>
+                    </ul>
+                    <p className="text-muted-foreground">
+                      An item pinned to a venue beats a shared item of the same name in
+                      that venue, which is how you charge a different price there.
+                    </p>
+                  </PopoverContent>
+                </Popover>
+              </div>
+              <DepartmentMenu
+                hotelId={hotel.id} departmentKey={d.key} departmentName={d.display_name}
+                hotelCurrency={hotel.currency || "GBP"}
+              />
+            </div>
           </div>
         ))}
       </div>
