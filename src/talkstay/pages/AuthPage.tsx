@@ -120,13 +120,18 @@ function AuthShell({ children, brand }: { children: React.ReactNode; brand: Prop
 }
 
 function AuthInput({
-  id, type, value, onChange, placeholder, autoComplete, autoFocus, icon: Icon, trailing,
+  id, type, value, onChange, placeholder, autoComplete, autoFocus, icon: Icon, trailing, enterKeyHint,
 }: {
   id: string; type: string; value: string; onChange: (v: string) => void;
   placeholder?: string; autoComplete?: string;
   /** Honoured on the set-a-password screen, which exists only to type one. */
   autoFocus?: boolean;
   icon: typeof Mail; trailing?: React.ReactNode;
+  /** Labels the phone keyboard's own action key ("go"/"done" instead of a
+   *  plain return arrow) — most mobile browsers infer this correctly from
+   *  the surrounding <form> already, but setting it explicitly on the last
+   *  field in a form is cheap insurance across browsers that don't. */
+  enterKeyHint?: React.HTMLAttributes<HTMLInputElement>["enterKeyHint"];
 }) {
   return (
     <div className="relative">
@@ -134,6 +139,7 @@ function AuthInput({
       <Input
         id={id} type={type} required value={value} placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)} autoComplete={autoComplete} autoFocus={autoFocus}
+        enterKeyHint={enterKeyHint}
         className="h-11 rounded-xl border-0 bg-white pl-11 pr-10 text-base text-gray-900 shadow-sm placeholder:text-gray-400 focus-visible:ring-violet-500/40 md:h-11 md:px-0 md:pl-11 md:pr-10"
       />
       {trailing && (
@@ -278,6 +284,17 @@ export default function AuthPage() {
   const [setupError, setSetupError] = useState<string | null>(null);
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  // A staff invite link is single-use. Redeeming it the instant the page
+  // loads — the old behaviour — meant any email security scanner that
+  // pre-fetches and executes links in the invite email (Microsoft Defender
+  // Safe Links, Proofpoint, Mimecast all do this routinely) silently
+  // consumed the token before the person ever saw the page, so their own
+  // click landed on "already used". Waiting for an explicit tap here doesn't
+  // stop every scanner, but it's the standard mitigation and stops the vast
+  // majority that only fetch, never click.
+  const [awaitingContinue, setAwaitingContinue] = useState(false);
 
   const [showForgot, setShowForgot] = useState(false);
   const [forgotEmail, setForgotEmail] = useState("");
@@ -287,13 +304,43 @@ export default function AuthPage() {
     void ensurePartnersLoaded();
   }, []);
 
+  // Shared by the auto-redeem effect (recovery links, or a refreshed invite
+  // tab that already has a session) and the invite "Continue" button below —
+  // both need to run the exact same redeem-then-render-result sequence.
+  const finishRedeem = async () => {
+    const result = await establishSessionFromUrl();
+    if (result.ok) {
+      setSetupReady(true);
+      setSetupError(null);
+      const { search, hash } = readAuthParams();
+      const uiType = search.get("type") || hash.get("type");
+      // Keep type=invite in the URL so HotelApp still shows this screen, but
+      // drop the one-time token so a refresh doesn't try to redeem twice.
+      cleanSetupUrl(uiType === "recovery" ? "recovery" : "invite");
+    } else {
+      setSetupReady(false);
+      const detail = result.error || "";
+      setSetupError(
+        detail && detail.length < 140
+          ? `${detail}. Ask a manager to click Resend invite, then open the new email.`
+          : "That invite link has expired or was already used. Ask a manager to click Resend invite, then open the new email.",
+      );
+      toast.error(
+        /expired|invalid|otp|used/i.test(detail)
+          ? "That invite link has expired or was already used."
+          : "Couldn't open your invite session — request a fresh invite email.",
+      );
+    }
+  };
+
   useEffect(() => {
     const setup = isPasswordSetupUrl();
     const { search, hash } = readAuthParams();
     const uiType = search.get("type") || hash.get("type");
+    const inviteType = uiType === "invite" || search.get("otp_type") === "invite" || window.location.hash.includes("type=invite");
     if (setup) {
       setSetupMode(true);
-      setIsInvite(uiType === "invite" || search.get("otp_type") === "invite" || window.location.hash.includes("type=invite"));
+      setIsInvite(inviteType);
     }
 
     // OAuth / magic-link failures land here with ?error=… (and often a duplicate
@@ -337,29 +384,18 @@ export default function AuthPage() {
         return;
       }
 
-      const result = await establishSessionFromUrl();
-      if (cancelled) return;
-      if (result.ok) {
-        setSetupReady(true);
-        setSetupError(null);
-        // Keep type=invite in the URL so HotelApp still shows this screen, but
-        // drop the one-time token so a refresh doesn't try to redeem twice.
-        cleanSetupUrl(uiType === "recovery" ? "recovery" : "invite");
-      } else {
-        setSetupReady(false);
-        const detail = result.error || "";
-        setSetupError(
-          detail && detail.length < 140
-            ? `${detail}. Ask a manager to click Resend invite, then open the new email.`
-            : "That invite link has expired or was already used. Ask a manager to click Resend invite, then open the new email.",
-        );
-        toast.error(
-          /expired|invalid|otp|used/i.test(detail)
-            ? "That invite link has expired or was already used."
-            : "Couldn't open your invite session — request a fresh invite email.",
-        );
-        // Leave token in the URL so a refresh can retry if it was a transient error.
+      const tokenHash = search.get("token_hash") || hash.get("token_hash");
+      if (inviteType && tokenHash) {
+        // A fresh, not-yet-consumed invite link — wait for the explicit
+        // Continue tap instead of spending the one-time token here. (A
+        // refreshed tab after a successful redeem has no token_hash left —
+        // cleanSetupUrl already stripped it — so this branch only ever
+        // fires for a genuinely unconsumed link.)
+        if (!cancelled) setAwaitingContinue(true);
+        return;
       }
+
+      if (!cancelled) await finishRedeem();
     })();
     return () => { cancelled = true; };
   }, []);
@@ -491,6 +527,12 @@ export default function AuthPage() {
     }
   };
 
+  const continueInvite = async () => {
+    setAwaitingContinue(false);
+    setSetupReady(false);
+    await finishRedeem();
+  };
+
   const primaryBtnStyle = brand
     ? { backgroundColor: accent }
     : { backgroundImage: "linear-gradient(90deg, #7c3aed 0%, #5b21b6 100%)" };
@@ -502,15 +544,27 @@ export default function AuthPage() {
           {isInvite ? "Join the team" : "Set a new password"}
         </h1>
         <p className="mt-1.5 text-sm text-white/50">
-          {setupError
-            ? setupError
-            : !setupReady
-              ? "Opening your invite…"
-              : isInvite
-                ? "Choose a password to finish setting up your account."
-                : "Choose a new password for your account."}
+          {awaitingContinue
+            ? "One tap to open it — this keeps the link working if your email scans it first."
+            : setupError
+              ? setupError
+              : !setupReady
+                ? "Opening your invite…"
+                : isInvite
+                  ? "Choose a password to finish setting up your account."
+                  : "Choose a new password for your account."}
         </p>
-        {setupError ? (
+        {awaitingContinue ? (
+          <div className="mt-7 space-y-3">
+            <Button
+              className="h-11 w-full rounded-xl border-0 text-white shadow-lg hover:opacity-90"
+              style={primaryBtnStyle}
+              onClick={continueInvite}
+            >
+              Continue
+            </Button>
+          </div>
+        ) : setupError ? (
           <div className="mt-7 space-y-3">
             <p className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/70">
               Open the newest invite email and tap the button once — older links stop working after they’re used.
@@ -529,26 +583,50 @@ export default function AuthPage() {
             Checking your invite link…
           </div>
         ) : (
-          <div className="mt-7 space-y-4">
+          // A real <form onSubmit> — not just an onClick button — so the
+          // "Go"/"Done" key on a phone's own keyboard submits directly. The
+          // keyboard covers the button on most phones once it's open, and
+          // there was previously no way to submit without dismissing it
+          // first and scrolling back down to find the button again.
+          <form onSubmit={(e) => { e.preventDefault(); void finishSetup(); }} className="mt-7 space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="new-password" className="text-sm text-white/80">New password</Label>
-              <AuthInput id="new-password" type="password" autoFocus autoComplete="new-password"
-                value={newPassword} onChange={setNewPassword} icon={Lock} />
+              <AuthInput
+                id="new-password" type={showNewPassword ? "text" : "password"} autoFocus autoComplete="new-password"
+                value={newPassword} onChange={setNewPassword} icon={Lock}
+                trailing={
+                  <button type="button" tabIndex={-1} aria-label={showNewPassword ? "Hide password" : "Show password"}
+                    className="text-gray-400 hover:text-gray-600"
+                    onClick={() => setShowNewPassword((v) => !v)}>
+                    {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                }
+              />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="confirm-password" className="text-sm text-white/80">Confirm password</Label>
-              <AuthInput id="confirm-password" type="password" autoComplete="new-password"
-                value={confirmPassword} onChange={setConfirmPassword} icon={Lock} />
+              <AuthInput
+                id="confirm-password" type={showConfirmPassword ? "text" : "password"} autoComplete="new-password"
+                value={confirmPassword} onChange={setConfirmPassword} icon={Lock}
+                enterKeyHint="go"
+                trailing={
+                  <button type="button" tabIndex={-1} aria-label={showConfirmPassword ? "Hide password" : "Show password"}
+                    className="text-gray-400 hover:text-gray-600"
+                    onClick={() => setShowConfirmPassword((v) => !v)}>
+                    {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                }
+              />
             </div>
             <Button
+              type="submit"
               className="h-11 w-full rounded-xl border-0 text-white shadow-lg hover:opacity-90"
               style={primaryBtnStyle}
               disabled={busy || !newPassword || !confirmPassword}
-              onClick={finishSetup}
             >
               {busy ? "Please wait…" : isInvite ? "Join the team" : "Update password"}
             </Button>
-          </div>
+          </form>
         )}
       </AuthShell>
     );
@@ -583,6 +661,7 @@ export default function AuthPage() {
             id="password" type={showPassword ? "text" : "password"}
             autoComplete={mode === "signin" ? "current-password" : "new-password"}
             value={password} onChange={setPassword} icon={Lock}
+            enterKeyHint="go"
             trailing={
               <button type="button" tabIndex={-1} aria-label={showPassword ? "Hide password" : "Show password"}
                 className="text-gray-400 hover:text-gray-600"
