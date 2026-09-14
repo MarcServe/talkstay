@@ -353,6 +353,20 @@ export async function saveGuestContact(args: {
   return true;
 }
 
+/** What's actually on file for this device — so a settings sheet can show
+ *  the guest's real current choice instead of resetting blank every time it
+ *  reopens, which made "turn email off" impossible to trust. */
+export async function fetchGuestContact(args: {
+  hotelSlug: string; roomId: string; token: string; sessionId: string;
+}) {
+  const { data, error } = await fn({ action: "get_contact", ...args });
+  if (error) throw error;
+  return data as {
+    notifyChannel: string | null; contactEmail: string | null;
+    guestFirstName: string | null; guestLocator: string | null;
+  };
+}
+
 /** Turn on "notify me on this device" — subscribes the browser to push (may
  *  prompt for permission) and registers it for this stay. Throws a plain
  *  Error with a guest-readable message on any failure (unsupported browser,

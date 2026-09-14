@@ -294,16 +294,28 @@ export default function DepartmentMenu({
 
   return (
     <div className="pl-11">
+      {/* "Menu / services" read as a filed-away label, easy to miss under a
+          busy department row — new owners didn't realise this is where the
+          guest-facing menu for this team actually lives. A plain-language
+          name plus an explicit empty-state nudge fixes both: what it is, and
+          whether there's anything to look at. */}
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+        className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground hover:text-primary"
         aria-expanded={open}
       >
-        <ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-180" : ""}`} />
-        Menu / services
+        <ChevronDown className={`h-4 w-4 transition-transform ${open ? "rotate-180" : ""}`} />
+        Digital menu for {departmentName}
         {loaded && items.length > 0 && (
-          <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px]">{items.length}</span>
+          <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-normal text-muted-foreground">
+            {items.length} item{items.length === 1 ? "" : "s"}
+          </span>
+        )}
+        {loaded && items.length === 0 && (
+          <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-normal text-amber-800">
+            not set up yet
+          </span>
         )}
       </button>
 

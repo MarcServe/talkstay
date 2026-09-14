@@ -7,7 +7,7 @@ import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
 import { toast } from "sonner";
 import { RealtimeChat } from "@/utils/RealtimeChat";
 import { conversationMemory } from "@/utils/ConversationMemory";
-import { pushSupported } from "@/talkstay/lib/push";
+import { pushSupported, currentPushEndpoint } from "@/talkstay/lib/push";
 import { alertIncoming } from "@/talkstay/lib/alerts";
 import { iosNeedsHomeScreenInstall, IOS_ADD_HOME_SCREEN_HINT } from "@/talkstay/lib/install";
 import InstallAppBanner from "@/talkstay/components/InstallAppBanner";
@@ -15,7 +15,7 @@ import NoIndexMeta from "@/talkstay/components/NoIndexMeta";
 import GuestMenuSheet from "@/talkstay/components/GuestMenuSheet";
 import PostStayReturn from "@/talkstay/components/PostStayReturn";
 import {
-  fetchContext, sendMessage, fetchMyRequests, submitReview, saveGuestContact,
+  fetchContext, sendMessage, fetchMyRequests, submitReview, saveGuestContact, fetchGuestContact,
   confirmRequest, reopenRequest, cancelRequest, nudgeRequest, updateRequest, repeatRequest,
   fetchStaffMessages, enableDevicePush, disableDevicePush,
   getSessionId, getDeviceId, loadHistory, saveHistory, getNotifyChoice, setNotifyChoice,
@@ -988,6 +988,7 @@ function GuestAppInner({ hotelSlug, roomId, token }: { hotelSlug: string; roomId
           hotelSlug={hotelSlug} roomId={roomId} token={token} sid={sid}
           isPublic={!!ctx?.isPublic}
           onClose={() => setRequestsOpen(false)}
+          onOpenNotifySettings={() => { setRequestsOpen(false); setNotifyOpen(true); }}
         />
       )}
       {menuOpen && (
@@ -1305,6 +1306,37 @@ function NotifySheet({ hotelSlug, roomId, token, sid, isPublic = false, location
   const [firstName, setFirstName] = useState("");
   const [spot, setSpot] = useState("");
   const [saving, setSaving] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+
+  // Reopening this sheet used to always show a blank form — so unchecking
+  // "email updates" looked like it worked but the server never heard about
+  // it, because nothing here knew there was already a choice on file to
+  // change. Load what's actually stored before rendering the toggles as off.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [contact, endpoint] = await Promise.all([
+          fetchGuestContact({ hotelSlug, roomId, token, sessionId: sid }),
+          canPush ? currentPushEndpoint() : Promise.resolve(null),
+        ]);
+        if (cancelled) return;
+        if (contact?.notifyChannel === "email" && contact.contactEmail) {
+          setEmailOn(true);
+          setEmail(contact.contactEmail);
+        }
+        if (contact?.guestFirstName) setFirstName(contact.guestFirstName);
+        if (contact?.guestLocator) setSpot(contact.guestLocator);
+        if (endpoint) setPushOn(true);
+      } catch {
+        /* Prefill is a convenience — an empty form still lets a guest opt in. */
+      } finally {
+        if (!cancelled) setLoaded(true);
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const emailValid = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim());
   const wantsNotify = pushOn || emailOn;
   const nameOk = firstName.trim().length >= 1;
@@ -1353,10 +1385,14 @@ function NotifySheet({ hotelSlug, roomId, token, sid, isPublic = false, location
     }
     setSaving(true);
     try {
-      if (wantsNotify || firstName.trim()) {
+      if (wantsNotify || firstName.trim() || loaded) {
         await saveGuestContact({
           hotelSlug, roomId, token, sessionId: sid,
-          channel: emailOn && emailValid ? "email" : undefined,
+          // Always explicit — sending "none" is how an email address already
+          // on file actually gets switched off. Leaving this undefined when
+          // the guest unchecks the box (the previous behaviour) meant Save
+          // silently did nothing for that half of the form.
+          channel: emailOn && emailValid ? "email" : "none",
           contact: emailOn && emailValid ? email.trim() : undefined,
           guestFirstName: firstName.trim() || undefined,
           guestLocator: isPublic ? (spot.trim() || undefined) : undefined,
@@ -1465,8 +1501,12 @@ function NotifySheet({ hotelSlug, roomId, token, sid, isPublic = false, location
   );
 }
 
-function RequestsSheet({ hotelSlug, roomId, token, sid, isPublic = false, onClose }: {
+function RequestsSheet({ hotelSlug, roomId, token, sid, isPublic = false, onClose, onOpenNotifySettings }: {
   hotelSlug: string; roomId: string; token: string; sid: string; isPublic?: boolean; onClose: () => void;
+  /** Reopens the email/device-alert sheet. Without this, a guest who already
+   *  made a choice once (on or off) had no way back in to change it — the
+   *  sheet only ever auto-opened before a first choice was recorded. */
+  onOpenNotifySettings?: () => void;
 }) {
   const [reqs, setReqs] = useState<GuestRequest[] | null>(null);
   const [paymentTiming, setPaymentTimingState] = useState<GuestPaymentTiming | null>(null);
@@ -1725,9 +1765,20 @@ function RequestsSheet({ hotelSlug, roomId, token, sid, isPublic = false, onClos
           <h2 className="text-lg font-semibold tracking-tight">My requests</h2>
           <Button variant="ghost" size="icon" onClick={onClose}><X className="h-5 w-5" /></Button>
         </div>
-        <p className="mb-4 text-xs text-muted-foreground">
-          Track open and completed asks. You can remind, update, or cancel anything still in progress.
-        </p>
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <p className="text-xs text-muted-foreground">
+            Track open and completed asks. You can remind, update, or cancel anything still in progress.
+          </p>
+          {onOpenNotifySettings && (
+            <button
+              type="button"
+              onClick={onOpenNotifySettings}
+              className="shrink-0 whitespace-nowrap text-xs font-medium underline decoration-dotted underline-offset-2 text-muted-foreground hover:text-foreground"
+            >
+              Notification settings
+            </button>
+          )}
+        </div>
         {reqs && (
           <div className="mb-4 space-y-2">
             <GuestFolio
