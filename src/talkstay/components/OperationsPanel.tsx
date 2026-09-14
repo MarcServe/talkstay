@@ -965,17 +965,23 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, onClea
                 <button
                   type="button"
                   onClick={() => setSelectedId(r.id)}
-                  className="flex w-full min-w-0 items-center gap-3 py-2.5 text-left transition-colors hover:bg-muted/40"
+                  className="flex w-full min-w-0 items-start gap-3 py-2.5 text-left transition-colors hover:bg-muted/40"
                 >
                   <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-xs font-semibold text-violet-700">
                     {r.ts_rooms?.room_number ?? "—"}
                   </div>
                   <div className="min-w-0 flex-1 overflow-hidden">
-                    <p className="truncate text-sm font-medium">{guestStayLabel(r.guest_first_name, r.ts_rooms?.room_number, { locator: r.guest_locator })}</p>
+                    {/* What was actually asked for — the room/guest chip alone
+                        told you WHO and WHERE but never WHAT, so every row for
+                        the same room read identically until opened. */}
+                    <p className="truncate text-sm font-medium">{r.summary_staff || r.summary}</p>
                     <p className="truncate text-xs text-muted-foreground">
-                      {deptLabel(r.department_key)} · {timeAgo(r.created_at)}
+                      {guestStayLabel(r.guest_first_name, r.ts_rooms?.room_number, { locator: r.guest_locator })} · {deptLabel(r.department_key)} · {timeAgo(r.created_at)}
                     </p>
                   </div>
+                  <span className={`max-w-[40%] shrink-0 truncate rounded-full px-2 py-0.5 text-[10px] font-medium ${statusBadge(r.status)}`}>
+                    {statusLabel(r.status)}
+                  </span>
                 </button>
               </li>
             ))}

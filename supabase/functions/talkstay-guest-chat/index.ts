@@ -1665,7 +1665,12 @@ serve(async (req) => {
     if (action === "set_contact") {
       const { channel, contact, guestFirstName, guestLocator } = body;
       if (!sessionId) return json({ error: "sessionId required" }, 400);
-      const first = String(guestFirstName ?? "").trim().slice(0, 80);
+      // An email typed into "first name" (testing your own property, or just
+      // habit) used to get stored and then shown to staff everywhere instead
+      // of a name — reject it here rather than only hiding it at display
+      // time, so it's never saved as one in the first place.
+      const firstRaw = String(guestFirstName ?? "").trim().slice(0, 80);
+      const first = firstRaw.includes("@") ? "" : firstRaw;
       // Public areas only: "Table 12" / "Sunbed 4" — a room number already
       // locates a private-room guest.
       const locator = ctx.isPublic ? String(guestLocator ?? "").trim().slice(0, 60) : "";
