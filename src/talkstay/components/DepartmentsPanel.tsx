@@ -1,14 +1,13 @@
 import { useEffect, useState } from "react";
-import DepartmentMenu from "@/talkstay/components/DepartmentMenu";
 import { supabase } from "@/integrations/supabase/client";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Loader2, Plus, Trash2, X, MapPin, ChevronRight, Info } from "lucide-react";
+import { Loader2, Plus, Trash2, X, MapPin, ChevronRight, Info, UtensilsCrossed } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { listRooms, setCalloutDepartment, setOwnerUrgentCopy, type Hotel, type Room } from "@/talkstay/lib/hotels";
+import { listRooms, listCatalogItems, setCalloutDepartment, setOwnerUrgentCopy, type Hotel, type Room } from "@/talkstay/lib/hotels";
 import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
 
 interface StaffRow { id: string; user_id: string; name: string | null; email: string; department_key: string | null; room_id?: string | null; }
@@ -45,6 +44,10 @@ export default function DepartmentsPanel({ hotel }: { hotel: Hotel }) {
   // Public QR areas double as the outlets staff can be assigned to.
   const [publicAreas, setPublicAreas] = useState<Room[]>([]);
   const [areaFor, setAreaFor] = useState<Record<string, string>>({});
+  /** How many menu items each team has, so the link to Menus is informative
+   *  rather than a bare "open". Null until it loads — never guess zero. */
+  const [menuCounts, setMenuCounts] = useState<Record<string, number> | null>(null);
+  const menuCount = (key: string) => (menuCounts ? (menuCounts[key] ?? 0) : null);
 
   const refresh = async () => {
     setLoading(true);
@@ -56,6 +59,13 @@ export default function DepartmentsPanel({ hotel }: { hotel: Hotel }) {
       supabase.from("ts_hotels").select("escalation_phone").eq("id", hotel.id).maybeSingle(),
       listRooms(hotel.id).catch(() => [] as Room[]),
     ]);
+    listCatalogItems(hotel.id)
+      .then((rows) => {
+        const c: Record<string, number> = {};
+        for (const r of rows) c[r.department_key] = (c[r.department_key] ?? 0) + 1;
+        setMenuCounts(c);
+      })
+      .catch(() => setMenuCounts({}));
     if (error) toast.error(error.message);
     setDepts((data as Dept[]) ?? []);
     setRoster(((staffRes.data as any)?.staff as StaffRow[]) ?? []);
@@ -407,10 +417,18 @@ export default function DepartmentsPanel({ hotel }: { hotel: Hotel }) {
                   </PopoverContent>
                 </Popover>
               </div>
-              <DepartmentMenu
-                hotelId={hotel.id} departmentKey={d.key} departmentName={d.display_name}
-                hotelCurrency={hotel.currency || "GBP"}
-              />
+              {/* One editor, not two. Menus owns the catalogue now; this points
+                  at that team's slice of it rather than repeating the controls
+                  and leaving two places that can disagree. */}
+              <a
+                href={`/app?tab=menus&dept=${encodeURIComponent(d.key)}`}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-dashed px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:border-violet-300 hover:text-foreground dark:hover:border-violet-400/40"
+              >
+                <UtensilsCrossed className="h-3.5 w-3.5" />
+                {menuCount(d.key) === null
+                  ? `Open ${d.display_name}'s menu`
+                  : `${d.display_name}'s menu · ${menuCount(d.key)} item${menuCount(d.key) === 1 ? "" : "s"}`}
+              </a>
             </div>
           </div>
         ))}

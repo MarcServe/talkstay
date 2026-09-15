@@ -11,7 +11,7 @@ import { toast } from "sonner";
 import {
   Loader2, Menu, X, Phone,
   Inbox, BarChart3, QrCode, Building2, BookOpen, Users, Palette, LifeBuoy, CreditCard, Mail,
-  Moon, Sun, Settings, ChevronDown,
+  Moon, Sun, Settings, ChevronDown, UtensilsCrossed,
 } from "lucide-react";
 import AuthPage, { isPasswordSetupUrl } from "@/talkstay/pages/AuthPage";
 import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
@@ -19,6 +19,7 @@ import OperationsPanel from "@/talkstay/components/OperationsPanel";
 import InsightsPanel from "@/talkstay/components/InsightsPanel";
 import RoomsPanel from "@/talkstay/components/RoomsPanel";
 import DepartmentsPanel from "@/talkstay/components/DepartmentsPanel";
+import MenusPanel from "@/talkstay/components/MenusPanel";
 import KnowledgePanel from "@/talkstay/components/KnowledgePanel";
 import BrandingPanel from "@/talkstay/components/BrandingPanel";
 import PaymentsPanel from "@/talkstay/components/PaymentsPanel";
@@ -73,7 +74,7 @@ const NAV_GROUPS = [
 type NavGroup = (typeof NAV_GROUPS)[number]["key"];
 
 type NavDef = {
-  key: "operations" | "log_order" | "insights" | "rooms" | "payments" | "branding" | "communications" | "departments" | "knowledge" | "staff";
+  key: "operations" | "log_order" | "insights" | "rooms" | "payments" | "branding" | "communications" | "departments" | "menus" | "knowledge" | "staff";
   label: string;
   icon: typeof Inbox;
   admin: boolean;
@@ -137,6 +138,14 @@ function navForProperty(restaurantMode: boolean): readonly NavDef[] {
       admin: true,
       group: "business",
       desc: "Logo, colour, property profile (type/address/scale), and the printable poster.",
+    },
+    {
+      key: "menus",
+      label: restaurantMode ? "Menus" : "Menus",
+      icon: UtensilsCrossed,
+      admin: true,
+      group: "property",
+      desc: "Everything guests can order, across every team — prices, where each item is offered, and what is temporarily off.",
     },
     {
       key: "departments",
@@ -479,6 +488,7 @@ function Panel({ active, hotel, onHotel, departmentKey, focusRequestId, onOpenRe
         <CommunicationsPanel hotel={hotel} />
       </Suspense>
     );
+    case "menus": return <MenusPanel hotel={hotel} />;
     case "departments": return <DepartmentsPanel hotel={hotel} />;
     case "knowledge": return <KnowledgePanel hotel={hotel} />;
     case "staff": return (

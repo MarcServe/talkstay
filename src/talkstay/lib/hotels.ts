@@ -1251,7 +1251,7 @@ export async function addCatalogItem(input: {
   return data as CatalogItem;
 }
 
-export async function updateCatalogItem(id: string, patch: Partial<Pick<CatalogItem, "name" | "price" | "is_active" | "sort_order" | "availability" | "is_available" | "available_at">>) {
+export async function updateCatalogItem(id: string, patch: Partial<Pick<CatalogItem, "name" | "price" | "is_active" | "sort_order" | "availability" | "is_available" | "available_at" | "department_key" | "outlet_room_id">>) {
   const { error } = await supabase.from("ts_catalog_items").update(patch).eq("id", id);
   if (error) throw new Error(error.message);
 }
