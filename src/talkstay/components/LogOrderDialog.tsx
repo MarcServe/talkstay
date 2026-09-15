@@ -17,6 +17,7 @@ import { useOpsQueue } from "@/talkstay/hooks/useTalkStayQueries";
 import { useHotelDepartments } from "@/talkstay/hooks/useHotelDepartments";
 import { formatMoney, statusBadge, statusLabel } from "@/talkstay/lib/statusStyles";
 import { logOrderChargeableLabel } from "@/talkstay/lib/locationOrders";
+import RoomPicker from "@/talkstay/components/RoomPicker";
 
 type OrderSource = "phone" | "walk_in" | "front_desk";
 
@@ -426,23 +427,7 @@ export default function LogOrderDialog({
       <div className="space-y-3">
         <div className="space-y-1.5">
           <Label>Room / area</Label>
-          <Select value={roomId} onValueChange={setRoomId}>
-            <SelectTrigger><SelectValue placeholder="Select room or public area" /></SelectTrigger>
-            <SelectContent>
-              {rooms.map((r) => (
-                <SelectItem key={r.id} value={r.id}>
-                  <span className="inline-flex items-center gap-2">
-                    {formatRoomLabel(r.room_number)}
-                    {r.is_public ? (
-                      <span className="rounded border border-sky-300 dark:border-sky-400/30 bg-sky-50 dark:bg-sky-400/15 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-sky-800 dark:text-sky-200">
-                        Public
-                      </span>
-                    ) : null}
-                  </span>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <RoomPicker rooms={rooms} value={roomId} onChange={setRoomId} />
           <p className="text-[11px] text-muted-foreground">
             Bedroom stay, or a Public QR location (lobby, bar, restaurant, pool, spa, conference). Room number is not required for walk-ins — pick the area.
           </p>
