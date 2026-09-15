@@ -27,6 +27,7 @@ import { formatMoney, PAYMENT_STYLE, paymentLabel, statusBadge, statusDot, statu
 import { GuestFolio } from "@/talkstay/components/GuestFolio";
 import { folioPayCopy, orderLocationKind } from "@/talkstay/lib/locationOrders";
 import { guestStayPath } from "@/talkstay/lib/guestUrls";
+import ForceLightTheme from "@/talkstay/components/ForceLightTheme";
 
 /** Guest My-requests card washes — kept in this file so Tailwind always emits them. */
 const GUEST_REQ_CARD: Record<string, string> = {
@@ -227,6 +228,7 @@ export default function GuestApp() {
 
   return (
     <>
+      <ForceLightTheme />
       <NoIndexMeta />
       <GuestAppInner hotelSlug={hotelSlug} roomId={roomId} token={token} />
     </>
@@ -774,7 +776,7 @@ function GuestAppInner({ hotelSlug, roomId, token }: { hotelSlug: string; roomId
         <InstallAppBanner variant="guest" />
       </div>
       {/* Compact header — keep chat as the largest surface. */}
-      <header className="flex shrink-0 items-center gap-2.5 border-b bg-background/80 px-3 py-2 backdrop-blur">
+      <header className="flex shrink-0 items-center gap-2 border-b bg-background/80 px-3 py-2 backdrop-blur">
         {logo ? (
           <img src={logo} alt="" className="h-9 w-9 shrink-0 rounded-lg object-cover" />
         ) : (
@@ -783,7 +785,7 @@ function GuestAppInner({ hotelSlug, roomId, token }: { hotelSlug: string; roomId
           </div>
         )}
         <div className="min-w-0 flex-1 text-left">
-          <h1 className="text-sm font-bold leading-tight">{ctx.hotelName}</h1>
+          <h1 className="truncate text-sm font-bold leading-tight">{ctx.hotelName}</h1>
           {/* The room number is the one thing on this screen a guest may need to
               read out — to staff, or to check they scanned their own door. The
               property name may truncate; the room number sits outside the
@@ -797,16 +799,16 @@ function GuestAppInner({ hotelSlug, roomId, token }: { hotelSlug: string; roomId
             </span>
           </p>
         </div>
-        <Button variant="outline" size="sm" className="h-8 shrink-0 px-2.5 text-xs" onClick={() => setMenuOpen(true)}>
-          <UtensilsCrossed className="h-3.5 w-3.5 lg:mr-1" /> <span className="hidden lg:inline">Menu</span>
+        <Button variant="outline" size="sm" className="h-8 shrink-0 gap-1 px-1.5 text-[11px]" onClick={() => setMenuOpen(true)}>
+          <UtensilsCrossed className="h-3.5 w-3.5" /> <span className="hidden min-[430px]:inline">Menu</span>
         </Button>
-        <Button variant="outline" size="sm" className="h-8 shrink-0 px-2.5 text-xs" onClick={() => setRequestsOpen(true)}>
-          <ClipboardList className="h-3.5 w-3.5 lg:mr-1" /> <span className="hidden lg:inline">{restaurantMode ? "Orders" : "Requests"}</span>
+        <Button variant="outline" size="sm" className="h-8 shrink-0 gap-1 px-1.5 text-[11px]" onClick={() => setRequestsOpen(true)}>
+          <ClipboardList className="h-3.5 w-3.5" /> <span className="hidden min-[430px]:inline">{restaurantMode ? "Orders" : "Requests"}</span>
         </Button>
         {showStayCheckout && (
-          <Button variant="outline" size="sm" className="h-8 shrink-0 px-2.5 text-xs" asChild>
+          <Button variant="outline" size="sm" className="h-8 shrink-0 gap-1 px-1.5 text-[11px]" asChild>
             <Link to={`${guestStayPath(hotelSlug, roomId, "checkout")}?token=${encodeURIComponent(token)}`}>
-              <LogOut className="h-3.5 w-3.5 lg:mr-1" /> <span className="hidden lg:inline">Checkout</span>
+              <LogOut className="h-3.5 w-3.5" /> <span className="hidden min-[430px]:inline">Checkout</span>
             </Link>
           </Button>
         )}

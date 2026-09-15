@@ -150,6 +150,11 @@ export interface GuestMenuItem {
   departmentKey: string;
   departmentName: string;
   outletRoomId?: string | null;
+  /** False while the property has the item off. Undefined on an older server,
+   *  which reads as available. */
+  available?: boolean;
+  /** When it comes back, if the property said. */
+  availableAt?: string | null;
 }
 
 export async function fetchContext(hotelSlug: string, roomId: string, token: string, code?: string, sessionId?: string) {

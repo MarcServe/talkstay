@@ -12,6 +12,7 @@ import NoIndexMeta from "@/talkstay/components/NoIndexMeta";
 import { DEPARTMENTS } from "@/talkstay/lib/hotels";
 import { statusBadge, statusCard, statusLabel } from "@/talkstay/lib/statusStyles";
 import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
+import ForceLightTheme from "@/talkstay/components/ForceLightTheme";
 
 type LiveRequest = {
   id: string;
@@ -100,6 +101,7 @@ export default function LiveView() {
   if (loading && !data) {
     return (
       <div className="flex min-h-screen items-center justify-center text-muted-foreground">
+        <ForceLightTheme />
         <NoIndexMeta />
         <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Loading live view…
       </div>

@@ -9,7 +9,7 @@ import { formatMoney } from "@/talkstay/lib/statusStyles";
 import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
 import {
   listCatalogItems, addCatalogItem, updateCatalogItem, deleteCatalogItem, menuItemKey,
-  listRooms, AVAILABILITY_LABELS,
+  listRooms, AVAILABILITY_LABELS, itemIsAvailable,
   type CatalogItem, type CatalogAvailability, type Room,
 } from "@/talkstay/lib/hotels";
 
@@ -322,6 +322,58 @@ export default function DepartmentMenu({
     }
   };
 
+  /** "18:00" for the input and the button label — the property thinks in wall
+   *  clock time, the column stores an instant. */
+  const backAtValue = (item: CatalogItem) => {
+    if (!item.available_at) return "";
+    const d = new Date(item.available_at);
+    return Number.isNaN(d.getTime())
+      ? ""
+      : `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  };
+  const backAtLabel = (item: CatalogItem) => backAtValue(item) || null;
+
+  const patchItem = (id: string, p: Partial<CatalogItem>) =>
+    setItems((prev) => prev.map((x) => (x.id === id ? { ...x, ...p } : x)));
+
+  const toggleAvailable = async (item: CatalogItem) => {
+    const goingOff = itemIsAvailable(item);
+    // Clearing the time on the way back on keeps "off til 18:00" from
+    // reappearing the next time someone switches the same item off.
+    const patch = goingOff
+      ? { is_available: false }
+      : { is_available: true, available_at: null };
+    const before = { is_available: item.is_available, available_at: item.available_at };
+    patchItem(item.id, patch);
+    try {
+      await updateCatalogItem(item.id, patch);
+    } catch (err) {
+      patchItem(item.id, before);
+      toast.error(err instanceof Error ? err.message : "Couldn't change that");
+    }
+  };
+
+  const saveBackAt = async (item: CatalogItem, hhmm: string) => {
+    let iso: string | null = null;
+    if (hhmm) {
+      const [h, m] = hhmm.split(":").map(Number);
+      const when = new Date();
+      when.setHours(h, m, 0, 0);
+      // A time already past today means tomorrow — "back at 07:00" set at
+      // midnight is the morning, not eleven hours ago.
+      if (when.getTime() <= Date.now()) when.setDate(when.getDate() + 1);
+      iso = when.toISOString();
+    }
+    const before = item.available_at;
+    patchItem(item.id, { available_at: iso });
+    try {
+      await updateCatalogItem(item.id, { available_at: iso });
+    } catch (err) {
+      patchItem(item.id, { available_at: before });
+      toast.error(err instanceof Error ? err.message : "Couldn't save that time");
+    }
+  };
+
   const savePrice = async (item: CatalogItem, raw: string) => {
     const p = raw.trim() === "" ? null : Number(raw);
     if (p != null && (Number.isNaN(p) || p < 0)) { toast.error("Enter a valid price."); return; }
@@ -539,6 +591,34 @@ export default function DepartmentMenu({
                   <span className="hidden w-14 shrink-0 text-right text-xs text-muted-foreground sm:block">
                     {typeof i.price === "number" ? formatMoney(i.price, i.currency) : "—"}
                   </span>
+                  {/* Off for tonight, not gone. The row stays on the guest menu
+                      marked unavailable, so the assistant can say so and offer
+                      something else rather than act as if it never existed. */}
+                  <button
+                    type="button"
+                    onClick={() => void toggleAvailable(i)}
+                    aria-pressed={!itemIsAvailable(i)}
+                    title={itemIsAvailable(i)
+                      ? `Mark ${i.name} unavailable`
+                      : `Put ${i.name} back on the menu`}
+                    className={`h-8 shrink-0 rounded-md px-2 text-[11px] font-medium transition-colors ${
+                      itemIsAvailable(i)
+                        ? "border bg-background text-muted-foreground hover:bg-muted"
+                        : "bg-amber-100 text-amber-900 hover:bg-amber-200 dark:bg-amber-400/20 dark:text-amber-200 dark:hover:bg-amber-400/30"
+                    }`}
+                  >
+                    {itemIsAvailable(i) ? "Available" : (backAtLabel(i) ? `Off til ${backAtLabel(i)}` : "Off")}
+                  </button>
+                  {!itemIsAvailable(i) && (
+                    <input
+                      type="time"
+                      defaultValue={backAtValue(i)}
+                      onChange={(e) => void saveBackAt(i, e.target.value)}
+                      aria-label={`When ${i.name} is back`}
+                      title="Back at (optional) — it serves itself again after this"
+                      className="h-8 w-24 shrink-0 rounded-md border bg-background px-1.5 text-[11px]"
+                    />
+                  )}
                   <Button size="icon" variant="ghost" className="h-8 w-8 shrink-0" onClick={() => void remove(i)} aria-label={`Remove ${i.name}`}>
                     <Trash2 className="h-3.5 w-3.5 text-destructive" />
                   </Button>
