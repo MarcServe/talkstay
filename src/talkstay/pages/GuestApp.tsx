@@ -857,7 +857,12 @@ function GuestAppInner({ hotelSlug, roomId, token }: { hotelSlug: string; roomId
                 ? (msgs.length <= 2
                   ? (restaurantMode
                     ? "Tap Menu to order, or tap the mic / type — kitchen and bar get it."
-                    : "Tap the mic and ask for anything — towels, breakfast, a repair. Or type below.")
+                    // Towels and breakfast are room-service examples. At a pool
+                    // bar or lobby QR they describe someone else's stay, so a
+                    // public area gets examples from where the guest is sitting.
+                    : ctx.isPublic
+                      ? "Tap the mic and ask for anything — a drink, the menu, or someone to come over. Or type below."
+                      : "Tap the mic and ask for anything — towels, breakfast, a repair. Or type below.")
                   : "Tap to speak — or type below.")
                 : isSpeaking
                   ? "Assistant is speaking…"
