@@ -21,6 +21,7 @@ import {
   type GuestRequest,
 } from "@/talkstay/lib/guest";
 import { guestStayPath } from "@/talkstay/lib/guestUrls";
+import ForceLightTheme from "@/talkstay/components/ForceLightTheme";
 
 /**
  * Guest checkout folio — itemized prices, total owed, Pay now / Charge to room (or Pay at counter for public areas).
@@ -219,6 +220,7 @@ export default function GuestCheckOut() {
 
   return (
     <>
+      <ForceLightTheme />
       <NoIndexMeta />
       <div
         className="min-h-[100dvh] px-4 py-8"

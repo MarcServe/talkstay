@@ -16,6 +16,7 @@ import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
 import NoIndexMeta from "@/talkstay/components/NoIndexMeta";
 import { DemoProvider, useDemo, type DemoApi } from "@/talkstay/demo/DemoContext";
 import { DEPARTMENTS } from "@/talkstay/lib/hotels";
+import ForceLightTheme from "@/talkstay/components/ForceLightTheme";
 import {
   fetchDemoContext, sendDemoMessage, type ChatMsg, type GuestRequest,
 } from "@/talkstay/lib/guest";
@@ -1066,6 +1067,7 @@ function DemoGuestInner() {
 export default function DemoGuestApp() {
   return (
     <DemoProvider>
+      <ForceLightTheme />
       <NoIndexMeta />
       <DemoGuestInner />
     </DemoProvider>

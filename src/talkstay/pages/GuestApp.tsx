@@ -27,6 +27,7 @@ import { formatMoney, PAYMENT_STYLE, paymentLabel, statusBadge, statusDot, statu
 import { GuestFolio } from "@/talkstay/components/GuestFolio";
 import { folioPayCopy, orderLocationKind } from "@/talkstay/lib/locationOrders";
 import { guestStayPath } from "@/talkstay/lib/guestUrls";
+import ForceLightTheme from "@/talkstay/components/ForceLightTheme";
 
 /** Guest My-requests card washes — kept in this file so Tailwind always emits them. */
 const GUEST_REQ_CARD: Record<string, string> = {
@@ -227,6 +228,7 @@ export default function GuestApp() {
 
   return (
     <>
+      <ForceLightTheme />
       <NoIndexMeta />
       <GuestAppInner hotelSlug={hotelSlug} roomId={roomId} token={token} />
     </>
