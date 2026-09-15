@@ -1102,6 +1102,24 @@ export interface CatalogItem {
    *  outlet — "public" means every public area under this department, while an
    *  outlet names one of them. Undefined on databases not yet migrated. */
   availability?: CatalogAvailability;
+  /** False while the item is temporarily off — still listed, marked. Undefined
+   *  on databases not yet migrated, which reads as available. */
+  is_available?: boolean;
+  /** When an unavailable item comes back. Null/undefined = off indefinitely. */
+  available_at?: string | null;
+}
+
+/** One rule both the dashboard and the guest menu resolve availability by: a
+ *  "back at" time that has passed means the item is serving again, so nobody
+ *  has to remember to switch it on. */
+export function itemIsAvailable(
+  item: { is_available?: boolean | null; available_at?: string | null },
+  now: number = Date.now(),
+): boolean {
+  if (item.is_available !== false) return true;
+  if (!item.available_at) return false;
+  const back = new Date(item.available_at).getTime();
+  return Number.isFinite(back) && now >= back;
 }
 
 export type CatalogAvailability = "everywhere" | "rooms" | "public";
@@ -1229,7 +1247,7 @@ export async function addCatalogItem(input: {
   return data as CatalogItem;
 }
 
-export async function updateCatalogItem(id: string, patch: Partial<Pick<CatalogItem, "name" | "price" | "is_active" | "sort_order" | "availability">>) {
+export async function updateCatalogItem(id: string, patch: Partial<Pick<CatalogItem, "name" | "price" | "is_active" | "sort_order" | "availability" | "is_available" | "available_at">>) {
   const { error } = await supabase.from("ts_catalog_items").update(patch).eq("id", id);
   if (error) throw new Error(error.message);
 }
