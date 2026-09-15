@@ -47,6 +47,14 @@ export default function MenusPanel({ hotel }: { hotel: Hotel }) {
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
   const [deptFilter, setDeptFilter] = useState<string>(initialDepartment || "all");
+  /** "all" | "shared" | a venue id — the pool bar and the lobby bar keep
+   *  separate lists and separate prices, so the list has to be sliceable by
+   *  area as well as by team. */
+  const [areaFilter, setAreaFilter] = useState<string>("all");
+  /** Where anything added lands: exactly one scope, or one-or-more venues.
+   *  Same rule as the old per-department editor — "guest rooms only" plus
+   *  "only the Lobby" is not a thing anyone can mean. */
+  const [targets, setTargets] = useState<string[]>(["everywhere"]);
 
   // add one by hand
   const [newName, setNewName] = useState("");
@@ -93,12 +101,40 @@ export default function MenusPanel({ hotel }: { hotel: Hotel }) {
     const needle = q.trim().toLowerCase();
     return items.filter((i) => {
       if (deptFilter !== "all" && i.department_key !== deptFilter) return false;
+      if (areaFilter === "shared" && i.outlet_room_id) return false;
+      if (areaFilter !== "all" && areaFilter !== "shared" && i.outlet_room_id !== areaFilter) return false;
       if (!needle) return true;
       return `${i.name} ${deptName(i.department_key)} ${outletName(i.outlet_room_id) ?? ""}`
         .toLowerCase().includes(needle);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, q, deptFilter, activeDepts, outlets]);
+  }, [items, q, deptFilter, areaFilter, activeDepts, outlets]);
+
+  const scopeTarget = targets.find((t) => (SCOPES as string[]).includes(t)) as CatalogAvailability | undefined;
+  const venueTargets = targets.filter((t) => !(SCOPES as string[]).includes(t));
+  /** One write per chosen area: a scope is a single shared row, venues get a
+   *  row each — which is what lets the same drink cost more at the lobby bar
+   *  than at the pool. */
+  const writeTargets: { outletRoomId: string | null; availability: CatalogAvailability }[] =
+    scopeTarget
+      ? [{ outletRoomId: null, availability: scopeTarget }]
+      : venueTargets.map((id) => ({ outletRoomId: id, availability: "everywhere" as CatalogAvailability }));
+
+  const toggleTarget = (value: string) => {
+    const isScope = (SCOPES as string[]).includes(value);
+    setTargets((prev) => {
+      if (isScope) return [value];
+      const venues = prev.filter((t) => !(SCOPES as string[]).includes(t));
+      const next = venues.includes(value) ? venues.filter((t) => t !== value) : [...venues, value];
+      return next.length ? next : ["everywhere"];
+    });
+  };
+
+  const targetSummary = scopeTarget
+    ? AVAILABILITY_LABELS[scopeTarget]
+    : venueTargets.length === 1
+      ? `Only ${outletName(venueTargets[0])}`
+      : `${venueTargets.length} areas · ${venueTargets.map((v) => outletName(v)).join(", ")}`;
 
   const patch = (id: string, p: Partial<CatalogItem>) =>
     setItems((prev) => prev.map((x) => (x.id === id ? { ...x, ...p } : x)));
@@ -148,12 +184,29 @@ export default function MenusPanel({ hotel }: { hotel: Hotel }) {
     }
     setBusy(true);
     try {
-      const row = await addCatalogItem({
-        hotelId: hotel.id, departmentKey: newDept, name, price: p,
-        availability: "everywhere", currency: hotel.currency || "GBP",
-      });
-      setItems((prev) => [...prev, row]);
-      setNewName(""); setNewPrice("");
+      const added: CatalogItem[] = [];
+      const already: string[] = [];
+      for (const t of writeTargets) {
+        try {
+          added.push(await addCatalogItem({
+            hotelId: hotel.id, departmentKey: newDept, name, price: p,
+            outletRoomId: t.outletRoomId, availability: t.availability,
+            currency: hotel.currency || "GBP",
+          }));
+        } catch (err) {
+          // Already on that one area is a duplicate, not a failed add — the
+          // other areas should still get it.
+          if (err instanceof Error && /duplicate|unique/i.test(err.message)) {
+            already.push(outletName(t.outletRoomId) ?? "the shared list");
+          } else { throw err; }
+        }
+      }
+      if (added.length) {
+        setItems((prev) => [...prev, ...added]);
+        setNewName(""); setNewPrice("");
+      }
+      if (already.length) toast.message(`Already on ${already.join(", ")} — added to the rest.`);
+      else if (added.length > 1) toast.success(`Added to ${added.length} areas.`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Couldn't add that");
     } finally { setBusy(false); }
@@ -218,15 +271,20 @@ export default function MenusPanel({ hotel }: { hotel: Hotel }) {
     let added = 0;
     const failed: string[] = [];
     for (const c of keep) {
-      try {
-        const row = await addCatalogItem({
-          hotelId: hotel.id, departmentKey: c.departmentKey,
-          name: c.name, price: c.price,
-          availability: "everywhere", currency: hotel.currency || "GBP",
-        });
-        setItems((prev) => [...prev, row]);
-        added++;
-      } catch { failed.push(c.name); }
+      let placed = 0;
+      for (const t of writeTargets) {
+        try {
+          const row = await addCatalogItem({
+            hotelId: hotel.id, departmentKey: c.departmentKey,
+            name: c.name, price: c.price,
+            outletRoomId: t.outletRoomId, availability: t.availability,
+            currency: hotel.currency || "GBP",
+          });
+          setItems((prev) => [...prev, row]);
+          placed++;
+        } catch { /* already on that area — the others still get it */ }
+      }
+      if (placed) added++; else failed.push(c.name);
     }
     setScanBusy(false);
     setCandidates(null);
@@ -326,6 +384,63 @@ export default function MenusPanel({ hotel }: { hotel: Hotel }) {
             <Plus className="mr-1 h-4 w-4" /> Add
           </Button>
         </form>
+        {/* Where anything added lands. Scopes are exclusive; venues stack, so a
+            drinks list can go to the pool bar and the lobby bar at once and
+            stay separately priced afterwards. */}
+        <div className="rounded-lg border border-dashed px-2.5 py-2">
+          <p className={LABEL}>Add to which areas</p>
+          <div className="mt-1 flex flex-wrap gap-1">
+            {SCOPES.map((sc) => (
+              <button
+                key={sc}
+                type="button"
+                onClick={() => toggleTarget(sc)}
+                className={`rounded-md px-2 py-1 text-xs font-medium transition-colors ${
+                  scopeTarget === sc
+                    ? "bg-violet-600 text-white"
+                    : "border bg-background text-muted-foreground hover:bg-muted"
+                }`}
+              >
+                {AVAILABILITY_LABELS[sc]}
+              </button>
+            ))}
+          </div>
+          {outlets.length > 0 && (
+            <>
+              <p className="mt-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                …or pick areas
+              </p>
+              <div className="mt-1 flex flex-wrap gap-1">
+                {outlets.map((o) => {
+                  const on = venueTargets.includes(o.id);
+                  return (
+                    <button
+                      key={o.id}
+                      type="button"
+                      onClick={() => toggleTarget(o.id)}
+                      aria-pressed={on}
+                      className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors ${
+                        on
+                          ? "bg-sky-700 text-white dark:bg-sky-500/40 dark:text-sky-50"
+                          : "border bg-background text-muted-foreground hover:bg-muted"
+                      }`}
+                    >
+                      {on && <Check className="h-3 w-3" />}
+                      {formatRoomLabel(o.room_number)}
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          )}
+          <p className="mt-1.5 text-[10px] text-muted-foreground">
+            <span className="font-medium text-foreground">{targetSummary}.</span>{" "}
+            {venueTargets.length > 1
+              ? "Added to each area separately, so you can price them differently after."
+              : "Applies to anything you add, scan or import below."}
+          </p>
+        </div>
+
         <div className="flex flex-wrap gap-2">
           <Button size="sm" variant="outline" onClick={() => setScanOpen((v) => !v)}>
             <Camera className="mr-1.5 h-3.5 w-3.5" /> Scan or paste a menu
@@ -397,6 +512,19 @@ export default function MenusPanel({ hotel }: { hotel: Hotel }) {
           />
         </div>
         <select
+          value={areaFilter} onChange={(e) => setAreaFilter(e.target.value)}
+          className="h-9 shrink-0 rounded-md border bg-background px-2 text-sm"
+          aria-label="Filter by area"
+        >
+          <option value="all">All areas</option>
+          <option value="shared">Shared ({items.filter((i) => !i.outlet_room_id).length})</option>
+          {outlets.map((o) => (
+            <option key={o.id} value={o.id}>
+              {formatRoomLabel(o.room_number)} ({items.filter((i) => i.outlet_room_id === o.id).length})
+            </option>
+          ))}
+        </select>
+        <select
           value={deptFilter} onChange={(e) => setDeptFilter(e.target.value)}
           className="h-9 shrink-0 rounded-md border bg-background px-2 text-sm"
           aria-label="Filter by team"
@@ -433,16 +561,25 @@ export default function MenusPanel({ hotel }: { hotel: Hotel }) {
               >
                 {activeDepts.map((d) => <option key={d.key} value={d.key}>{d.display_name}</option>)}
               </select>
-              {!i.outlet_room_id && (
-                <select
-                  value={i.availability ?? "everywhere"}
-                  onChange={(e) => void save(i, { availability: e.target.value as CatalogAvailability })}
-                  className="h-8 shrink-0 rounded-md border bg-background px-1.5 text-xs"
-                  aria-label={`Where ${i.name} is offered`}
-                >
-                  {SCOPES.map((sc) => <option key={sc} value={sc}>{AVAILABILITY_LABELS[sc]}</option>)}
-                </select>
-              )}
+              {/* Scope and venue in one control: they are alternatives, not a
+                  pair. Picking an area pins the row to it; picking a scope
+                  releases it back to the shared list. */}
+              <select
+                value={i.outlet_room_id ?? (i.availability ?? "everywhere")}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  void save(i, (SCOPES as string[]).includes(v)
+                    ? { outlet_room_id: null, availability: v as CatalogAvailability }
+                    : { outlet_room_id: v, availability: "everywhere" });
+                }}
+                className="h-8 shrink-0 rounded-md border bg-background px-1.5 text-xs"
+                aria-label={`Where ${i.name} is offered`}
+              >
+                {SCOPES.map((sc) => <option key={sc} value={sc}>{AVAILABILITY_LABELS[sc]}</option>)}
+                {outlets.map((o) => (
+                  <option key={o.id} value={o.id}>Only {formatRoomLabel(o.room_number)}</option>
+                ))}
+              </select>
               <Input
                 type="number" min="0" step="0.01" inputMode="decimal"
                 defaultValue={i.price ?? ""}
