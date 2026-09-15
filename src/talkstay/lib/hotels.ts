@@ -1130,7 +1130,11 @@ export const AVAILABILITY_LABELS: Record<CatalogAvailability, string> = {
   public: "Public areas only",
 };
 
-const CATALOG_SELECT = "id, department_key, name, price, currency, is_active, sort_order, outlet_room_id, availability";
+const CATALOG_BASE_SELECT = "id, department_key, name, price, currency, is_active, sort_order, outlet_room_id, availability";
+/** is_available / available_at are newer than the rest; a database that has not
+ *  run that migration errors on the whole select, so reads fall back to the
+ *  columns that have always been there. */
+const CATALOG_SELECT = `${CATALOG_BASE_SELECT}, is_available, available_at`;
 
 /** Comparison key for menu items. A menu photographed twice, or a second page
  *  overlapping the first, yields the same dish typed slightly differently:
@@ -1174,7 +1178,7 @@ export async function listCatalogItems(
   if (error) {
     // A column this build knows about may not be migrated yet — fall back to
     // the columns that have always existed rather than showing no menu at all.
-    if (/outlet_room_id|availability/i.test(error.message)) {
+    if (/outlet_room_id|availability|is_available|available_at/i.test(error.message)) {
       let q2 = supabase
         .from("ts_catalog_items")
         .select("id, department_key, name, price, currency, is_active, sort_order")
@@ -1222,7 +1226,7 @@ export async function addCatalogItem(input: {
     .select(CATALOG_SELECT)
     .single();
   if (error) {
-    if (/outlet_room_id|availability/i.test(error.message)) {
+    if (/outlet_room_id|availability|is_available|available_at/i.test(error.message)) {
       const fallback = await supabase
         .from("ts_catalog_items")
         .insert({
