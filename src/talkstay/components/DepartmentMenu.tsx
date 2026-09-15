@@ -557,9 +557,13 @@ export default function DepartmentMenu({
             <p className="text-xs text-muted-foreground">Nothing on this menu yet.</p>
           ) : (
             <div className="divide-y rounded-lg border bg-background">
+              {/* Row wraps rather than crushes: switching an item off adds a
+                  time field, and a fixed row squeezed the name down to
+                  "APEROL S…". The name keeps a floor and the controls move to
+                  a second line when they no longer fit beside it. */}
               {visibleItems.map((i) => (
-                <div key={i.id} className="flex items-center gap-2 px-2.5 py-1.5">
-                  <div className="min-w-0 flex-1">
+                <div key={i.id} className="flex flex-wrap items-center gap-2 px-2.5 py-1.5">
+                  <div className="min-w-[11rem] flex-1">
                     <span className="block truncate text-sm">{i.name}</span>
                     {i.outlet_room_id ? (
                       <span className="block truncate text-[10px] text-muted-foreground">

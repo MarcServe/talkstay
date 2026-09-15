@@ -2396,6 +2396,51 @@ what you just said. Vary your phrasing so it doesn't sound like a scripted closi
     ];
 
     const createdRequests: any[] = [];
+    // The catalogue is only fetched if something actually needs it, and only
+    // once per turn — a guest ordering three things should not cost three
+    // round trips.
+    let cachedCatalog: Awaited<ReturnType<typeof loadGuestCatalog>> | null = null;
+    const catalogOnce = async () => {
+      if (!cachedCatalog) {
+        cachedCatalog = await loadGuestCatalog(
+          admin, ctx.hotelId, ctx.roomId, !!ctx.isPublic, ctx.currency,
+        );
+      }
+      return cachedCatalog;
+    };
+
+    /** Normalise for matching: case, punctuation and runs of spaces all go, so
+     *  "Aperol Spritz." and "aperol  spritz" are the same three words. */
+    const flatten = (t: string) =>
+      ` ${String(t).toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim()} `;
+
+    /** Does this order name something the property has switched off? Matches on
+     *  the whole item name only — a partial word would let an item called
+     *  "Water" veto "sparkling water" and half the menu besides. Short names
+     *  are skipped for the same reason: "Ice" appears inside "iced coffee". */
+    const findUnavailableInOrder = async (summary: string, guestText: string) => {
+      const hay = flatten(`${summary} ${guestText}`);
+      const off = (await catalogOnce()).filter((i) => !i.available);
+      // Longest name first, so "Aperol Spritz" wins over a hypothetical "Aperol".
+      const ranked = [...off].sort((a, b) => b.name.length - a.name.length);
+      for (const item of ranked) {
+        const needle = flatten(item.name);
+        if (needle.trim().length < 4) continue;
+        if (hay.includes(needle)) {
+          const t = item.availableAt ? new Date(item.availableAt) : null;
+          return {
+            name: item.name,
+            backAt: t && !Number.isNaN(t.getTime())
+              ? t.toLocaleTimeString("en-GB", {
+                  hour: "2-digit", minute: "2-digit", timeZone: ctx.timezone || "UTC",
+                })
+              : null,
+          };
+        }
+      }
+      return null;
+    };
+
     let guestIntent = "other"; // question | request | complaint | other
     let pendingCards: GuestCard[] | undefined;
 
@@ -2649,6 +2694,28 @@ what you just said. Vary your phrasing so it doesn't sound like a scripted closi
               messages.push({ role: "tool", tool_call_id: tc.id, content: "No knowledge-base entries matched. Do not invent an answer." });
             }
           } else if (tc.function.name === "create_service_request") {
+            // An item the property has switched off must not become a ticket.
+            // Saying so in the show_menu instruction was not enough: a guest who
+            // just names the drink never triggers show_menu, so the model went
+            // straight here and the kitchen got an order it cannot fill.
+            const offHit = await findUnavailableInOrder(
+              String(args.summary || ""), message,
+            );
+            if (offHit) {
+              messages.push({
+                role: "tool", tool_call_id: tc.id,
+                content: JSON.stringify({
+                  ok: false,
+                  reason: "item_unavailable",
+                  item: offHit.name,
+                  back_at: offHit.backAt,
+                  instruction: offHit.backAt
+                    ? `"${offHit.name}" is off until ${offHit.backAt}. Tell the guest warmly, say when it is back, and offer something else from the menu. Do NOT create this request.`
+                    : `"${offHit.name}" is unavailable right now. Tell the guest warmly and offer something else from the menu. Do NOT create this request.`,
+                }),
+              });
+              continue;
+            }
             // HYBRID ROUTING: hotel keyword rule (authoritative) > LLM dept > built-in
             // keyword default > front-desk fallback (flagged for human triage).
             const det = classifyDeterministic(message, ctx);
