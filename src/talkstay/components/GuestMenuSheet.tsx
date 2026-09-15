@@ -212,21 +212,41 @@ export default function GuestMenuSheet({
             <div className="space-y-2">
               {visible.map((item) => {
                 const qty = cart[item.id] ?? 0;
+                const off = item.available === false;
+                const backAt = off && item.availableAt
+                  ? new Date(item.availableAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                  : null;
                 return (
                   <div
                     key={item.id}
-                    className="flex items-center gap-3 rounded-xl border bg-background/90 px-3 py-2.5"
+                    className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 ${
+                      off ? "bg-muted/40" : "bg-background/90"
+                    }`}
                   >
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">{item.name}</p>
+                      <p className={`truncate text-sm font-medium ${off ? "text-muted-foreground line-through" : ""}`}>
+                        {item.name}
+                      </p>
                       <p className="text-[11px] text-muted-foreground">
-                        {item.departmentName}
-                        {typeof item.price === "number"
-                          ? ` · ${formatMoney(item.price, item.currency)}`
-                          : " · ask for price"}
+                        {off ? (
+                          <span className="font-medium text-amber-700 dark:text-amber-300">
+                            {backAt ? `Back at ${backAt}` : "Unavailable right now"}
+                          </span>
+                        ) : (
+                          <>
+                            {item.departmentName}
+                            {typeof item.price === "number"
+                              ? ` · ${formatMoney(item.price, item.currency)}`
+                              : " · ask for price"}
+                          </>
+                        )}
                       </p>
                     </div>
-                    {qty === 0 ? (
+                    {off ? (
+                      <span className="shrink-0 rounded-md bg-muted px-2 py-1 text-[11px] font-medium text-muted-foreground">
+                        Off
+                      </span>
+                    ) : qty === 0 ? (
                       <Button
                         type="button"
                         size="sm"

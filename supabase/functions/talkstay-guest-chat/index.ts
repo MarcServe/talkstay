@@ -41,6 +41,9 @@ interface RoomCtx {
    *  in this file used to be hardcoded regardless of this column's value, so
    *  a property outside the UK saw their own guests quoted in pounds. */
   currency: string;
+  /** The property's timezone (ts_hotels.timezone) — an "off until 18:00" is
+   *  18:00 where the property is, not wherever a server happens to run. */
+  timezone: string;
   /** Public QR (lobby/bar/spa…) — walk-in / non-resident location. */
   isPublic: boolean;
   /** Department this Public QR venue belongs to, set when the venue was created
@@ -179,7 +182,7 @@ async function resolveRoom(
   {
     const withPulse = await admin
       .from("ts_hotels")
-      .select("id, name, slug, assistant_id, default_language, branding, pulse_enabled, currency")
+      .select("id, name, slug, assistant_id, default_language, branding, pulse_enabled, currency, timezone")
       .eq("id", tok.hotel_id).maybeSingle();
     if (withPulse.error) {
       const base = await admin
@@ -250,6 +253,7 @@ async function resolveRoom(
     // Undefined on the reduced-select fallback path above (older DB) — GBP
     // stays the fallback there, same as before this column was read at all.
     currency: String((hotel as any).currency || "GBP").toUpperCase(),
+    timezone: String((hotel as any).timezone || "Europe/London"),
     isPublic,
     checkedInAt: (room as any).checked_in_at ?? null,
     // Undefined on the reduced-select fallback path above, which is fine —
@@ -332,6 +336,7 @@ type GuestCard = {
 async function loadGuestCatalog(admin: any, hotelId: string, roomId: string, isPublic: boolean, defaultCurrency = "GBP"): Promise<{
   id: string; name: string; price: number | null; currency: string;
   departmentKey: string; outletRoomId: string | null; availability: string;
+  available: boolean; availableAt: string | null;
 }[]> {
   // .from() returns a builder that has no .eq() — the column list has to come
   // first or the chain throws before a query is ever sent.
@@ -343,7 +348,12 @@ async function loadGuestCatalog(admin: any, hotelId: string, roomId: string, isP
     .order("sort_order")
     .order("name");
 
-  let res = await base("id, department_key, name, price, currency, outlet_room_id, sort_order, availability");
+  let res = await base("id, department_key, name, price, currency, outlet_room_id, sort_order, availability, is_available, available_at");
+  if (res.error) {
+    // is_available / available_at may not be migrated yet — drop back a step
+    // rather than returning nothing. An unmarked menu beats an empty one.
+    res = await base("id, department_key, name, price, currency, outlet_room_id, sort_order, availability");
+  }
   if (res.error) {
     // The availability column may not be migrated yet. Retry on the columns
     // that have always existed rather than trusting the error text to name the
@@ -381,6 +391,12 @@ async function loadGuestCatalog(admin: any, hotelId: string, roomId: string, isP
     departmentKey: r.department_key,
     outletRoomId: r.outlet_room_id ?? null,
     availability: r.availability ?? "everywhere",
+    // A "back at" time that has already passed means the item is serving
+    // again — the property should not have to remember to switch it back on.
+    available: r.is_available === false
+      ? (!!r.available_at && Date.now() >= new Date(r.available_at).getTime())
+      : true,
+    availableAt: r.is_available === false ? (r.available_at ?? null) : null,
   }));
 }
 
@@ -823,6 +839,7 @@ async function handleMarketingDemo(body: any, OPENAI_API_KEY: string) {
     branding: { primary_color: "#4c2bb8" },
     pulseEnabled: false,
     currency: "GBP",
+    timezone: "Europe/London",
     isPublic: false,
     checkedInAt: null,
   };
@@ -2542,10 +2559,26 @@ what you just said. Vary your phrasing so it doesn't sound like a scripted closi
               const cur = shown.find((i) => i.currency)?.currency ?? ctx.currency;
               const sym = cur === "GBP" ? "£" : cur === "EUR" ? "€" : cur === "USD" ? "$" : `${cur} `;
               const byDept = new Map<string, string[]>();
+              // Time the property set is in their timezone, not the model's —
+              // send a plain "18:00" rather than an ISO string it has to reason
+              // about, and never a date it might read as a different day.
+              const backAt = (iso: string | null) => {
+                if (!iso) return null;
+                const t = new Date(iso);
+                if (Number.isNaN(t.getTime())) return null;
+                return t.toLocaleTimeString("en-GB", {
+                  hour: "2-digit", minute: "2-digit", timeZone: ctx.timezone || "UTC",
+                });
+              };
+              const offNow = shown.filter((i) => !i.available);
               for (const i of shown.slice(0, 120)) {
-                const line = typeof i.price === "number"
+                const priced = typeof i.price === "number"
                   ? `${i.name} — ${sym}${Number(i.price).toFixed(2)}`
                   : i.name;
+                const back = i.available ? null : backAt(i.availableAt);
+                const line = i.available
+                  ? priced
+                  : `${priced} (unavailable${back ? ` until ${back}` : ""})`;
                 byDept.set(i.departmentKey, [...(byDept.get(i.departmentKey) ?? []), line]);
               }
               // One card, a section per team — the same grouping the Menu sheet
@@ -2564,7 +2597,11 @@ what you just said. Vary your phrasing so it doesn't sound like a scripted closi
                 content: JSON.stringify({
                   ok: true,
                   item_count: shown.length,
-                  instruction: "The guest UI is showing the menu card with an Open menu button. Reply with ONE short plain sentence inviting them to tap it or just tell you what they'd like. Do NOT list the items and do NOT quote prices in your reply.",
+                  unavailable: offNow.map((i) => ({
+                    name: i.name,
+                    back_at: backAt(i.availableAt),
+                  })),
+                  instruction: "The guest UI is showing the menu card with an Open menu button. Reply with ONE short plain sentence inviting them to tap it or just tell you what they'd like. Do NOT list the items and do NOT quote prices in your reply. If `unavailable` is not empty and the guest asked for one of those items by name, say it is off right now — with the back_at time if there is one — and offer something else instead. Never take an order for an item listed in `unavailable`.",
                 }),
               });
             } else {
