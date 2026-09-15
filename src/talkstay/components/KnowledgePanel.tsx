@@ -122,9 +122,14 @@ function mediaHasExtras(media: Media): boolean {
   return hasSection || !!(media.links?.length) || !!(media.images?.length);
 }
 
-function flattenMediaToContent(title: string, media: Media, fallback: string): string {
+/** Build the indexed text a card is answered from. `body` is what someone typed
+ *  into "Main info" — it used to be a fallback used only when nothing else
+ *  existed, so filling in a title (which everyone does) silently threw the
+ *  whole body away, prices and opening hours with it. */
+function flattenMediaToContent(title: string, media: Media, body: string): string {
   const parts: string[] = [];
   if (title.trim()) parts.push(title.trim());
+  if (body.trim()) parts.push(body.trim());
   for (const s of media.sections ?? []) {
     if (s.title.trim()) parts.push(s.title.trim());
     for (const item of s.items ?? []) if (item.trim()) parts.push(item.trim());
@@ -137,8 +142,7 @@ function flattenMediaToContent(title: string, media: Media, fallback: string): s
     const caption = (img.alt ?? "").trim();
     parts.push(caption ? `Photo (${caption}): ${img.url.trim()}` : `Photo: ${img.url.trim()}`);
   }
-  const built = parts.join("\n").trim();
-  return built || fallback.trim();
+  return parts.join("\n").trim();
 }
 
 async function invokeErrorMessage(error: any, data?: any): Promise<string> {
