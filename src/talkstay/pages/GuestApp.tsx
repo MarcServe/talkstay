@@ -783,7 +783,7 @@ function GuestAppInner({ hotelSlug, roomId, token }: { hotelSlug: string; roomId
           </div>
         )}
         <div className="min-w-0 flex-1 text-left">
-          <h1 className="truncate text-sm font-bold leading-tight">{ctx.hotelName}</h1>
+          <h1 className="text-sm font-bold leading-tight">{ctx.hotelName}</h1>
           {/* The room number is the one thing on this screen a guest may need to
               read out — to staff, or to check they scanned their own door. The
               property name may truncate; the room number sits outside the
@@ -798,15 +798,15 @@ function GuestAppInner({ hotelSlug, roomId, token }: { hotelSlug: string; roomId
           </p>
         </div>
         <Button variant="outline" size="sm" className="h-8 shrink-0 px-2.5 text-xs" onClick={() => setMenuOpen(true)}>
-          <UtensilsCrossed className="h-3.5 w-3.5 sm:mr-1" /> <span className="hidden sm:inline">Menu</span>
+          <UtensilsCrossed className="h-3.5 w-3.5 lg:mr-1" /> <span className="hidden lg:inline">Menu</span>
         </Button>
         <Button variant="outline" size="sm" className="h-8 shrink-0 px-2.5 text-xs" onClick={() => setRequestsOpen(true)}>
-          <ClipboardList className="h-3.5 w-3.5 sm:mr-1" /> <span className="hidden sm:inline">{restaurantMode ? "Orders" : "Requests"}</span>
+          <ClipboardList className="h-3.5 w-3.5 lg:mr-1" /> <span className="hidden lg:inline">{restaurantMode ? "Orders" : "Requests"}</span>
         </Button>
         {showStayCheckout && (
           <Button variant="outline" size="sm" className="h-8 shrink-0 px-2.5 text-xs" asChild>
             <Link to={`${guestStayPath(hotelSlug, roomId, "checkout")}?token=${encodeURIComponent(token)}`}>
-              <LogOut className="h-3.5 w-3.5 sm:mr-1" /> <span className="hidden sm:inline">Checkout</span>
+              <LogOut className="h-3.5 w-3.5 lg:mr-1" /> <span className="hidden lg:inline">Checkout</span>
             </Link>
           </Button>
         )}
@@ -867,6 +867,15 @@ function GuestAppInner({ hotelSlug, roomId, token }: { hotelSlug: string; roomId
         ) : (
           <p className="text-center text-xs text-muted-foreground">
             Voice isn’t set up for this room yet — type below.
+          </p>
+        )}
+        {/* The property writes this in Branding and it previews there, but it
+            was never rendered for the guest — set once, shown nowhere. Kept to
+            the quiet line under the mic so it reads as the property's voice,
+            not another instruction. */}
+        {ctx.branding?.tagline?.trim() && (
+          <p className="mt-1.5 text-center text-[11px] italic text-muted-foreground/80">
+            {ctx.branding.tagline.trim()}
           </p>
         )}
       </div>
