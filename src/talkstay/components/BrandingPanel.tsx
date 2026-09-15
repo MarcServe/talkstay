@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -194,6 +194,16 @@ function IdentityTab({ hotel, onSaved, onHotel }: {
   // the current logo shows its filename (not the full Supabase link) instead.
   const [logoUrlDraft, setLogoUrlDraft] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
+  // Switching property remounts nothing — without this the form keeps showing
+  // the previous property's brand and currency.
+  useEffect(() => {
+    setLogo(hotel.branding?.logo_url ?? "");
+    setColor(hotel.branding?.primary_color ?? DEFAULT_COLOR);
+    setTagline(hotel.branding?.tagline ?? "Scan. Speak. Consider it done.");
+    setCurrency((hotel.currency || "GBP").toUpperCase());
+    setGuestWash(clampGuestBgWash(hotel.branding?.guest_bg_wash ?? DEFAULT_GUEST_WASH));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hotel.id]);
   const applyLogoDraft = () => {
     const v = logoUrlDraft.trim();
     if (v) { setLogo(v); setLogoUrlDraft(""); }
@@ -252,7 +262,6 @@ function IdentityTab({ hotel, onSaved, onHotel }: {
     if (currencyChanged) {
       try {
         await updateHotelCurrency(hotel.id, currency);
-        onHotel?.({ ...hotel, branding, currency });
       } catch (err: any) {
         setSaving(false);
         toast.error(err?.message ?? "Saved branding, but couldn't save the currency.");
@@ -261,7 +270,12 @@ function IdentityTab({ hotel, onSaved, onHotel }: {
       }
     }
     setSaving(false);
+    // onSaved and onHotel both write the parent's hotel, and HotelApp builds
+    // onSaved's payload by spreading the `hotel` it captured BEFORE this save.
+    // Whichever runs last wins, so the complete object has to go last or the
+    // currency is reverted in the UI while the database keeps the new value.
     onSaved?.(branding);
+    if (currencyChanged) onHotel?.({ ...hotel, branding, currency });
     toast.success("Branding saved.");
   };
 
