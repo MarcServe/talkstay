@@ -23,16 +23,24 @@ import {
 import { DEPARTMENTS } from "@/talkstay/lib/hotels";
 import NoIndexMeta from "@/talkstay/components/NoIndexMeta";
 
+/** Same three sections as the real sidebar — nine flat links read as one
+ *  undifferentiated list in the demo too. */
+const NAV_GROUPS = [
+  { key: "shift", label: "Every shift" },
+  { key: "property", label: "Your property" },
+  { key: "business", label: "Business" },
+] as const;
+
 const NAV = [
-  { key: "operations", label: "Operations", icon: Inbox, desc: "Live queue — search a room to open tickets fast. Guest-app requests land here automatically.", adminOnly: false },
-  { key: "log_order", label: "Log order", icon: Phone, desc: "Only for phone, walk-in or front-desk calls that aren’t already on the board.", adminOnly: false },
-  { key: "insights", label: "Insights", icon: BarChart3, desc: "See volumes, departments, ratings and guest pulse.", adminOnly: true },
-  { key: "rooms", label: "Rooms & QR", icon: QrCode, desc: "Rooms for stays, plus Venues & tables for bar, pool, and restaurant QRs.", adminOnly: true },
-  { key: "branding", label: "Branding", icon: Palette, desc: "Your logo, colour and the printable in-room poster.", adminOnly: true },
-  { key: "communications", label: "Communications", icon: Mail, desc: "Guest emails and occasional offers — not an automatic newsletter.", adminOnly: true },
-  { key: "departments", label: "Departments", icon: Building2, desc: "Teams, routing rules and per-department notifications.", adminOnly: true },
-  { key: "knowledge", label: "Knowledge", icon: BookOpen, desc: "What the assistant knows — website, documents and property info.", adminOnly: true },
-  { key: "staff", label: "Staff", icon: Users, desc: "Invite your team and manage their roles and access.", adminOnly: true },
+  { key: "operations", label: "Operations", icon: Inbox, desc: "Live queue — search a room to open tickets fast. Guest-app requests land here automatically.", group: "shift", adminOnly: false },
+  { key: "log_order", label: "Log order", icon: Phone, desc: "Only for phone, walk-in or front-desk calls that aren’t already on the board.", group: "shift", adminOnly: false },
+  { key: "insights", label: "Insights", icon: BarChart3, desc: "See volumes, departments, ratings and guest pulse.", group: "business", adminOnly: true },
+  { key: "rooms", label: "Rooms & QR", icon: QrCode, desc: "Rooms for stays, plus Venues & tables for bar, pool, and restaurant QRs.", group: "property", adminOnly: true },
+  { key: "branding", label: "Branding", icon: Palette, desc: "Your logo, colour and the printable in-room poster.", group: "business", adminOnly: true },
+  { key: "communications", label: "Communications", icon: Mail, desc: "Guest emails and occasional offers — not an automatic newsletter.", group: "business", adminOnly: true },
+  { key: "departments", label: "Departments", icon: Building2, desc: "Teams, routing rules and per-department notifications.", group: "property", adminOnly: true },
+  { key: "knowledge", label: "Knowledge", icon: BookOpen, desc: "What the assistant knows — website, documents and property info.", group: "property", adminOnly: true },
+  { key: "staff", label: "Staff", icon: Users, desc: "Invite your team and manage their roles and access.", group: "property", adminOnly: true },
 ] as const;
 
 type NavKey = (typeof NAV)[number]["key"];
@@ -152,19 +160,32 @@ function DemoDashboard() {
         <p className="text-[11px] leading-snug text-white/45">{roleLabel(demoRole)}</p>
       </div>
 
-      <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3">
-        {visibleNav.map(({ key, label, icon: Icon }) => (
-          <button
-            key={key}
-            onClick={() => go(key)}
-            className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-              active === key ? "bg-violet-600 text-white" : "text-white/60 hover:bg-white/5 hover:text-white"
-            }`}
-          >
-            <Icon className="h-4 w-4 shrink-0" />
-            <span className="flex-1 text-left">{label}</span>
-          </button>
-        ))}
+      <nav className="min-h-0 flex-1 overflow-y-auto px-3">
+        {NAV_GROUPS.map(({ key: groupKey, label: groupLabel }) => {
+          // A demo role that can only see Operations should not be shown two
+          // empty headings underneath it.
+          const items = visibleNav.filter((n) => n.group === groupKey);
+          if (!items.length) return null;
+          return (
+            <div key={groupKey} className="mb-4 space-y-1 last:mb-0">
+              <p className="px-3 pb-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-white/35">
+                {groupLabel}
+              </p>
+              {items.map(({ key, label, icon: Icon }) => (
+                <button
+                  key={key}
+                  onClick={() => go(key)}
+                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                    active === key ? "bg-violet-600 text-white" : "text-white/60 hover:bg-white/5 hover:text-white"
+                  }`}
+                >
+                  <Icon className="h-4 w-4 shrink-0" />
+                  <span className="flex-1 text-left">{label}</span>
+                </button>
+              ))}
+            </div>
+          );
+        })}
       </nav>
 
       <div className="space-y-1 border-t border-white/10 p-3">
