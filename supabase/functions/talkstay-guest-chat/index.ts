@@ -333,20 +333,23 @@ async function loadGuestCatalog(admin: any, hotelId: string, roomId: string, isP
   id: string; name: string; price: number | null; currency: string;
   departmentKey: string; outletRoomId: string | null; availability: string;
 }[]> {
-  const base = () => admin
+  // .from() returns a builder that has no .eq() — the column list has to come
+  // first or the chain throws before a query is ever sent.
+  const base = (cols: string) => admin
     .from("ts_catalog_items")
+    .select(cols)
     .eq("hotel_id", hotelId)
     .eq("is_active", true)
     .order("sort_order")
     .order("name");
 
-  let res = await base().select("id, department_key, name, price, currency, outlet_room_id, sort_order, availability");
+  let res = await base("id, department_key, name, price, currency, outlet_room_id, sort_order, availability");
   if (res.error) {
     // The availability column may not be migrated yet. Retry on the columns
     // that have always existed rather than trusting the error text to name the
     // culprit — an empty menu is a far worse outcome than an unscoped one, and
     // every row then reads as 'everywhere', exactly the previous behaviour.
-    res = await base().select("id, department_key, name, price, currency, outlet_room_id, sort_order");
+    res = await base("id, department_key, name, price, currency, outlet_room_id, sort_order");
     if (res.error) return [];
   }
   const rows = (res.data ?? []) as any[];
