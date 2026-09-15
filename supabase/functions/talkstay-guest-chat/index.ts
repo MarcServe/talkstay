@@ -82,6 +82,19 @@ const CUSTOM_DEPT_HINTS: Record<string, string[]> = {
   kids_club: ["kids club", "kids' club", "children's club", "babysit", "childcare"],
 };
 
+/** Currency symbol for the property's own currency. Shared so a menu card and
+ *  an order confirmation can never disagree about what money looks like. */
+function moneySymbol(code: string): string {
+  const c = (code || "GBP").toUpperCase();
+  if (c === "GBP") return "£";
+  if (c === "EUR") return "€";
+  if (c === "USD") return "$";
+  if (c === "NGN") return "₦";
+  if (c === "JPY") return "¥";
+  if (c === "INR") return "₹";
+  return `${c} `;
+}
+
 const BUILTIN_ROUTING_GUIDE =
   "towels/cleaning/bedding→housekeeping; laundry→laundry; food/breakfast/room service→kitchen; drinks/wine/cocktails→bar; TV/heating/AC/broken things→maintenance; taxi/recommendations/luggage→concierge; late checkout/billing/room access→front_desk; complaint/urgent safety→duty_manager";
 
@@ -2240,7 +2253,7 @@ WHAT TO DO:
 - ANYTHING about what food or drink is available, what's on the menu, what the bar has, or what something costs: call show_menu. That is the live orderable menu — the same one behind the guest's Menu button, at the prices they'll actually be charged. Never answer a "what's on the menu" question from knowledge documents: those are scans and PDFs that go stale, and quoting one gives the guest a price the property no longer charges. If show_menu comes back empty, say you'll check with the team.
 - General questions about the hotel (breakfast times, wifi, checkout, facilities, allergens, local tips): call answer_from_knowledge FIRST. When it returns structured cards, reply with ONE short plain sentence only (the UI shows the organised card). Never paste menus as markdown lists. If knowledge is empty, say you'll check with the team — never invent facts.
 - If a knowledge document and the menu disagree on a price or on whether something is available, the MENU wins, every time. Quote the menu and say nothing about the discrepancy.
-- A request for something (towels, food, drinks, laundry, a repair, taxi, late checkout, etc.): call create_service_request with the correct department. Confirm back conversationally with a rough ETA. Do NOT ask the guest to "track" anything.
+- A request for something (towels, food, drinks, laundry, a repair, taxi, late checkout, etc.): call create_service_request with the correct department. Confirm back conversationally with a rough ETA. Do NOT ask the guest to "track" anything. When the tool comes back with a price_text, say that price in your confirmation — a guest should hear what something costs when they order it, not when they see the bill. When it is chargeable with no price, say the team will confirm the cost rather than guessing a number.
 - ORDERING MULTIPLE THINGS AT ONCE that span two different departments (e.g. a sandwich from the kitchen and a drink from the bar): ask ONE short question first — "Would you like that all brought together, or is it fine arriving separately?" — before calling create_service_request. Skip the question when it's not needed: everything is from the same department, or the guest already said how they want it (e.g. "together please", "whenever each is ready", "the drink first"). Once you know, create one request per department as usual, and when they want it together add a short cross-reference to each summary so both teams coordinate, e.g. "Deliver a club sandwich to Room 306 — bring together with the bar order" and "Deliver an Aperol Spritz to Room 306 — bring together with the kitchen order". This mirrors the "bring it all together" option on the tap-to-order menu — same idea, asked conversationally.
 - Complaints, safety issues, anything upsetting or urgent: do NOT try to resolve it yourself. Call create_service_request with department "duty_manager", priority "urgent", is_complaint true, and reassure them a manager will contact them shortly.
 - If they want to re-open a cancelled request or "same again" / repeat something from RECENT CLOSED REQUESTS: call create_service_request with the SAME department and a matching English summary (you may copy the closed summary). Confirm warmly that it's back with the team. Tell them they can also tap Ask again in My requests.
@@ -2540,7 +2553,7 @@ what you just said. Vary your phrasing so it doesn't sound like a scripted closi
             const shown = want ? menu.filter((i) => i.departmentKey === want) : menu;
             if (shown.length) {
               const cur = shown.find((i) => i.currency)?.currency ?? ctx.currency;
-              const sym = cur === "GBP" ? "£" : cur === "EUR" ? "€" : cur === "USD" ? "$" : `${cur} `;
+              const sym = moneySymbol(cur);
               const byDept = new Map<string, string[]>();
               for (const i of shown.slice(0, 120)) {
                 const line = typeof i.price === "number"
@@ -2564,7 +2577,7 @@ what you just said. Vary your phrasing so it doesn't sound like a scripted closi
                 content: JSON.stringify({
                   ok: true,
                   item_count: shown.length,
-                  instruction: "The guest UI is showing the menu card with an Open menu button. Reply with ONE short plain sentence inviting them to tap it or just tell you what they'd like. Do NOT list the items and do NOT quote prices in your reply.",
+                  instruction: "The guest UI is showing the menu card with an Open menu button. Reply with ONE short plain sentence inviting them to tap it or just tell you what they'd like. Do NOT list the items. Do not recite prices across the menu — the card already shows them — but if the guest asked what one specific thing costs, answer that with its price from the card.",
                 }),
               });
             } else {
@@ -2624,6 +2637,16 @@ what you just said. Vary your phrasing so it doesn't sound like a scripted closi
                     is_complaint: isComplaint,
                     is_chargeable: !!args.is_chargeable,
                     price: reqRow.price ?? null,
+                    // Pre-formatted so the model never has to guess a symbol or
+                    // invent a currency the property does not charge in.
+                    price_text: typeof reqRow.price === "number"
+                      ? `${moneySymbol(ctx.currency)}${Number(reqRow.price).toFixed(2)}`
+                      : null,
+                    instruction: typeof reqRow.price === "number"
+                      ? "Chargeable and priced. Say the price back in your confirmation, exactly as price_text gives it — a guest should never find out what something costs from the bill. Keep it natural: \"That's £12.00, with you in about 20 minutes.\""
+                      : (args.is_chargeable
+                        ? "Chargeable but not priced. Say the team will confirm the price — do not guess one."
+                        : "Free of charge. Do not mention price."),
                   }
                 : { ok: false }),
             });
