@@ -12,6 +12,7 @@ import {
   type GuestBranding,
 } from "@/talkstay/lib/guest";
 import { guestStayPath } from "@/talkstay/lib/guestUrls";
+import ForceLightTheme from "@/talkstay/components/ForceLightTheme";
 
 /**
  * Arrival landing for a room QR / emailed link.
@@ -97,6 +98,7 @@ export default function GuestCheckIn() {
 
   return (
     <>
+      <ForceLightTheme />
       <NoIndexMeta />
       <div
         className="min-h-[100dvh] px-4 py-8"
