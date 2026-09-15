@@ -926,7 +926,7 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
             type="button"
             disabled={busy || scanBusy || imgBusy}
             onClick={() => scanCameraRef.current?.click()}
-            className="flex items-center gap-3 rounded-xl border border-dashed bg-white/50 px-4 py-3 text-left transition hover:bg-white/80 disabled:opacity-60"
+            className="flex items-center gap-3 rounded-xl border border-dashed bg-white/50 dark:bg-white/5 px-4 py-3 text-left transition hover:bg-white/80 dark:hover:bg-white/15 disabled:opacity-60"
           >
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-background shadow-sm">
               {scanBusy ? <Loader2 className="h-5 w-5 animate-spin" /> : <Camera className="h-5 w-5" />}
@@ -940,7 +940,7 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
             type="button"
             disabled={busy || scanBusy || imgBusy}
             onClick={() => scanGalleryRef.current?.click()}
-            className="flex items-center gap-3 rounded-xl border border-dashed bg-white/50 px-4 py-3 text-left transition hover:bg-white/80 disabled:opacity-60"
+            className="flex items-center gap-3 rounded-xl border border-dashed bg-white/50 dark:bg-white/5 px-4 py-3 text-left transition hover:bg-white/80 dark:hover:bg-white/15 disabled:opacity-60"
           >
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-background shadow-sm">
               {scanBusy ? <Loader2 className="h-5 w-5 animate-spin" /> : <ImageIcon className="h-5 w-5" />}
@@ -1122,9 +1122,9 @@ export default function KnowledgePanel({ hotel }: { hotel: Hotel }) {
                               <div className="line-clamp-2 text-sm text-muted-foreground">{highlightText(preview, q)}</div>
                               {extras ? (
                                 <div className="mt-1 flex flex-wrap gap-1.5 text-[10px] text-muted-foreground">
-                                  {extras.sections?.some((s) => s.title || s.items.length) && <span className="rounded bg-white/70 px-1.5 py-0.5">sections</span>}
-                                  {!!extras.images?.length && <span className="rounded bg-white/70 px-1.5 py-0.5">{extras.images.length} photo{extras.images.length === 1 ? "" : "s"}</span>}
-                                  {!!extras.links?.length && <span className="rounded bg-white/70 px-1.5 py-0.5">{extras.links.length} link{extras.links.length === 1 ? "" : "s"}</span>}
+                                  {extras.sections?.some((s) => s.title || s.items.length) && <span className="rounded bg-white/70 dark:bg-white/10 px-1.5 py-0.5">sections</span>}
+                                  {!!extras.images?.length && <span className="rounded bg-white/70 dark:bg-white/10 px-1.5 py-0.5">{extras.images.length} photo{extras.images.length === 1 ? "" : "s"}</span>}
+                                  {!!extras.links?.length && <span className="rounded bg-white/70 dark:bg-white/10 px-1.5 py-0.5">{extras.links.length} link{extras.links.length === 1 ? "" : "s"}</span>}
                                 </div>
                               ) : null}
                             </button>

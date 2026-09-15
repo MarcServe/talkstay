@@ -500,7 +500,7 @@ export function DemoRoomsPanel() {
       {qrRoom && (
         <div className="flex flex-col items-center gap-3 rounded-2xl border bg-violet-50/60 dark:bg-violet-400/15 p-6 text-center">
           <p className="text-sm font-medium">Guest QR · {formatRoomLabel(qrRoom.room_number)}</p>
-          <div className="grid w-full max-w-xs grid-cols-3 gap-1 rounded-xl bg-white/80 p-1">
+          <div className="grid w-full max-w-xs grid-cols-3 gap-1 rounded-xl bg-white/80 dark:bg-white/10 p-1">
             {([
               ["chat", "Ask"],
               ["checkin", "In"],
@@ -697,7 +697,7 @@ export function DemoBrandingPanel() {
               <h3 className="mt-4 text-3xl font-bold">{demo.hotel.name.replace(" (Demo)", "")}</h3>
               <p className="mt-3 text-lg text-white/90">{tagline || "Need something? Just speak."}</p>
             </div>
-            <div className="rounded-2xl bg-white p-4 text-center text-violet-950 dark:text-violet-200">
+            <div className="rounded-2xl bg-white dark:bg-white/10 p-4 text-center text-violet-950 dark:text-violet-200">
               <div className="mx-auto mb-2 flex h-28 w-28 items-center justify-center rounded-xl border border-dashed text-xs text-muted-foreground">
                 Room QR
               </div>

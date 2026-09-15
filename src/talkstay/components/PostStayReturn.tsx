@@ -43,7 +43,7 @@ export default function PostStayReturn({
   return (
     <div
       className={`rounded-2xl border text-left ${
-        compact ? "bg-white/90 p-4" : "bg-muted/30 p-5"
+        compact ? "bg-white/90 dark:bg-white/10 p-4" : "bg-muted/30 p-5"
       }`}
       style={{ borderColor: `${brand}33` }}
     >
