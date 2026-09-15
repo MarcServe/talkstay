@@ -827,20 +827,20 @@ function DemoGuestInner() {
           type="button"
           size="sm"
           variant="outline"
-          className="h-8 shrink-0 gap-1.5 border-white/50 bg-white/60 px-2.5 text-xs backdrop-blur-sm"
+          className="h-8 shrink-0 gap-1 border-white/50 bg-white/60 px-1.5 text-[11px] backdrop-blur-sm"
           onClick={() => setSheetOpen(true)}
         >
           <ClipboardList className="h-3.5 w-3.5" />
-          Requests
+          <span className="hidden min-[430px]:inline">Requests</span>
           {openCount > 0 && (
             <span className="rounded-full bg-violet-600 px-1.5 text-[10px] font-bold text-white">
               {openCount}
             </span>
           )}
         </Button>
-        <Button asChild size="sm" variant="outline" className="h-8 shrink-0 gap-1 border-white/50 bg-white/60 px-2.5 text-xs">
+        <Button asChild size="sm" variant="outline" className="h-8 shrink-0 gap-1 border-white/50 bg-white/60 px-1.5 text-[11px]">
           <Link to="/demo/guest/checkout">
-            <LogOut className="h-3.5 w-3.5" /> Checkout
+            <LogOut className="h-3.5 w-3.5" /> <span className="hidden min-[430px]:inline">Checkout</span>
           </Link>
         </Button>
       </header>
@@ -900,6 +900,14 @@ function DemoGuestInner() {
                 ? "Assistant is speaking…"
                 : "Go ahead — I’m listening"}
           </p>
+          {/* The real guest app shows the property's tagline here; the demo
+              should look like the thing it is demonstrating. */}
+          {typeof demo.state.hotel.branding?.tagline === "string"
+            && demo.state.hotel.branding.tagline.trim() && (
+            <p className="mt-1.5 text-center text-[11px] italic text-muted-foreground/80">
+              {demo.state.hotel.branding.tagline.trim()}
+            </p>
+          )}
         </div>
       </div>
 
