@@ -28,6 +28,8 @@ import StaffAlertsHost from "@/talkstay/components/StaffAlertsHost";
 import InstallAppBanner from "@/talkstay/components/InstallAppBanner";
 import NoIndexMeta from "@/talkstay/components/NoIndexMeta";
 import AccountPanel from "@/talkstay/components/AccountPanel";
+import TeamChangeNotice from "@/talkstay/components/TeamChangeNotice";
+import { useHotelDepartments } from "@/talkstay/hooks/useHotelDepartments";
 import AlertSoundPicker from "@/talkstay/components/AlertSoundPicker";
 import {
   createHotel,
@@ -534,6 +536,9 @@ export default function HotelApp() {
   const initialNav: NavKey = tabFromParam(tabParam) ?? "operations";
   const [active, setActive] = useState<NavKey>(initialNav);
   const [navOpen, setNavOpen] = useState(false);
+  // Must sit above the early returns below — a hook that only runs on some
+  // renders is the "rendered more hooks" crash.
+  const { departments: hotelDeptNames } = useHotelDepartments(hotel?.id);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [focusRequestId, setFocusRequestId] = useState<string | null>(null);
 
@@ -655,6 +660,7 @@ export default function HotelApp() {
             isOwner: true,
             role: "owner",
             departmentKey: null,
+            departmentKeys: [],
             name: null,
           });
           setAddingProperty(false);
@@ -682,6 +688,7 @@ export default function HotelApp() {
             isOwner: true,
             role: "owner",
             departmentKey: null,
+            departmentKeys: [],
             name: null,
           });
           void qc.invalidateQueries({ queryKey: talkstayKeys.access(user.id) });
@@ -755,6 +762,7 @@ export default function HotelApp() {
           isOwner: !!membership?.isOwner,
           role: (membership?.role ?? "owner") as AccessibleProperty["role"],
           departmentKey: membership?.departmentKey ?? null,
+          departmentKeys: membership?.departmentKeys ?? [],
           name: membership?.name ?? null,
         }]}
         activeId={hotel.id}
@@ -908,6 +916,14 @@ export default function HotelApp() {
                 {hotel.name} · printed {new Date().toLocaleString()}
               </p>
             </div>
+            {membership && !membership.isOwner && (
+              <TeamChangeNotice
+                userId={user?.id}
+                hotelId={hotel.id}
+                departmentKeys={membership.departmentKeys}
+                departmentNames={hotelDeptNames}
+              />
+            )}
             <Panel
               active={effectiveActive}
               hotel={hotel}
