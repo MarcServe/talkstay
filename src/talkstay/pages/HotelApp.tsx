@@ -41,6 +41,7 @@ import {
   readActiveHotelId,
   writeActiveHotelId,
   resolveLockedDepartment,
+  resolveLockedVenue,
   canSeeNavItem,
   membershipRoleLabel,
   isRestaurantProperty,
@@ -439,11 +440,12 @@ function NoAccess({ email }: { email?: string | null }) {
   );
 }
 
-function Panel({ active, hotel, onHotel, departmentKey, focusRequestId, onOpenRequest, identity, portfolioHotels, canAddProperty, onAddProperty, onOpenCommunications }: {
+function Panel({ active, hotel, onHotel, departmentKey, lockedVenue, focusRequestId, onOpenRequest, identity, portfolioHotels, canAddProperty, onAddProperty, onOpenCommunications }: {
   active: NavKey;
   hotel: Hotel;
   onHotel: (h: Hotel) => void;
   departmentKey?: string | null;
+  lockedVenue?: string | null;
   focusRequestId?: string | null;
   onOpenRequest?: (requestId: string) => void;
   identity: { email?: string | null; displayName: string; roleLabel: string };
@@ -460,6 +462,7 @@ function Panel({ active, hotel, onHotel, departmentKey, focusRequestId, onOpenRe
     case "operations": return (
       <OperationsPanel
         hotel={hotel}
+        lockedVenue={lockedVenue}
         lockedDepartment={departmentKey ?? null}
         focusRequestId={focusRequestId}
       />
@@ -660,6 +663,7 @@ export default function HotelApp() {
             isOwner: true,
             role: "owner",
             departmentKey: null,
+            venueRoomId: null,
             departmentKeys: [],
             name: null,
           });
@@ -688,6 +692,7 @@ export default function HotelApp() {
             isOwner: true,
             role: "owner",
             departmentKey: null,
+            venueRoomId: null,
             departmentKeys: [],
             name: null,
           });
@@ -702,6 +707,7 @@ export default function HotelApp() {
   const NAV = navForProperty(restaurantMode);
   const visibleNav = NAV.filter((n) => canSeeNavItem(membership, { admin: n.admin, key: n.key }));
   const lockedDepartment = resolveLockedDepartment(membership);
+  const lockedVenue = resolveLockedVenue(membership);
   const roleLabel = membershipRoleLabel(membership);
 
   // A department member should never sit on an admin tab (e.g. after a refresh).
@@ -762,6 +768,7 @@ export default function HotelApp() {
           isOwner: !!membership?.isOwner,
           role: (membership?.role ?? "owner") as AccessibleProperty["role"],
           departmentKey: membership?.departmentKey ?? null,
+          venueRoomId: membership?.venueRoomId ?? null,
           departmentKeys: membership?.departmentKeys ?? [],
           name: membership?.name ?? null,
         }]}
@@ -929,6 +936,7 @@ export default function HotelApp() {
               hotel={hotel}
               onHotel={setHotel}
               departmentKey={lockedDepartment}
+              lockedVenue={lockedVenue}
               focusRequestId={focusRequestId}
               portfolioHotels={portfolioHotels}
               canAddProperty={ownsAny || !!membership?.isOwner || membership?.role === "owner"}

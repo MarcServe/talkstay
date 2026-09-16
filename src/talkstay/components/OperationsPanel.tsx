@@ -196,9 +196,12 @@ function tabKeyFor(r: {
   return r.session_id ? `sess:${r.session_id}` : null;
 }
 
-export default function OperationsPanel({ hotel, lockedDepartment = null, onClearDepartmentLock, focusRequestId = null }: {
+export default function OperationsPanel({ hotel, lockedDepartment = null, lockedVenue = null, onClearDepartmentLock, focusRequestId = null }: {
   hotel: Hotel;
   lockedDepartment?: string | null;
+  /** Venue this member is locked to. RLS already refuses everything else — this
+   *  only stops the UI offering a filter that cannot widen anything. */
+  lockedVenue?: string | null;
   /** Demo-only: leave a staff "View as" lock and return to all departments. */
   onClearDepartmentLock?: () => void;
   /** Open this ticket when set (e.g. jumped from Log order). */

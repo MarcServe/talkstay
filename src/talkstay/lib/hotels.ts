@@ -547,6 +547,9 @@ export interface AccessibleProperty {
   role: "owner" | "manager" | "staff";
   /** null = all departments; otherwise this member only works one team. */
   departmentKey: string | null;
+  /** Venue this member covers, when they are locked to one. Null = the whole
+   *  department, which is every venue plus room requests. */
+  venueRoomId: string | null;
   /** Every team they are on here. departmentKey collapses this to one for
    *  scoping; the full list is what tells someone they have been added to a
    *  second team. */
@@ -610,6 +613,16 @@ export function resolveLockedDepartment(m: AccessMember | null | undefined): str
   return m.departmentKey;
 }
 
+/** The venue a member is locked to, or null for the whole department. Admins
+ *  and coordinators are never locked — they are the cover. */
+export function resolveLockedVenue(
+  m: (AccessMember & { venueRoomId?: string | null }) | null | undefined,
+): string | null {
+  if (!m || isPropertyAdmin(m)) return null;
+  if (isQueueCoordinator(m)) return null;
+  return m.venueRoomId ?? null;
+}
+
 /** Admin nav keys department managers may open (in addition to Operations / Log order). */
 export const DEPT_MANAGER_ADMIN_NAV = new Set(["insights", "staff"]);
 
@@ -667,6 +680,7 @@ export async function getMyAccess(): Promise<HotelAccess> {
       isOwner: true,
       role: "owner",
       departmentKey: null,
+      venueRoomId: null,
       departmentKeys: [],
       name: null,
     });
@@ -675,11 +689,12 @@ export async function getMyAccess(): Promise<HotelAccess> {
   // 2. Staff memberships (managers see everything; staff scoped to their team).
   const { data: memberships, error: staffErr } = await supabase
     .from("ts_staff")
-    .select("hotel_id, role, department_key, name, status")
+    .select("hotel_id, role, department_key, name, status, room_id, venue_locked")
     .eq("user_id", user.id).eq("status", "active");
   if (staffErr) throw staffErr;
   const rows = (memberships ?? []) as Array<{
     hotel_id: string; role: string; department_key: string | null; name: string | null; status: string;
+    room_id?: string | null; venue_locked?: boolean | null;
   }>;
 
   const staffHotelIds = [...new Set(rows.map((r) => r.hotel_id).filter((id) => !byId.has(id)))];
@@ -715,11 +730,18 @@ export async function getMyAccess(): Promise<HotelAccess> {
         const depts = forHotel.map((r) => r.department_key);
         departmentKey = depts.length === 1 ? depts[0] : chosen.department_key;
       }
+      // Locked only when EVERY row for this property says so. One unlocked
+      // membership means they cover the department, and the narrower row must
+      // not take that away.
+      const deptRows = forHotel.filter((r) => r.department_key === departmentKey);
+      const allLocked = deptRows.length > 0
+        && deptRows.every((r) => !!r.venue_locked && !!r.room_id);
       byId.set(hotelId, {
         hotel,
         isOwner: false,
         role,
         departmentKey,
+        venueRoomId: allLocked ? (deptRows[0].room_id ?? null) : null,
         departmentKeys: [...new Set(forHotel.map((r) => r.department_key).filter((k): k is string => !!k))],
         name: chosen.name ?? null,
       });
