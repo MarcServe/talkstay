@@ -36,10 +36,14 @@ export function youTubeId(input: string): string | null {
 export default function DemoVideo({
   url = DEMO_VIDEO_URL,
   title = "Watch how TalkStay works",
+  caption,
   className = "",
 }: {
   url?: string;
   title?: string;
+  /** Second line on the thumbnail — a running time, or what the clip shows.
+   *  Omitted rather than guessed: a wrong duration is worse than none. */
+  caption?: string;
   className?: string;
 }) {
   const [playing, setPlaying] = useState(false);
@@ -88,9 +92,9 @@ export default function DemoVideo({
               </span>
               <span className="absolute bottom-0 left-0 right-0 p-4 text-left sm:p-5">
                 <span className="block text-base font-semibold text-white sm:text-lg">{title}</span>
-                <span className="mt-0.5 block text-xs text-white/80">
-                  Watch the walkthrough — 46 seconds
-                </span>
+                {caption && (
+                  <span className="mt-0.5 block text-xs text-white/80">{caption}</span>
+                )}
               </span>
             </button>
           )}

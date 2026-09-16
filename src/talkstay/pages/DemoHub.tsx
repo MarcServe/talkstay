@@ -57,9 +57,17 @@ export default function DemoHub() {
             primary CTA below it. Renders nothing until a URL is configured. */}
         {youTubeId(DEMO_VIDEO_URL) && (
           <div className="mx-auto mt-10 max-w-3xl">
-            <DemoVideo />
+            <DemoVideo caption="Watch the walkthrough — 46 seconds" />
             <p className="mt-3 text-center text-sm text-muted-foreground">
               Rather try it yourself? Pick a side below — nothing to install, no signup.
+            </p>
+            <p className="mt-1.5 text-center text-sm">
+              <Link
+                to="/videos"
+                className="font-semibold text-violet-700 underline-offset-4 transition-colors hover:text-violet-900 hover:underline dark:text-violet-300 dark:hover:text-violet-200"
+              >
+                More use-case videos
+              </Link>
             </p>
           </div>
         )}
