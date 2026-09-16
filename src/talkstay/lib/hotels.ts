@@ -547,6 +547,10 @@ export interface AccessibleProperty {
   role: "owner" | "manager" | "staff";
   /** null = all departments; otherwise this member only works one team. */
   departmentKey: string | null;
+  /** Every team they are on here. departmentKey collapses this to one for
+   *  scoping; the full list is what tells someone they have been added to a
+   *  second team. */
+  departmentKeys: string[];
   name: string | null;
 }
 
@@ -663,6 +667,7 @@ export async function getMyAccess(): Promise<HotelAccess> {
       isOwner: true,
       role: "owner",
       departmentKey: null,
+      departmentKeys: [],
       name: null,
     });
   }
@@ -715,6 +720,7 @@ export async function getMyAccess(): Promise<HotelAccess> {
         isOwner: false,
         role,
         departmentKey,
+        departmentKeys: [...new Set(forHotel.map((r) => r.department_key).filter((k): k is string => !!k))],
         name: chosen.name ?? null,
       });
     }

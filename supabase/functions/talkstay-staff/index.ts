@@ -215,18 +215,26 @@ serve(async (req) => {
     };
 
     // Cache Auth users once for bulk lookups (listUsers is expensive per row).
-    let emailToUserId: Map<string, string> | null = null;
+    // canSignIn matters as much as the id: someone invited last week who never
+    // opened the email has an auth row but no password, and still needs a
+    // token link. "Already exists" is not the same as "can get in".
+    type IndexedUser = { id: string; canSignIn: boolean };
+    let emailToUser: Map<string, IndexedUser> | null = null;
     const loadEmailIndex = async () => {
-      if (emailToUserId) return emailToUserId;
-      const map = new Map<string, string>();
+      if (emailToUser) return emailToUser;
+      const map = new Map<string, IndexedUser>();
       for (let page = 1; page <= 20; page++) {
         const { data } = await admin.auth.admin.listUsers({ page, perPage: 200 });
         for (const u of data?.users ?? []) {
-          if (u.email) map.set(u.email.toLowerCase(), u.id);
+          if (!u.email) continue;
+          map.set(u.email.toLowerCase(), {
+            id: u.id,
+            canSignIn: !!(u.email_confirmed_at || u.last_sign_in_at),
+          });
         }
         if (!data?.users || data.users.length < 200) break;
       }
-      emailToUserId = map;
+      emailToUser = map;
       return map;
     };
 
@@ -309,8 +317,44 @@ serve(async (req) => {
         }
       };
 
+      /** No token, no "set your password" — they have one. Just says where
+       *  they have been added and how to get to it. */
+      const sendAddedEmail = async (): Promise<{ sent: boolean; reason?: string }> => {
+        const key = (Deno.env.get("RESEND_API_KEY") || "").trim();
+        if (!key) return { sent: false, reason: "Email sending is not configured (RESEND_API_KEY)." };
+        const deptLabel = department_key ? department_key.replace(/_/g, " ") : "";
+        const where = deptLabel ? `the ${deptLabel} team` : "the team";
+        const html = renderEmail({
+          hotelName: hotel.name ?? "Your hotel",
+          logoUrl: (hotel.branding as any)?.logo_url,
+          accentColor: (hotel.branding as any)?.primary_color,
+          whiteLabel: isWhiteLabel(hotel.branding),
+          heading: `You've been added to ${where}`,
+          bodyHtml: `
+              <p style="margin:0 0 14px;">${escapeHtml(inviterName)} added you to ${escapeHtml(where)} at ${escapeHtml(hotel.name ?? "the property")}. It is already on your dashboard next time you open TalkStay — nothing to set up.</p>`,
+          cta: { label: "Open TalkStay", url: `${PUBLIC_BASE_URL}/app` },
+          footerNote: "You're receiving this because you're on this property's team.",
+        });
+        try {
+          const r = await sendViaResend({
+            from: emailFrom(hotel.name ?? "", isWhiteLabel(hotel.branding), hotel.branding),
+            to: cleanEmail,
+            subject: `You've been added to ${where} at ${hotel.name ?? "a property"}`,
+            html,
+          });
+          if (!r.ok) return { sent: false, reason: r.error };
+          return { sent: true };
+        } catch (e) {
+          return { sent: false, reason: e instanceof Error ? e.message : "Email send failed" };
+        }
+      };
+
       const index = await loadEmailIndex();
-      let userId: string | null = index.get(cleanEmail) ?? null;
+      const known = index.get(cleanEmail) ?? null;
+      let userId: string | null = known?.id ?? null;
+      /** They already have an account they can actually sign in to, so this is
+       *  a reassignment, not an invitation. */
+      let alreadyOnboarded = !!known?.canSignIn;
       let actionLink = "";
       let hashedToken = "";
       let otpType = "invite";
@@ -337,15 +381,18 @@ serve(async (req) => {
 
         if (linkData?.user) {
           userId = linkData.user.id;
-          index.set(cleanEmail, userId);
+          index.set(cleanEmail, { id: userId, canSignIn: false });
           isNewUser = true;
+          alreadyOnboarded = false;
           takeLinkProps(linkData.properties as any, "invite");
         } else {
           // Often: email already registered in the shared TalkWeb project.
           const msg = (lErr?.message || "").toLowerCase();
-          emailToUserId = null;
+          emailToUser = null;
           const refreshed = await loadEmailIndex();
-          userId = refreshed.get(cleanEmail) ?? null;
+          const found = refreshed.get(cleanEmail) ?? null;
+          userId = found?.id ?? null;
+          alreadyOnboarded = !!found?.canSignIn;
 
           if (!userId && (msg.includes("already") || msg.includes("registered") || msg.includes("exists"))) {
             const { data: created } = await admin.auth.admin.createUser({
@@ -361,6 +408,34 @@ serve(async (req) => {
             return { email: cleanEmail, ok: false, error: lErr?.message ?? "Could not create user" };
           }
         }
+      }
+
+      // Someone who can already sign in does not need a password link. Sending
+      // one told a bartender added to a second team that they had been
+      // "invited" and had to set a password they already have — so they get a
+      // plain notice instead, and no token is minted at all.
+      if (alreadyOnboarded) {
+        const { error: upsertErr } = await admin.from("ts_staff").upsert(
+          {
+            hotel_id: hotelId,
+            user_id: userId,
+            department_key,
+            role: normalizeRole(opts.role),
+            status: "active",
+            name: staffName,
+          },
+          { onConflict: "hotel_id,user_id,department_key" }
+        );
+        if (upsertErr) return { email: cleanEmail, ok: false, error: upsertErr.message };
+        const mailAdded = await sendAddedEmail();
+        return {
+          email: cleanEmail,
+          ok: true,
+          invited: false,
+          added: true,
+          emailSent: mailAdded.sent,
+          emailError: mailAdded.sent ? undefined : mailAdded.reason,
+        };
       }
 
       // Always mint a fresh email token for this send/resend. Prefer magiclink for
