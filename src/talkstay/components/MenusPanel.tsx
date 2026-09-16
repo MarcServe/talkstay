@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import {
-  Loader2, Plus, Trash2, Search, Camera, FileText, Check, X,
+  Loader2, Plus, Trash2, Search, Camera, FileText, Check, X, ImageIcon,
 } from "lucide-react";
 import {
   listCatalogItems, addCatalogItem, updateCatalogItem, deleteCatalogItem,
@@ -69,6 +69,8 @@ export default function MenusPanel({ hotel }: { hotel: Hotel }) {
   const [scanOpen, setScanOpen] = useState(false);
   const [cards, setCards] = useState<KnowledgeCard[]>([]);
   const [cardsOpen, setCardsOpen] = useState(false);
+  const cameraRef = useRef<HTMLInputElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   // useHotelDepartments already returns only the active ones.
   const activeDepts = departments;
@@ -251,6 +253,52 @@ export default function MenusPanel({ hotel }: { hotel: Hotel }) {
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Couldn't read that menu");
     } finally { setScanBusy(false); }
+  };
+
+  /** Photo, PDF or document → text or a public image URL → the same review
+   *  list as a paste. Images go through scan_menu's vision path; documents are
+   *  read to text first, because a PDF of a menu is text, not a picture. */
+  const onScanFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setScanBusy(true);
+    try {
+      const lower = file.name.toLowerCase();
+      const isImage = file.type.startsWith("image/") || /\.(png|jpe?g|heic|heif|webp)$/.test(lower);
+
+      if (isImage) {
+        const path = `talkstay/${hotel.id}/menu-${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.\-]/g, "_")}`;
+        const { error } = await supabase.storage.from("logos").upload(path, file, { upsert: true });
+        if (error) throw error;
+        const { data } = supabase.storage.from("logos").getPublicUrl(path);
+        setScanBusy(false);
+        await runScan({ imageUrl: data.publicUrl }, newDept);
+        return;
+      }
+
+      let text: string;
+      if (lower.endsWith(".pdf")) {
+        const { parseClientPDF } = await import("@/utils/clientPDFParser");
+        const result = await parseClientPDF(file, file.name);
+        text = result.pages.map((pg) => pg.content).join("\n\n").trim();
+      } else {
+        const fd = new FormData();
+        fd.append("file", file);
+        fd.append("fileName", file.name);
+        const { data: parsed, error: pErr } = await supabase.functions.invoke("parse-document", { body: fd });
+        if (pErr) throw new Error("Couldn't read that document.");
+        text = ((parsed?.pages ?? []) as { content?: string }[]).map((pg) => pg.content || "").join("\n\n").trim();
+      }
+      if (text.length < 20) {
+        throw new Error("No readable text in that file. If it's a scanned menu, photograph it instead.");
+      }
+      setScanBusy(false);
+      await runScan({ text }, newDept);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Upload failed");
+      setScanBusy(false);
+    }
   };
 
   const loadCards = async () => {
@@ -451,7 +499,45 @@ export default function MenusPanel({ hotel }: { hotel: Hotel }) {
         </div>
 
         {scanOpen && (
-          <div className="space-y-2 rounded-lg border border-dashed p-3">
+          <div className="space-y-3 rounded-lg border border-dashed p-3">
+            <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={onScanFile} />
+            <input ref={fileRef} type="file" accept="image/*,.pdf,.doc,.docx,.txt,.md,.csv,.rtf" className="hidden" onChange={onScanFile} />
+            <div className="grid gap-2 sm:grid-cols-3">
+              <button
+                type="button"
+                disabled={scanBusy}
+                onClick={() => cameraRef.current?.click()}
+                className="flex items-center gap-2.5 rounded-xl border border-dashed px-3 py-2.5 text-left transition hover:bg-muted/40 disabled:opacity-60"
+              >
+                <Camera className="h-4 w-4 shrink-0" />
+                <span className="min-w-0">
+                  <span className="block text-sm font-medium">Take photo</span>
+                  <span className="block text-[11px] text-muted-foreground">Opens the camera on a phone</span>
+                </span>
+              </button>
+              <button
+                type="button"
+                disabled={scanBusy}
+                onClick={() => fileRef.current?.click()}
+                className="flex items-center gap-2.5 rounded-xl border border-dashed px-3 py-2.5 text-left transition hover:bg-muted/40 disabled:opacity-60"
+              >
+                <ImageIcon className="h-4 w-4 shrink-0" />
+                <span className="min-w-0">
+                  <span className="block text-sm font-medium">Photo or PDF</span>
+                  <span className="block text-[11px] text-muted-foreground">Image, PDF or document</span>
+                </span>
+              </button>
+              <div className="flex items-center rounded-xl border border-dashed px-3 py-2.5 text-[11px] text-muted-foreground">
+                {scanBusy
+                  ? "Reading…"
+                  : "Nothing is added until you confirm the list."}
+              </div>
+            </div>
+            <div className="relative py-1 text-center">
+              <span className="bg-card px-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                or paste it
+              </span>
+            </div>
             <textarea
               value={pasted} onChange={(e) => setPasted(e.target.value)}
               rows={4}
