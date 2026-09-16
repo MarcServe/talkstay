@@ -5,12 +5,12 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Loader2, Plus, Trash2, X, MapPin, ChevronRight, Info, UtensilsCrossed } from "lucide-react";
+import { Loader2, Plus, Trash2, X, MapPin, ChevronRight, Info, UtensilsCrossed, Lock } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { listRooms, listCatalogItems, setCalloutDepartment, setOwnerUrgentCopy, type Hotel, type Room } from "@/talkstay/lib/hotels";
 import { formatRoomLabel } from "@/talkstay/lib/roomLabel";
 
-interface StaffRow { id: string; user_id: string; name: string | null; email: string; department_key: string | null; room_id?: string | null; }
+interface StaffRow { id: string; user_id: string; name: string | null; email: string; department_key: string | null; room_id?: string | null; venue_locked?: boolean | null; }
 
 /** Small caps label that turns each stacked block in a team row into a named
  *  section instead of a run-on line. */
@@ -111,6 +111,23 @@ export default function DepartmentsPanel({ hotel }: { hotel: Hotel }) {
     if (error) { toast.error(error.message); return; }
     refresh();
   };
+  /** Assignment alone only prioritises alerts. The lock is what narrows what
+   *  they can open, so it is a deliberate click rather than a side effect of
+   *  putting someone on a venue. */
+  const toggleVenueLock = async (row: StaffRow) => {
+    const next = !row.venue_locked;
+    setRoster((prev) => prev.map((r) => (r.id === row.id ? { ...r, venue_locked: next } : r)));
+    const { error } = await supabase.from("ts_staff").update({ venue_locked: next }).eq("id", row.id);
+    if (error) {
+      setRoster((prev) => prev.map((r) => (r.id === row.id ? { ...r, venue_locked: !next } : r)));
+      toast.error(error.message);
+      return;
+    }
+    toast.success(next
+      ? `${row.name || row.email} now only sees ${publicAreas.find((a) => a.id === row.room_id)?.room_number ?? "that area"}.`
+      : `${row.name || row.email} can see the whole team's queue again.`);
+  };
+
   const unassign = async (staffRowId: string) => {
     const { error } = await supabase.from("ts_staff").delete().eq("id", staffRowId);
     if (error) { toast.error(error.message); return; }
@@ -320,9 +337,21 @@ export default function DepartmentsPanel({ hotel }: { hotel: Hotel }) {
                   <span key={s.id} className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs">
                     {s.name || s.email}
                     {area && (
-                      <span className="rounded-full bg-sky-100 dark:bg-sky-400/15 px-1.5 text-[10px] font-medium text-sky-900 dark:text-sky-200">
+                      <button
+                        type="button"
+                        onClick={() => void toggleVenueLock(s)}
+                        title={s.venue_locked
+                          ? `${s.name || s.email} only sees ${area.room_number}. Click to give them the whole team's queue.`
+                          : `${s.name || s.email} is alerted first for ${area.room_number} but sees the whole team. Click to limit them to ${area.room_number}.`}
+                        className={`inline-flex items-center gap-1 rounded-full px-1.5 text-[10px] font-medium transition-colors ${
+                          s.venue_locked
+                            ? "bg-violet-600 text-white"
+                            : "bg-sky-100 text-sky-900 hover:bg-sky-200 dark:bg-sky-400/15 dark:text-sky-200 dark:hover:bg-sky-400/25"
+                        }`}
+                      >
+                        {s.venue_locked && <Lock className="h-2.5 w-2.5" />}
                         {area.room_number}
-                      </span>
+                      </button>
                     )}
                     <button onClick={() => unassign(s.id)} aria-label="remove"><X className="h-3 w-3 text-muted-foreground" /></button>
                   </span>

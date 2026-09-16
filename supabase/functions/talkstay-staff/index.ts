@@ -416,15 +416,25 @@ serve(async (req) => {
 
     // ------- list -------
     if (action === "list") {
-      let q = admin
-        .from("ts_staff")
-        .select("id, user_id, department_key, role, status, name, room_id, created_at")
-        .eq("hotel_id", hotelId)
-        .order("created_at", { ascending: true });
-      if (isDeptManager && callerStaff?.department_key) {
-        q = q.eq("department_key", callerStaff.department_key);
+      // venue_locked is newer than the rest of these columns; a database that
+      // has not run that migration errors on the whole select, and an empty
+      // Staff tab is a far worse outcome than one without the lock flag.
+      const listQuery = (cols: string) => {
+        let q = admin
+          .from("ts_staff")
+          .select(cols)
+          .eq("hotel_id", hotelId)
+          .order("created_at", { ascending: true });
+        if (isDeptManager && callerStaff?.department_key) {
+          q = q.eq("department_key", callerStaff.department_key);
+        }
+        return q;
+      };
+      let res = await listQuery("id, user_id, department_key, role, status, name, room_id, venue_locked, created_at");
+      if (res.error) {
+        res = await listQuery("id, user_id, department_key, role, status, name, room_id, created_at");
       }
-      const { data: staff } = await q;
+      const staff = res.data;
 
       const rowsOut = await Promise.all(
         (staff ?? []).map(async (s: any) => {
