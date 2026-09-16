@@ -40,7 +40,7 @@ export default function DemoHub() {
 
       <main className="mx-auto max-w-5xl px-6 pb-20">
         <div className="text-center">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
             Interactive demos · no signup · no download
           </p>
           <h1 className="mt-3 text-3xl font-bold tracking-tight sm:text-5xl">
@@ -57,9 +57,17 @@ export default function DemoHub() {
             primary CTA below it. Renders nothing until a URL is configured. */}
         {youTubeId(DEMO_VIDEO_URL) && (
           <div className="mx-auto mt-10 max-w-3xl">
-            <DemoVideo />
+            <DemoVideo caption="Watch the walkthrough — 46 seconds" />
             <p className="mt-3 text-center text-sm text-muted-foreground">
               Rather try it yourself? Pick a side below — nothing to install, no signup.
+            </p>
+            <p className="mt-1.5 text-center text-sm">
+              <Link
+                to="/videos"
+                className="font-semibold text-violet-700 underline-offset-4 transition-colors hover:text-violet-900 hover:underline dark:text-violet-300 dark:hover:text-violet-200"
+              >
+                More use-case videos
+              </Link>
             </p>
           </div>
         )}
@@ -99,7 +107,7 @@ export default function DemoHub() {
                 Guest Experience Demo
                 <ArrowRight className="ml-1.5 h-4 w-4 transition-transform group-hover:translate-x-1" />
               </span>
-              <p className="mt-2 text-[11px] text-violet-800/60">
+              <p className="mt-2 text-[11px] text-violet-800/85">
                 Opens Room 306 · The Grand Hotel II
               </p>
             </div>
@@ -128,7 +136,7 @@ export default function DemoHub() {
               <p className="mt-1 text-lg font-semibold tracking-tight text-teal-950 sm:text-xl">
                 I'm Hotel Staff
               </p>
-              <p className="mt-0.5 text-sm text-teal-800/75">Live queue &amp; departments</p>
+              <p className="mt-0.5 text-sm text-teal-800/90">Live queue &amp; departments</p>
               <p className="mt-3 text-sm leading-relaxed text-slate-600">
                 See incoming requests, auto-routing by department, accept → complete,
                 guest confirmation, reviews, and Insights — then switch roles to feel each queue.
@@ -137,7 +145,7 @@ export default function DemoHub() {
                 Operations Dashboard Demo
                 <ArrowRight className="ml-1.5 h-4 w-4 transition-transform group-hover:translate-x-1" />
               </span>
-              <p className="mt-3 text-[11px] text-teal-900/60">
+              <p className="mt-3 text-[11px] text-teal-900/85">
                 Owner view · switch to a department role anytime · linked with Guest demo
               </p>
             </div>
@@ -146,7 +154,7 @@ export default function DemoHub() {
 
         <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
           <div className="flex gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-700">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-700 dark:bg-white/10 dark:text-slate-200">
               <Shield className="h-5 w-5" />
             </div>
             <div>
@@ -157,18 +165,18 @@ export default function DemoHub() {
                 department plus Insights. Switch roles inside the Operations demo to feel that
                 difference.
               </p>
-              <ul className="mt-3 grid gap-2 text-sm text-muted-foreground sm:grid-cols-3">
-                <li className="flex items-start gap-2 rounded-lg border border-violet-100 bg-violet-50/60 px-2.5 py-2">
-                  <Users className="mt-0.5 h-4 w-4 shrink-0 text-violet-600" />
-                  <span><span className="font-medium text-violet-950">Staff</span> — one department queue</span>
+              <ul className="mt-3 grid gap-2 text-sm text-muted-foreground dark:text-slate-300 sm:grid-cols-3">
+                <li className="flex items-start gap-2 rounded-lg border border-violet-100 bg-violet-50/60 px-2.5 py-2 dark:border-violet-400/25 dark:bg-violet-400/10">
+                  <Users className="mt-0.5 h-4 w-4 shrink-0 text-violet-600 dark:text-violet-300" />
+                  <span><span className="font-medium text-violet-950 dark:text-violet-200">Staff</span> — one department queue</span>
                 </li>
-                <li className="flex items-start gap-2 rounded-lg border border-teal-100 bg-teal-50/60 px-2.5 py-2">
-                  <Shield className="mt-0.5 h-4 w-4 shrink-0 text-teal-700" />
-                  <span><span className="font-medium text-teal-950">Manager</span> — all queues + Insights</span>
+                <li className="flex items-start gap-2 rounded-lg border border-teal-100 bg-teal-50/60 px-2.5 py-2 dark:border-teal-400/25 dark:bg-teal-400/10">
+                  <Shield className="mt-0.5 h-4 w-4 shrink-0 text-teal-700 dark:text-teal-300" />
+                  <span><span className="font-medium text-teal-950 dark:text-teal-200">Manager</span> — all queues + Insights</span>
                 </li>
-                <li className="flex items-start gap-2 rounded-lg border border-amber-100 bg-amber-50/60 px-2.5 py-2">
-                  <QrCode className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
-                  <span><span className="font-medium text-amber-950">Owner</span> — full setup + team invites</span>
+                <li className="flex items-start gap-2 rounded-lg border border-amber-100 bg-amber-50/60 px-2.5 py-2 dark:border-amber-400/25 dark:bg-amber-400/10">
+                  <QrCode className="mt-0.5 h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" />
+                  <span><span className="font-medium text-amber-950 dark:text-amber-200">Owner</span> — full setup + team invites</span>
                 </li>
               </ul>
             </div>

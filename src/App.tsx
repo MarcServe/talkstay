@@ -25,6 +25,7 @@ const TermsOfUsePage = lazy(() => import("@/talkstay/pages/legal/TermsOfUsePage"
 const CookiePolicyPage = lazy(() => import("@/talkstay/pages/legal/CookiePolicyPage"));
 const AcceptableUsePage = lazy(() => import("@/talkstay/pages/legal/AcceptableUsePage"));
 const DataProcessingPage = lazy(() => import("@/talkstay/pages/legal/DataProcessingPage"));
+const VideosPage = lazy(() => import("@/talkstay/pages/VideosPage"));
 const SupportPage = lazy(() => import("@/talkstay/pages/SupportPage"));
 const UnsubscribePage = lazy(() => import("@/talkstay/pages/UnsubscribePage"));
 
@@ -69,6 +70,8 @@ const App = () => (
               <Route path="/acceptable-use" element={<AcceptableUsePage />} />
               <Route path="/data-processing" element={<DataProcessingPage />} />
               <Route path="/support" element={<SupportPage />} />
+              {/* Use-case video collection */}
+              <Route path="/videos" element={<VideosPage />} />
               <Route path="/unsubscribe" element={<UnsubscribePage />} />
 
               {/* Guest PWA — scanned from a room QR code */}

@@ -530,6 +530,14 @@ export default function Landing() {
           </div>
           <div className="mx-auto mt-10 max-w-4xl">
             <DemoVideo videoId={DEMO_VIDEO_ID} />
+            <p className="mt-4 text-center text-sm">
+              <Link
+                to="/videos"
+                className="font-semibold text-violet-700 underline-offset-4 transition-colors hover:text-violet-900 hover:underline dark:text-violet-300 dark:hover:text-violet-200"
+              >
+                See more use-case videos
+              </Link>
+            </p>
           </div>
 
           {/* Clear break so the interactive CTAs don't crowd the video. */}
@@ -721,6 +729,7 @@ export default function Landing() {
             <span>© {new Date().getFullYear()} TalkStay by TalkWeb</span>
           </Link>
           <div className="flex flex-wrap gap-x-4 gap-y-2">
+            <Link to="/videos" className="transition-colors hover:text-foreground">Videos</Link>
             <Link to="/support" className="transition-colors hover:text-foreground">Support</Link>
             <Link to="/privacy" className="transition-colors hover:text-foreground">Privacy</Link>
             <Link to="/terms" className="transition-colors hover:text-foreground">Terms</Link>
