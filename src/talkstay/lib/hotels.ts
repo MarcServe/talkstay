@@ -550,6 +550,10 @@ export interface AccessibleProperty {
   /** Venue this member covers, when they are locked to one. Null = the whole
    *  department, which is every venue plus room requests. */
   venueRoomId: string | null;
+  /** Every team they are on here. departmentKey collapses this to one for
+   *  scoping; the full list is what tells someone they have been added to a
+   *  second team. */
+  departmentKeys: string[];
   name: string | null;
 }
 
@@ -677,6 +681,7 @@ export async function getMyAccess(): Promise<HotelAccess> {
       role: "owner",
       departmentKey: null,
       venueRoomId: null,
+      departmentKeys: [],
       name: null,
     });
   }
@@ -737,6 +742,7 @@ export async function getMyAccess(): Promise<HotelAccess> {
         role,
         departmentKey,
         venueRoomId: allLocked ? (deptRows[0].room_id ?? null) : null,
+        departmentKeys: [...new Set(forHotel.map((r) => r.department_key).filter((k): k is string => !!k))],
         name: chosen.name ?? null,
       });
     }

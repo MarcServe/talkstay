@@ -16,7 +16,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { DEPARTMENTS, type Hotel } from "@/talkstay/lib/hotels";
+import { DEPARTMENTS, listRooms, type Hotel } from "@/talkstay/lib/hotels";
 import { formatRoomLabel, guestStayLabel } from "@/talkstay/lib/roomLabel";
 import type { OpsRequest, OpsTimeRange } from "@/talkstay/lib/data";
 import { OPEN_STATUSES } from "@/talkstay/lib/data";
@@ -219,6 +219,10 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, locked
   const [boardFocus, setBoardFocus] = useState<BoardFocus>(null);
   const [origin, setOrigin] = useState<OriginFilter>("all");
   const [locationFilter, setLocationFilter] = useState<LocationFilter>("all");
+  /** One named venue — "the pool bar", not just "somewhere public". Empty
+   *  string is every area. */
+  const [venueFilter, setVenueFilter] = useState<string>("");
+  const [venues, setVenues] = useState<{ id: string; room_number: string }[]>([]);
   const [paymentFilter, setPaymentFilter] = useState<PaymentFilter>("all");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [summaryOpen, setSummaryOpen] = useState(() => {
@@ -461,6 +465,20 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, locked
     return isGuestOrigin(r.source);
   };
 
+  useEffect(() => {
+    let cancelled = false;
+    listRooms(hotel.id)
+      .then((rooms) => {
+        if (cancelled) return;
+        setVenues(rooms.filter((r) => !!r.is_public).map((r) => ({ id: r.id, room_number: r.room_number })));
+      })
+      .catch(() => { /* the filter is a convenience — never block the queue */ });
+    return () => { cancelled = true; };
+  }, [hotel.id]);
+
+  const matchesVenue = (r: Req, venueId: string) =>
+    !venueId || r.room_id === venueId;
+
   const matchesLocation = (r: Req, loc: LocationFilter) => {
     if (loc === "all") return true;
     const isPublic = !!r.ts_rooms?.is_public;
@@ -493,11 +511,12 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, locked
       && matchesBoardFocus(r, boardFocus)
       && matchesOrigin(r, origin)
       && matchesLocation(r, locationFilter)
+      && matchesVenue(r, venueFilter)
       && matchesPayment(r, paymentFilter)
       && matchesRoomSearch(r),
     ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [reqs, filter, dept, escalations, timeRange, boardFocus, ack, roomQuery, origin, locationFilter, paymentFilter]
+    [reqs, filter, dept, escalations, timeRange, boardFocus, ack, roomQuery, origin, locationFilter, venueFilter, paymentFilter]
   );
 
   /** Room lookup ignores status pills so staff can find any open/closed ticket fast. */
@@ -528,6 +547,7 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, locked
     setOrigin("all");
     setLocationFilter("all");
     setPaymentFilter("all");
+    setVenueFilter("");
     if (!lockedDepartment) setDept("all");
   };
 
@@ -546,6 +566,13 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, locked
       : []),
     ...(locationFilter !== "all"
       ? [{ key: "location", label: LOCATION_LABEL[locationFilter], clear: () => { setLocationFilter("all"); setBoardFocus(null); } }]
+      : []),
+    ...(venueFilter
+      ? [{
+          key: "venue",
+          label: formatRoomLabel(venues.find((v) => v.id === venueFilter)?.room_number) ?? "Venue",
+          clear: () => { setVenueFilter(""); setBoardFocus(null); },
+        }]
       : []),
     ...(paymentFilter !== "all"
       ? [{ key: "payment", label: PAYMENT_FILTER_LABEL[paymentFilter], clear: () => { setPaymentFilter("all"); setBoardFocus(null); } }]
@@ -1074,6 +1101,27 @@ export default function OperationsPanel({ hotel, lockedDepartment = null, locked
                     ))}
                   </div>
                 </div>
+
+                {venues.length > 0 && (
+                  <div>
+                    <p className={FILTER_GROUP_LABEL}>Area</p>
+                    <select
+                      className="w-full rounded-md border bg-background px-2 py-1.5 text-sm"
+                      value={venueFilter}
+                      aria-label="Filter by venue"
+                      onChange={(e) => { setVenueFilter(e.target.value); setBoardFocus(null); }}
+                    >
+                      <option value="">Every area</option>
+                      {venues.map((v) => (
+                        <option key={v.id} value={v.id}>{formatRoomLabel(v.room_number)}</option>
+                      ))}
+                    </select>
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      Narrower than Location — one named bar or terrace rather than
+                      every public area.
+                    </p>
+                  </div>
+                )}
 
                 {!lockedDepartment && (
                   <div>
