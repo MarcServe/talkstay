@@ -10,8 +10,14 @@
     <!-- ChatGPT Ads measurement pixel. Near the top of <head> so a conversion
          can't be lost while the rest of the page loads.
 
-         Switched on by VITE_OPENAI_PIXEL_ID at build time; with no id set
-         (local dev, previews) nothing is fetched and no cookie is written.
+         The pixel id is public — it ships in the page either way — so it is
+         baked in rather than left as deploy configuration to forget. Set
+         VITE_OPENAI_PIXEL_ID to point a build at a different data source.
+
+         Skipped on localhost and *.vercel.app, so development and preview
+         deployments never pollute the live numbers. The rule fails OPEN on
+         any other host: a production domain we have not thought of should
+         start measuring, not silently stop.
 
          Deliberately skipped on /h/… and /app/… — a guest in their room and a
          member of staff at work are product, not ad traffic, and an ad
@@ -19,7 +25,9 @@
     <script>
       (function (w, d, s, u) {
         var id = "%VITE_OPENAI_PIXEL_ID%";
-        if (!id || id.charAt(0) === "%") return;
+        if (!id || id.charAt(0) === "%") id = "Dhsy3hdFeDnqs1YL9ABhtW";
+        var h = d.location.hostname;
+        if (h === "localhost" || h === "127.0.0.1" || /\.vercel\.app$/.test(h)) return;
         if (/^\/(h|app)(\/|$)/.test(d.location.pathname)) return;
         if (w.oaiq) return;
         var q = function () {
