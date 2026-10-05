@@ -3,7 +3,9 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
+import { useEffect } from "react";
+import { adsPageViewed } from "@/talkstay/lib/ads";
 import { ThemeProvider } from "next-themes";
 import Landing from "@/talkstay/pages/Landing";
 
@@ -40,6 +42,21 @@ const queryClient = new QueryClient({
   },
 });
 
+/**
+ * One page_viewed per route, including the first.
+ *
+ * The pixel does not do this for a single-page app — without it, a campaign
+ * reports clicks and the Event Stream stays empty, which tells you nothing
+ * about whether anyone arrived. `adsPageViewed` ignores the product routes.
+ */
+const AdsPageViews = () => {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    adsPageViewed(pathname);
+  }, [pathname]);
+  return null;
+};
+
 const PageFallback = () => (
   <div className="min-h-screen flex items-center justify-center text-muted-foreground">
     Loading…
@@ -53,6 +70,7 @@ const App = () => (
         <Toaster />
         <Sonner />
         <BrowserRouter>
+          <AdsPageViews />
           <Suspense fallback={<PageFallback />}>
             <Routes>
               {/* Marketing */}

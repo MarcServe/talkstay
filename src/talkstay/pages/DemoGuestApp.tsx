@@ -20,6 +20,7 @@ import ForceLightTheme from "@/talkstay/components/ForceLightTheme";
 import {
   fetchDemoContext, sendDemoMessage, type ChatMsg, type GuestRequest,
 } from "@/talkstay/lib/guest";
+import { adsDemoOpened } from "@/talkstay/lib/ads";
 
 const BRAND = "#4c2bb8";
 const ROOM = "306";
@@ -1073,6 +1074,7 @@ function DemoGuestInner() {
  * Marketing guest demo — full stay loop synced with /demo/operations.
  */
 export default function DemoGuestApp() {
+  useEffect(() => adsDemoOpened("guest"), []);
   return (
     <DemoProvider>
       <ForceLightTheme />

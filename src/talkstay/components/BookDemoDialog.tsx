@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Loader2, X, CalendarCheck, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
+import { adsLeadCreated } from "@/talkstay/lib/ads";
 
 /**
  * "Book a live demo" — a lead form, deliberately not a scheduler. There is no
@@ -44,6 +45,8 @@ export default function BookDemoDialog({ onClose }: { onClose: () => void }) {
       if (error) throw error;
       if ((data as { error?: string })?.error) throw new Error((data as { error: string }).error);
       setSent(true);
+      // Only after the request is actually filed — never on opening the form.
+      adsLeadCreated();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Couldn't send that — please try again.");
     } finally {

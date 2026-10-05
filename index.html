@@ -7,6 +7,35 @@
     <link rel="icon" type="image/png" href="/favicon-32.png" sizes="32x32" />
     <link rel="icon" type="image/png" href="/favicon-48.png" sizes="48x48" />
 
+    <!-- ChatGPT Ads measurement pixel. Near the top of <head> so a conversion
+         can't be lost while the rest of the page loads.
+
+         Switched on by VITE_OPENAI_PIXEL_ID at build time; with no id set
+         (local dev, previews) nothing is fetched and no cookie is written.
+
+         Deliberately skipped on /h/… and /app/… — a guest in their room and a
+         member of staff at work are product, not ad traffic, and an ad
+         network has no business setting cookies on a hotel guest's phone. -->
+    <script>
+      (function (w, d, s, u) {
+        var id = "%VITE_OPENAI_PIXEL_ID%";
+        if (!id || id.charAt(0) === "%") return;
+        if (/^\/(h|app)(\/|$)/.test(d.location.pathname)) return;
+        if (w.oaiq) return;
+        var q = function () {
+          q.q.push(arguments);
+        };
+        q.q = [];
+        w.oaiq = q;
+        var js = d.createElement(s);
+        js.async = true;
+        js.src = u;
+        var f = d.getElementsByTagName(s)[0];
+        f.parentNode.insertBefore(js, f);
+        w.oaiq("init", { pixelId: id });
+      })(window, document, "script", "https://bzrcdn.openai.com/sdk/oaiq.min.js");
+    </script>
+
     <!-- PWA manifest is injected by vite-plugin-pwa (manifest.webmanifest). -->
     <meta name="theme-color" content="#7c3aed" />
 

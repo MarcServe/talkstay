@@ -22,6 +22,7 @@ import {
 } from "@/talkstay/demo/DemoContext";
 import { DEPARTMENTS } from "@/talkstay/lib/hotels";
 import NoIndexMeta from "@/talkstay/components/NoIndexMeta";
+import { adsDemoOpened } from "@/talkstay/lib/ads";
 
 /** Same three sections as the real sidebar — nine flat links read as one
  *  undifferentiated list in the demo too. */
@@ -343,5 +344,8 @@ function DemoShell() {
 
 /** Staff operations sandbox — routed at /demo/operations */
 export default function DemoApp() {
+  // Opening a demo is the strongest mid-funnel signal this site has: it is
+  // what separates a click that bounced from one that is actually looking.
+  useEffect(() => adsDemoOpened("operations"), []);
   return <DemoShell />;
 }

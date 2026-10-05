@@ -9,6 +9,7 @@ import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
 import { Eye, EyeOff, Linkedin, Lock, Mail } from "lucide-react";
 import type { Provider } from "@supabase/supabase-js";
 import { captureReferralFromSearch, ensurePartnersLoaded } from "@/talkstay/lib/partners";
+import { adsRegistrationCompleted } from "@/talkstay/lib/ads";
 
 const SIDE_PHOTO = "/marketing/auth-side.jpg";
 
@@ -429,6 +430,7 @@ export default function AuthPage() {
           options: { emailRedirectTo: `${window.location.origin}/app` },
         });
         if (error) throw error;
+        adsRegistrationCompleted();
         toast.success("Account created — check your email to confirm it before signing in.");
       }
     } catch (err: any) {
