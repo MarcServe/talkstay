@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Loader2, X, CalendarCheck, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
-import { adsLeadCreated } from "@/talkstay/lib/ads";
+import { adsConversionRef, adsLeadCreated } from "@/talkstay/lib/ads";
 
 /**
  * "Book a live demo" — a lead form, deliberately not a scheduler. There is no
@@ -34,19 +34,24 @@ export default function BookDemoDialog({ onClose }: { onClose: () => void }) {
       let source: string | undefined;
       try { source = localStorage.getItem("talkstay:referral") ?? undefined; } catch { /* ignore */ }
 
+      // Minted before the request so the server can report the same
+      // conversion under the same id, and carrying the attribution cookies
+      // the server has no other way to see.
+      const ads = adsConversionRef("lead");
+
       const { data, error } = await supabase.functions.invoke("talkstay-admin", {
         body: {
           action: "submit_demo_request",
           name: name.trim(), email: email.trim(), company: company.trim(),
           phone: phone.trim(), preferredTime: preferredTime.trim(),
-          message: message.trim(), source,
+          message: message.trim(), source, ads,
         },
       });
       if (error) throw error;
       if ((data as { error?: string })?.error) throw new Error((data as { error: string }).error);
       setSent(true);
       // Only after the request is actually filed — never on opening the form.
-      adsLeadCreated();
+      adsLeadCreated(ads);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Couldn't send that — please try again.");
     } finally {

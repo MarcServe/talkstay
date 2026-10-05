@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { renderEmail, quoteBlock, escapeHtml, sendViaResend, DEFAULT_FROM } from "../_shared/email.ts";
+import { readAdsAttribution, sendAdsConversion } from "../_shared/ads.ts";
 
 const PUBLIC_BASE_URL = "https://talkstay.talkweb.io";
 
@@ -61,6 +62,16 @@ serve(async (req) => {
           source: str((early as any).source, 64) || null,
         });
         if (insErr) return json({ error: insErr.message }, 400);
+
+        // Report the conversion server-side too. Same id as the pixel fired,
+        // so whichever arrives first wins and the other is ignored — which
+        // means an ad blocker no longer costs us a measured lead.
+        void sendAdsConversion({
+          type: "lead_created",
+          attribution: readAdsAttribution((early as any).ads),
+          email,
+          req,
+        });
 
         // Tell the platform admin, or a lead sits unseen until someone opens
         // the dashboard.

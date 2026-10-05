@@ -51,11 +51,54 @@ export function adsPageViewed(pathname: string) {
 }
 
 /**
+ * The identity a conversion is reported under, minted in the browser before
+ * the request that completes it so the pixel and our server can both use it.
+ *
+ * `oppref` is the click identifier the pixel stored from the landing URL and
+ * `obref` its browser reference. The Conversions API does not capture either
+ * — unlike the pixel, it is told rather than reading them — so they have to
+ * travel with the request or the server event matches no ad click.
+ */
+export interface AdsConversionRef {
+  eventId: string;
+  oppref?: string;
+  obref?: string;
+  sourceUrl?: string;
+}
+
+function cookie(name: string): string | undefined {
+  if (typeof document === "undefined") return undefined;
+  const hit = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
+  if (!hit) return undefined;
+  try {
+    return decodeURIComponent(hit[1]) || undefined;
+  } catch {
+    return hit[1] || undefined;
+  }
+}
+
+export function adsConversionRef(kind: string): AdsConversionRef {
+  const unique =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  return {
+    eventId: `${kind}_${unique}`,
+    oppref: cookie("__oppref"),
+    obref: cookie("__obref"),
+    sourceUrl: typeof window !== "undefined" ? window.location.href : undefined,
+  };
+}
+
+/**
  * Someone asked us to contact them — the demo-request form.
  * This is the conversion the campaign is actually buying.
+ *
+ * Reported from the server as well, under `ref.eventId`. OpenAI keeps the
+ * first of the pair to arrive, so this call being blocked costs nothing.
  */
-export function adsLeadCreated() {
-  measure("lead_created", { type: "customer_action" });
+export function adsLeadCreated(ref: AdsConversionRef) {
+  measure("lead_created", { type: "customer_action" }, { event_id: ref.eventId });
 }
 
 /** A property created an account. */
