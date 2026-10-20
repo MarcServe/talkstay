@@ -5,7 +5,7 @@ import DemoRequestForm from "@/talkstay/components/DemoRequestForm";
 import {
   SALES_EMAIL, MAILTO_SALES,
   SUPPORT_PHONE, TEL_SUPPORT,
-  SUPPORT_ADDRESS, LINKEDIN_URL,
+  PUBLIC_LOCATION, LINKEDIN_URL,
 } from "@/config/contact";
 
 /**
@@ -100,7 +100,7 @@ export default function ContactPage() {
                   <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-violet-600 dark:text-violet-300" />
                   <span>
                     <span className="block text-xs text-muted-foreground">Where we are</span>
-                    <span className="font-medium">{SUPPORT_ADDRESS}</span>
+                    <span className="font-medium">{PUBLIC_LOCATION}</span>
                   </span>
                 </li>
               </ul>
