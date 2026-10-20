@@ -3,7 +3,7 @@ import { ArrowRight, Mail, Phone, Linkedin, MapPin, LifeBuoy } from "lucide-reac
 import TalkStayLogo from "@/talkstay/components/TalkStayLogo";
 import DemoRequestForm from "@/talkstay/components/DemoRequestForm";
 import {
-  SALES_EMAIL, MAILTO_SALES,
+  SUPPORT_EMAIL, MAILTO_SUPPORT,
   SUPPORT_PHONE, TEL_SUPPORT,
   PUBLIC_LOCATION, LINKEDIN_URL,
 } from "@/config/contact";
@@ -67,9 +67,9 @@ export default function ContactPage() {
                 <li className="flex items-start gap-3">
                   <Mail className="mt-0.5 h-4 w-4 shrink-0 text-violet-600 dark:text-violet-300" />
                   <span>
-                    <span className="block text-xs text-muted-foreground">Sales</span>
-                    <a href={MAILTO_SALES} className="font-medium text-violet-700 underline-offset-4 hover:underline dark:text-violet-300">
-                      {SALES_EMAIL}
+                    <span className="block text-xs text-muted-foreground">Email</span>
+                    <a href={MAILTO_SUPPORT} className="font-medium text-violet-700 underline-offset-4 hover:underline dark:text-violet-300">
+                      {SUPPORT_EMAIL}
                     </a>
                   </span>
                 </li>
