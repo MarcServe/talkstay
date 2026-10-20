@@ -433,6 +433,7 @@ export default function Landing() {
           <a href="#demo" className="transition-colors hover:text-foreground">Watch demo</a>
           <a href="#why" className="transition-colors hover:text-foreground">Why TalkStay</a>
           <a href="#properties" className="transition-colors hover:text-foreground">For properties</a>
+          <Link to="/contact" className="transition-colors hover:text-foreground">Talk to us</Link>
         </nav>
         <div className="flex items-center gap-2">
           {user ? (
@@ -729,6 +730,7 @@ export default function Landing() {
             <span>© {new Date().getFullYear()} TalkStay by TalkWeb</span>
           </Link>
           <div className="flex flex-wrap gap-x-4 gap-y-2">
+            <Link to="/contact" className="transition-colors hover:text-foreground">Contact</Link>
             <Link to="/videos" className="transition-colors hover:text-foreground">Videos</Link>
             <Link to="/support" className="transition-colors hover:text-foreground">Support</Link>
             <Link to="/privacy" className="transition-colors hover:text-foreground">Privacy</Link>

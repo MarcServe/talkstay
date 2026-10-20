@@ -39,6 +39,9 @@ export interface EmailShellOptions {
 /** Our own verified sender — always deliverable, used as the safety net. */
 export const DEFAULT_FROM = "TalkStay <notifications@talkweb.io>";
 
+/** Where anything a human needs to act on lands, unless configured otherwise. */
+export const SUPPORT_EMAIL = "support@talkweb.io";
+
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /** Strip anything that could inject a second address into the From header. */

@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.208.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-import { renderEmail, quoteBlock, escapeHtml, sendViaResend, DEFAULT_FROM } from "../_shared/email.ts";
+import { renderEmail, quoteBlock, escapeHtml, sendViaResend, DEFAULT_FROM, SUPPORT_EMAIL } from "../_shared/email.ts";
 
 const PUBLIC_BASE_URL = "https://talkstay.talkweb.io";
 
@@ -62,11 +62,15 @@ serve(async (req) => {
         });
         if (insErr) return json({ error: insErr.message }, 400);
 
-        // Tell the platform admin, or a lead sits unseen until someone opens
-        // the dashboard.
+        // Tell a human, or a lead sits unseen until someone opens the
+        // dashboard. This used to send nothing at all when the platform
+        // setting was absent — and nothing ever set it, since there is no
+        // Settings screen for the demo key — so every enquiry landed in the
+        // table silently. Support is the default inbox; an explicit
+        // notify_email still wins.
         const { data: setting } = await admin.from("ts_platform_settings")
           .select("value").eq("key", "demo").maybeSingle();
-        const notifyTo = String((setting?.value as any)?.notify_email ?? "").trim();
+        const notifyTo = String((setting?.value as any)?.notify_email ?? "").trim() || SUPPORT_EMAIL;
         if (notifyTo) {
           const html = renderEmail({
             hotelName: "TalkStay",

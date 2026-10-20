@@ -94,6 +94,13 @@ export default function VideosPage() {
               <ArrowRight className="ml-1.5 h-4 w-4" />
             </Link>
           </div>
+          <p className="mt-4 text-sm text-muted-foreground">
+            Or{" "}
+            <Link to="/contact" className="font-semibold text-violet-700 underline-offset-4 hover:underline dark:text-violet-300">
+              talk to us about your property
+            </Link>
+            .
+          </p>
         </div>
       </main>
 
@@ -106,6 +113,9 @@ export default function VideosPage() {
           <div className="flex flex-wrap gap-x-4 gap-y-2">
             <Link to="/demo" className="transition-colors hover:text-foreground">
               Demos
+            </Link>
+            <Link to="/contact" className="transition-colors hover:text-foreground">
+              Contact
             </Link>
             <Link to="/support" className="transition-colors hover:text-foreground">
               Support
