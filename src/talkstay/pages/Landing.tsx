@@ -199,7 +199,7 @@ function Hero({ signedIn }: { signedIn: boolean }) {
   const voiceBadge = (
     <span className="inline-flex items-center gap-1.5 rounded-full bg-violet-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-violet-700">
       <Mic className="h-3.5 w-3.5" />
-      Voice-first guest service
+      Voice-first guest service &amp; operations
     </span>
   );
 
@@ -226,18 +226,18 @@ function Hero({ signedIn }: { signedIn: boolean }) {
         <div className="text-center lg:col-start-1 lg:row-start-1 lg:text-left">
           <div className="hidden lg:block">{voiceBadge}</div>
           <h1 className="mt-0 text-4xl font-bold tracking-tight text-foreground sm:text-5xl lg:mt-5 lg:text-[3.25rem] lg:leading-[1.1]">
-            Guest requests.
+            Happier guests.
             <br />
-            Handled{" "}
+            Simpler{" "}
             <span className="inline-block bg-gradient-to-r from-violet-600 to-indigo-500 bg-clip-text px-0.5 py-0.5 pr-1.5 font-serif italic text-transparent">
-              beautifully.
+              operations.
             </span>
           </h1>
           <p className="mt-2 text-center font-serif text-xs italic tracking-wide text-violet-600/80 lg:text-left">
-            from anywhere
+            from one conversation
           </p>
           <p className="mt-4 text-base font-medium tracking-tight text-foreground sm:text-lg">
-            Information, services and support — all at your fingertips
+            Guests ask in their own words. Your team gets one tracked queue.
           </p>
           <p className="mx-auto mt-3 max-w-xl text-base leading-relaxed text-muted-foreground lg:mx-0">
             TalkStay is a voice-first guest service assistant that lets guests speak naturally
