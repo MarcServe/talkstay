@@ -193,9 +193,12 @@ export default function DemoHub() {
           <code className="rounded bg-muted px-1.5 py-0.5 text-[11px]">/demo</code>
         </p>
 
-        <div className="mt-6 flex justify-center">
+        <div className="mt-6 flex flex-wrap justify-center gap-3">
           <Button asChild variant="outline">
             <Link to="/app">Create a real property account</Link>
+          </Button>
+          <Button asChild className="bg-violet-600 hover:bg-violet-700">
+            <Link to="/contact">Talk to us about your property</Link>
           </Button>
         </div>
       </main>
