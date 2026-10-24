@@ -23,6 +23,17 @@ const DEPT_LABEL: Record<string, string> = {
   maintenance: "Maintenance", concierge: "Concierge", front_desk: "Front Desk", duty_manager: "Duty Manager",
 };
 
+/**
+ * Rooms, tolerating a database where the venue-notify migration has not run.
+ * Selecting a column that does not exist fails the whole query, which would
+ * cost us the alert entirely — so step down to the older shape instead.
+ */
+async function roomRow(admin: ReturnType<typeof createClient>, roomId: string) {
+  const full = await admin.from("ts_rooms").select("room_number, notify_email").eq("id", roomId).maybeSingle();
+  if (!full.error) return full;
+  return await admin.from("ts_rooms").select("room_number").eq("id", roomId).maybeSingle();
+}
+
 async function sendEmail(to: string, subject: string, html: string, from: string): Promise<boolean> {
   const res = await sendViaResend({ from, to, subject, html });
   return res.ok;
@@ -89,7 +100,7 @@ serve(async (req) => {
 
     const [{ data: hotel }, { data: room }, { data: dept }] = await Promise.all([
       admin.from("ts_hotels").select("name, user_id, branding").eq("id", r.hotel_id).maybeSingle(),
-      r.room_id ? admin.from("ts_rooms").select("room_number").eq("id", r.room_id).maybeSingle() : Promise.resolve({ data: null }),
+      r.room_id ? roomRow(admin, r.room_id) : Promise.resolve({ data: null }),
       admin.from("ts_departments").select("notify_email").eq("hotel_id", r.hotel_id).eq("key", r.department_key).maybeSingle(),
     ]);
 
@@ -101,6 +112,9 @@ serve(async (req) => {
     }
 
     const deptEmail = dept?.notify_email || null;
+    // A venue can page the people actually standing in it. Additive: the
+    // department address below still receives everything.
+    const venueEmail = (room as { notify_email?: string | null } | null)?.notify_email || null;
     const roomLabel = formatRoomLabel(room?.room_number, { fallback: "—" });
     const label = DEPT_LABEL[r.department_key] ?? r.department_key;
     // Reopen/escalation = guest unhappy → urgent. Close events stay informational.
@@ -126,6 +140,7 @@ serve(async (req) => {
 
     const recipients = new Set<string>();
     if (deptEmail) recipients.add(deptEmail);
+    if (venueEmail) recipients.add(venueEmail);
 
     // Staff assigned to this department also get the alert. When someone covers
     // a specific area (pool bar vs lobby bar), alert only that area's people —
