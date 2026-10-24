@@ -14,7 +14,8 @@ import {
 import {
   addRoom, deleteRoom, getRoomToken, listRooms, setRoomOccupancy, setRequireCheckinCode,
   regenerateCheckinCode, sendCheckinCodeEmail, setRoomPublicQr, setRoomRequireCheckinCode,
-  setVenueDepartment, roomRequiresCheckinCode, type Hotel, type Room,
+  setVenueDepartment,
+  setVenueNotifyEmail, roomRequiresCheckinCode, type Hotel, type Room,
   isRestaurantProperty,
 } from "@/talkstay/lib/hotels";
 import { OCCUPANCY_STYLE, formatMoney } from "@/talkstay/lib/statusStyles";
@@ -312,6 +313,20 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
         : `${formatRoomLabel(room.room_number)} unlinked from department`);
     } catch (e: any) {
       toast.error(e?.message ?? "Couldn't update department link");
+    }
+  };
+
+  const onVenueNotifyChange = async (room: Room, raw: string) => {
+    const next = raw.trim() || null;
+    if (next === (room.notify_email ?? null)) return;
+    try {
+      await setVenueNotifyEmail(room.id, next);
+      setRooms((rs) => rs.map((r) => (r.id === room.id ? { ...r, notify_email: next } : r)));
+      toast.success(next
+        ? `${formatRoomLabel(room.room_number)} alerts also go to ${next}`
+        : `${formatRoomLabel(room.room_number)} uses the department address only`);
+    } catch (e: any) {
+      toast.error(e?.message ?? "Couldn't update the venue's alert address");
     }
   };
 
@@ -929,6 +944,35 @@ export default function RoomsPanel({ hotel, onHotel }: { hotel: Hotel; onHotel?:
                         ))}
                       </SelectContent>
                     </Select>
+                  </div>
+                )}
+
+                {/* A venue that runs itself wants its own orders — the
+                    outdoor kitchen should not be paged by the indoor one.
+                    Additive: the department address is still copied, so a
+                    central kitchen or bar keeps seeing everything it makes. */}
+                {isPublic && (
+                  <div className="mt-2">
+                    <label
+                      htmlFor={`venue-notify-${r.id}`}
+                      className="mb-1 block text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
+                    >
+                      Alerts for this venue
+                    </label>
+                    <Input
+                      id={`venue-notify-${r.id}`}
+                      type="email"
+                      inputMode="email"
+                      autoComplete="off"
+                      className="h-9 text-xs"
+                      placeholder="thisvenue@yourproperty.com"
+                      defaultValue={r.notify_email ?? ""}
+                      onBlur={(e) => void onVenueNotifyChange(r, e.target.value)}
+                    />
+                    <p className="mt-1 text-[10px] leading-snug text-muted-foreground">
+                      Optional. Copied in on this venue's requests — the
+                      department address still gets them too.
+                    </p>
                   </div>
                 )}
 

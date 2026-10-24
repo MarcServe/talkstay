@@ -400,6 +400,14 @@ export interface Room {
    * Private rooms leave null.
    */
   department_key?: string | null;
+  /**
+   * Optional alert address for a public venue, so the Pool Bar — or an
+   * outdoor kitchen — pages the people standing in it rather than every
+   * venue on the property. Additive: the department address still receives
+   * everything, so a central kitchen or bar keeps full sight. Null on
+   * bedrooms.
+   */
+  notify_email?: string | null;
 }
 
 /** Effective check-in code policy for a unit. */
@@ -1090,6 +1098,25 @@ export async function setVenueDepartment(roomId: string, departmentKey: string |
     .update({ department_key: departmentKey?.trim() || null })
     .eq("id", roomId);
   if (error) throw error;
+}
+
+/**
+ * Set (or clear) a venue's own alert address.
+ *
+ * Fails loudly but legibly on a database where the venue-notify migration has
+ * not been run — a raw "column does not exist" in a toast helps nobody.
+ */
+export async function setVenueNotifyEmail(roomId: string, email: string | null): Promise<void> {
+  const { error } = await supabase
+    .from("ts_rooms")
+    .update({ notify_email: email?.trim() || null })
+    .eq("id", roomId);
+  if (error) {
+    if (/column .*notify_email.* does not exist|notify_email/i.test(error.message)) {
+      throw new Error("Run the venue notifications migration first (20261024000001).");
+    }
+    throw error;
+  }
 }
 
 export async function deleteRoom(roomId: string): Promise<void> {
